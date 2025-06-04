@@ -1,70 +1,61 @@
-import os
-import time
-import requests
-from flask import Flask, request, Response
-from flask_cors import CORS, cross_origin
+# app.py – Flask 2.3+
+import os, time, json
+from flask import Flask, request, Response, abort
+from flask_cors import CORS
+import openai
+from openai import OpenAI, RateLimitError
 
-# ── Secrets uit environment ───────────────────────────────────────────────────
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")   # Render → Environment
-ASSISTANT_ID   = os.getenv("ASSISTANT_ID")     # Render → Environment
-OPENAI_BASE    = "https://api.openai.com/v1"
+# ╭─ 1. Basisconfig ───────────────────────────────────────────╮
+openai.api_key = os.getenv("OPENAI_API_KEY")
+client         = OpenAI()                                     # ↩︎ sdk 1.25+
+ASSISTANT_ID   = os.getenv("ASSISTANT_ID")
+ALLOWED_FRONT  = os.getenv("FRONTEND_ORIGIN", "https://jouwsite.nl")
 
-# ── Flask + CORS ──────────────────────────────────────────────────────────────
 app = Flask(__name__)
+CORS(app, resources={r"/chat": {"origins": ALLOWED_FRONT}})
 
-# CORS: laat alle origins toe (verfijn later tot jouw domein)
-CORS(app, resources={r"/chat": {"origins": "*"}}, supports_credentials=False)
+# ╭─ 2. Helpers ───────────────────────────────────────────────╮
+def stream_run(thread_id: str):
+    "Yield text chunks while the run is executing."
+    with client.beta.threads.runs.stream(
+        thread_id=thread_id,
+        assistant_id=ASSISTANT_ID,
+        # optioneel: stream_mode="text"  (snellere plain-text events)
+    ) as events:
+        for event in events:
+            if (event.event == "thread.message.delta"
+                    and event.data.delta.content):
+                yield event.data.delta.content[0].text.value
+            elif event.event == "error":
+                raise RuntimeError(event.data.message)
 
-# ── OpenAI-helpers ────────────────────────────────────────────────────────────
-def openai_headers():
-    return {"Authorization": f"Bearer {OPENAI_API_KEY}",
-            "Content-Type":  "application/json"}
-
-def create_thread():
-    return requests.post(f"{OPENAI_BASE}/threads",
-                         headers=openai_headers(), json={}).json()["id"]
-
-def post_message(tid, txt):
-    requests.post(f"{OPENAI_BASE}/threads/{tid}/messages",
-                  headers=openai_headers(),
-                  json={"role": "user", "content": txt})
-
-def run_assistant(tid):
-    return requests.post(f"{OPENAI_BASE}/threads/{tid}/runs",
-                         headers=openai_headers(),
-                         json={"assistant_id": ASSISTANT_ID}).json()["id"]
-
-def run_status(tid, rid):
-    return requests.get(f"{OPENAI_BASE}/threads/{tid}/runs/{rid}",
-                        headers=openai_headers()).json()["status"]
-
-def last_answer(tid):
-    msgs = requests.get(f"{OPENAI_BASE}/threads/{tid}/messages",
-                        headers=openai_headers()).json()["data"]
-    for m in reversed(msgs):
-        if m["role"] == "assistant":
-            return m["content"][0]["text"]["value"]
-    return "Geen antwoord ontvangen."
-
-# ── /chat-endpoint ────────────────────────────────────────────────────────────
-@app.route("/chat", methods=["POST"])
-@cross_origin()                               # ← CORS-headers op POST + OPTIONS
+# ╭─ 3. Route ─────────────────────────────────────────────────╮
+@app.post("/chat")
 def chat():
-    user_input = request.get_json().get("message", "")
-    tid = create_thread()
-    post_message(tid, user_input)
-    rid = run_assistant(tid)
+    if request.origin != ALLOWED_FRONT:
+        abort(403)
 
-    def stream():
-        while run_status(tid, rid) != "completed":
-            time.sleep(1)
-            yield "."                         # wachtdotjes
-        for ch in last_answer(tid):
-            yield ch
-            time.sleep(0.012)                # geleidelijke reveal
+    data = request.get_json(force=True)
+    user_msg   = data.get("message", "")
+    thread_id  = data.get("thread_id") or client.beta.threads.create().id
 
-    return Response(stream(), content_type="text/plain")
+    # (a) voeg gebruikers-bericht toe
+    client.beta.threads.messages.create(
+        thread_id=thread_id, role="user", content=user_msg
+    )
 
-# ── Lokaal testen ─────────────────────────────────────────────────────────────
+    # (b) stuur streaming-response naar frontend
+    def generator():
+        try:
+            for chunk in stream_run(thread_id):
+                yield chunk
+        except RateLimitError:
+            yield "\n⚠️ Rate-limit; probeer het zo dadelijk opnieuw."
+        except Exception as e:
+            yield f"\n⚠️ Serverfout: {e}"
+    # Gebruik ‘text/plain’ zodat JS via ReadableStream kan lezen
+    headers = {"X-Thread-ID": thread_id}
+    return Response(generator(), headers=headers, mimetype="text/plain")
+
 if __name__ == "__main__":
-    app.run(debug=True, host="0.0.0.0", port=10000)
+    app.run(host="0.0.0.0", port=10000, debug=False)
