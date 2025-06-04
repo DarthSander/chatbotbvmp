@@ -1,5 +1,5 @@
-openai>=1.25.0,<2.0
-openai-agents>=0.2.0        # ← juiste pakketnaam
+openai>=1.26.0,<2.0                 # SDK met Assistants & GPT-4.1
+openai-agents==0.0.17               # laatst gepubliceerde Agents SDK :contentReference[oaicite:4]{index=4}
 Flask==2.3.2
 flask-cors==4.0.0
 gunicorn==21.2.0
