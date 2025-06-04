@@ -1,6 +1,7 @@
 # app.py
 import os
 from flask import Flask, request, Response
+from flask_cors import CORS 
 import requests
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")  # Zet straks in Render als environment variable
