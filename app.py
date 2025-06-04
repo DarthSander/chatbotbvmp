@@ -1,13 +1,15 @@
 # app.py
 import os
-from flask import Flask, request, Response
-from flask_cors import CORS 
+import time
 import requests
+from flask import Flask, request, Response
+from flask_cors import CORS
 
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")  # Zet straks in Render als environment variable
-ASSISTANT_ID = os.getenv("ASSISTANT_ID")      # Zet straks in Render als environment variable
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+ASSISTANT_ID   = os.getenv("ASSISTANT_ID")
 
 app = Flask(__name__)
+CORS(app)  # <— hiermee staat het alle origins toe
 
 OPENAI_BASE = "https://api.openai.com/v1"
 
@@ -19,7 +21,7 @@ def openai_headers():
 
 def create_thread():
     r = requests.post(f"{OPENAI_BASE}/threads", headers=openai_headers(), json={})
-    return r.json()["id"]
+    return r.json().get("id", "")
 
 def post_message(thread_id, user_input):
     requests.post(
@@ -34,7 +36,7 @@ def run_assistant(thread_id):
         headers=openai_headers(),
         json={"assistant_id": ASSISTANT_ID}
     )
-    return r.json()["id"]
+    return r.json().get("id", "")
 
 def get_run_status(thread_id, run_id):
     r = requests.get(
@@ -48,38 +50,39 @@ def get_last_assistant_message(thread_id):
         f"{OPENAI_BASE}/threads/{thread_id}/messages",
         headers=openai_headers()
     )
-    msgs = r.json()["data"]
+    msgs = r.json().get("data", [])
     for msg in reversed(msgs):
-        if msg["role"] == "assistant":
+        if msg.get("role") == "assistant":
             return msg["content"][0]["text"]["value"]
     return "Geen antwoord ontvangen."
 
-@app.route("/chat", methods=["POST"])
+@app.route("/chat", methods=["POST", "OPTIONS"])
 def chat():
+    # Let op: flask-cors zorgt al voor CORS-headers, 
+    # maar we vangen hier expliciet de OPTIONS preflight af:
+    if request.method == "OPTIONS":
+        return Response(status=200)
+
     data = request.get_json()
-    user_input = data.get("message")
+    user_input = data.get("message", "")
     thread_id = create_thread()
     post_message(thread_id, user_input)
     run_id = run_assistant(thread_id)
 
-    # Poll run status (simulate streaming)
     def stream():
-        import time
-        dots = 0
-        status = "queued"
+        status = ""
         while status != "completed":
             status_data = get_run_status(thread_id, run_id)
-            status = status_data["status"]
+            status = status_data.get("status", "")
             time.sleep(1)
-            # Simuleer streaming door ... te sturen
-            yield "." * (dots % 3 + 1)
-            dots += 1
-        # Antwoord ophalen & streamen
+            yield "."  # korte indicator tijdens “queued”
         answer = get_last_assistant_message(thread_id)
-        for c in answer:
-            yield c
+        for ch in answer:
+            yield ch
             time.sleep(0.012)
-    return Response(stream(), content_type='text/plain')
 
+    return Response(stream(), content_type="text/plain")
+
+# In productie laat je de volgende 2 regels weg / commentaar, want Render draait met gunicorn
 if __name__ == "__main__":
     app.run(debug=True, host="0.0.0.0", port=10000)
