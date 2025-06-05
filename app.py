@@ -10,7 +10,7 @@ from agents import Agent, Runner, function_tool
 # ───────── Config ─────────
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 client         = OpenAI(api_key=OPENAI_API_KEY)
-ASSISTANT_ID   = os.getenv("ASSISTANT_ID")            # alleen /chat-endpoint
+ASSISTANT_ID   = os.getenv("ASSISTANT_ID")
 
 ALLOWED_ORIGINS = ["https://bevalmeteenplan.nl", "https://www.bevalmeteenplan.nl"]
 DB_FILE = "sessions.db"
@@ -32,7 +32,7 @@ app = Flask(__name__)
 CORS(app, origins=ALLOWED_ORIGINS, allow_headers="*", methods=["GET", "POST", "OPTIONS"])
 
 # ───────── SQLite ─────────
-def init_db():
+def init_db() -> None:
     with sqlite3.connect(DB_FILE) as con:
         con.execute(
             "CREATE TABLE IF NOT EXISTS sessions "
@@ -40,36 +40,36 @@ def init_db():
         )
 init_db()
 
-def load_state(sid):  # -> dict | None
+def load_state(sid: str) -> dict | None:
     with sqlite3.connect(DB_FILE) as con:
         row = con.execute("SELECT state FROM sessions WHERE id=?", (sid,)).fetchone()
         return json.loads(row[0]) if row else None
 
-def save_state(sid, state):
-    blob = json.dumps({k:v for k,v in state.items() if k!="history"})
+def save_state(sid: str, st: dict) -> None:
+    blob = json.dumps({k: v for k, v in st.items() if k != "history"})
     with sqlite3.connect(DB_FILE) as con:
         con.execute("REPLACE INTO sessions(id,state) VALUES(?,?)", (sid, blob))
         con.commit()
 
 # ───────── sessie-cache ─────────
-SESSION={}
-def get_session(sid):
+SESSION: dict[str, dict] = {}
+def get_session(sid: str) -> dict:
     if sid in SESSION: return SESSION[sid]
-    if (db:=load_state(sid)):
-        SESSION[sid]={**db,"history":[]}; return SESSION[sid]
-    SESSION[sid]={
+    if (db := load_state(sid)):
+        SESSION[sid] = {**db, "history": []}; return SESSION[sid]
+    SESSION[sid] = {
         "stage":"choose_theme","themes":[],
         "topics":{},"qa":[],
-        "history":[],"summary":""
+        "history":[], "summary":""
     }
     return SESSION[sid]
-def persist(sid): save_state(sid, SESSION[sid])
+def persist(sid: str) -> None: save_state(sid, SESSION[sid])
 
 # ───────── samenvatten ─────────
-def summarize_chunk(chunk):
+def summarize_chunk(chunk: List[dict]) -> str:
     if not chunk: return ""
-    txt="\n".join(f"{m['role']}: {m['content']}" for m in chunk)
-    r=client.chat.completions.create(
+    txt = "\n".join(f"{m['role']}: {m['content']}" for m in chunk)
+    r = client.chat.completions.create(
         model="gpt-3.5-turbo",
         messages=[
           {"role":"system","content":"Vat samen in max 300 tokens."},
@@ -79,50 +79,55 @@ def summarize_chunk(chunk):
     )
     return r.choices[0].message.content.strip()
 
-# ───────── tool-functies ─────────
-def _register_theme(session_id, theme, description=""):
-    st=get_session(session_id)
-    if len(st["themes"])<6 and theme not in [t["name"] for t in st["themes"]]:
-        st["themes"].append({"name":theme,"description":description})
-        st["stage"]="choose_topic"; persist(session_id)
-    return json.dumps(st)
-
-def _deregister_theme(session_id, theme):
-    st=get_session(session_id)
-    st["themes"]=[t for t in st["themes"] if t["name"]!=theme]
-    st["topics"].pop(theme,None)
-    st["qa"]=[q for q in st["qa"] if q["theme"]!=theme]
-    st["stage"]="choose_theme" if not st["themes"] else "choose_topic"
+# ───────── tool-functies (met type-hints!) ─────────
+def _register_theme(session_id: str, theme: str, description: str = "") -> str:
+    st = get_session(session_id)
+    if len(st["themes"]) < 6 and theme not in [t["name"] for t in st["themes"]]:
+        st["themes"].append({"name": theme, "description": description})
+        st["stage"] = "choose_topic"
     persist(session_id); return json.dumps(st)
 
-def _register_topic(session_id, theme, topic, description=""):
-    st=get_session(session_id)
-    lst=st["topics"].setdefault(theme,[])
-    if len(lst)<4 and topic not in [t["name"] for t in lst]:
-        lst.append({"name":topic,"description":description})
-    if all(len(st["topics"].get(t["name"],[]))>=4 for t in st["themes"]):
-        st["stage"]="qa"
+def _deregister_theme(session_id: str, theme: str) -> str:
+    st = get_session(session_id)
+    st["themes"] = [t for t in st["themes"] if t["name"] != theme]
+    st["topics"].pop(theme, None)
+    st["qa"] = [q for q in st["qa"] if q["theme"] != theme]
+    st["stage"] = "choose_theme" if not st["themes"] else "choose_topic"
     persist(session_id); return json.dumps(st)
 
-def _deregister_topic(session_id, theme, topic):
-    st=get_session(session_id)
+def _register_topic(session_id: str, theme: str,
+                    topic: str, description: str = "") -> str:
+    st = get_session(session_id)
+    lst = st["topics"].setdefault(theme, [])
+    if len(lst) < 4 and topic not in [t["name"] for t in lst]:
+        lst.append({"name": topic, "description": description})
+    if all(len(st["topics"].get(t["name"], [])) >= 4 for t in st["themes"]):
+        st["stage"] = "qa"
+    persist(session_id); return json.dumps(st)
+
+def _deregister_topic(session_id: str, theme: str, topic: str) -> str:
+    st = get_session(session_id)
     if theme in st["topics"]:
-        st["topics"][theme]=[t for t in st["topics"][theme] if t["name"]!=topic]
-        st["qa"]=[q for q in st["qa"]
-                  if not(q["theme"]==theme and q["question"].startswith(topic))]
-    st["stage"]="choose_topic"; persist(session_id); return json.dumps(st)
+        st["topics"][theme] = [t for t in st["topics"][theme] if t["name"] != topic]
+        st["qa"] = [q for q in st["qa"]
+                    if not (q["theme"] == theme and q["question"].startswith(topic))]
+    st["stage"] = "choose_topic"; persist(session_id); return json.dumps(st)
 
-def _log_answer(session_id, theme, question, answer):
-    get_session(session_id)["qa"].append({"theme":theme,"question":question,"answer":answer})
-    persist(session_id); return"ok"
+def _log_answer(session_id: str, theme: str,
+                question: str, answer: str) -> str:
+    get_session(session_id)["qa"].append({"theme": theme, "question": question, "answer": answer})
+    persist(session_id); return "ok"
 
-def _update_answer(session_id, question, new_answer):
-    st=get_session(session_id)
+def _update_answer(session_id: str, question: str,
+                   new_answer: str) -> str:
+    st = get_session(session_id)
     for qa in st["qa"]:
-        if qa["question"]==question: qa["answer"]=new_answer; break
-    persist(session_id); return"ok"
+        if qa["question"] == question:
+            qa["answer"] = new_answer; break
+    persist(session_id); return "ok"
 
-def _get_state(session_id): return json.dumps(get_session(session_id))
+def _get_state(session_id: str) -> str:
+    return json.dumps(get_session(session_id))
 
 # wrappers
 register_theme   = function_tool(_register_theme)
@@ -143,7 +148,7 @@ BASE_AGENT = Agent(
       "Fase2: max 4 topics per thema -> register_topic\n"
       "Fase3: vragen stellen -> log_answer\n"
       "Wijzigingen -> deregister_* / update_answer\n"
-      "Na afronding -> stage=review\n"
+      "Einde -> stage=review\n"
       "Antwoord in het Nederlands."
     ),
     tools=[register_theme,deregister_theme,register_topic,deregister_topic,
@@ -151,7 +156,7 @@ BASE_AGENT = Agent(
 )
 
 # ───────── stream /chat ─────────
-def stream_run(tid):
+def stream_run(tid: str):
     with client.beta.threads.runs.stream(thread_id=tid, assistant_id=ASSISTANT_ID) as evs:
         for ev in evs:
             if ev.event=="thread.message.delta" and ev.data.delta.content:
@@ -165,14 +170,14 @@ def chat():
     client.beta.threads.messages.create(thread_id=tid,role="user",content=msg)
     return Response(stream_run(tid),headers={"X-Thread-ID":tid},mimetype="text/plain")
 
-# ───────── helper: UI-opties ─────────
-def ui_options(st):
+# ───────── UI-opties helper ─────────
+def ui_options(st: dict) -> tuple[list, dict|None]:
     if st["stage"]=="choose_theme":
         chosen=[t["name"] for t in st["themes"]]
         return [t for t in MASTER_THEMES if t not in chosen], None
     if st["stage"]=="choose_topic":
         cur=st["themes"][-1] if st["themes"] else None
-        if not cur: return [], None
+        if not cur: return [],None
         done=[t["name"] for t in st["topics"].get(cur["name"],[])]
         return [t for t in MASTER_TOPICS.get(cur["name"],[]) if t not in done], cur
     return [], None
@@ -185,7 +190,6 @@ def agent():
     msg=d.get("message",""); sid=d.get("session_id") or str(uuid.uuid4())
     st=get_session(sid)
 
-    # samenvatten
     if len(st["history"])>40:
         st["summary"]=(st["summary"]+"\n"+summarize_chunk(st["history"][:-20])).strip()
         st["history"]=st["history"][-20:]; persist(sid)
@@ -208,7 +212,7 @@ def agent():
 
 # ───────── download JSON ─────────
 @app.get("/export/<sid>")
-def export(sid):
+def export_json(sid: str):
     st=load_state(sid)
     if not st: abort(404)
     p=f"/tmp/geboorteplan_{sid}.json"
