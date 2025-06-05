@@ -8,8 +8,8 @@ from agents import Agent, Runner, function_tool
 
 # ───────────────────── Config ──────────────────────────────
 openai_api_key = os.getenv("OPENAI_API_KEY")
-client         = OpenAI(api_key=openai_api_key)
-ASSISTANT_ID   = os.getenv("ASSISTANT_ID")           # alleen /chat-endpoint
+client         = OpenAI(api_key=openai_api_key)        # GPT-4.1 + 3.5 samenvatting
+ASSISTANT_ID   = os.getenv("ASSISTANT_ID")             # alleen /chat-endpoint
 
 ALLOWED_ORIGINS = [
     "https://bevalmeteenplan.nl",
@@ -19,11 +19,11 @@ ALLOWED_ORIGINS = [
 DB_FILE = "sessions.db"
 
 app = Flask(__name__)
-CORS(app, origins=ALLOWED_ORIGINS, allow_headers="*", methods=["GET", "POST", "OPTIONS"])
+CORS(app, origins=ALLOWED_ORIGINS,
+     allow_headers="*", methods=["GET", "POST", "OPTIONS"])
 
-# ─────────────── SQLite helpers (eerst!) ───────────────────
+# ─────────────── SQLite helpers ────────────────────────────
 def init_db() -> None:
-    """Maak de sessions-tabel aan (indien nog niet bestaand)."""
     con = sqlite3.connect(DB_FILE)
     try:
         cur = con.cursor()
@@ -35,8 +35,7 @@ def init_db() -> None:
         """)
         con.commit()
     finally:
-        cur.close()
-        con.close()
+        cur.close(); con.close()
 
 def load_state(session_id: str) -> dict | None:
     with sqlite3.connect(DB_FILE) as con:
@@ -45,39 +44,57 @@ def load_state(session_id: str) -> dict | None:
         return json.loads(row[0]) if row else None
 
 def save_state(session_id: str, state: dict) -> None:
-    """Persist zonder 'history' (te groot)."""
     blob = json.dumps({k: v for k, v in state.items() if k != "history"})
     with sqlite3.connect(DB_FILE) as con:
-        con.execute("REPLACE INTO sessions(id, state) VALUES(?,?)", (session_id, blob))
+        con.execute("REPLACE INTO sessions(id, state) VALUES(?,?)",
+                    (session_id, blob))
         con.commit()
 
 init_db()
 
-# ─────────────── In-memory sessie-cache ────────────────────
-SESSION: dict[str, dict] = {}      # session_id → state-dict
+# ─────────────── In-memory sessions ───────────────────────
+SESSION: dict[str, dict] = {}      # session_id → state
 
 def get_session(session_id: str) -> dict:
-    """Laad uit cache, DB of initialiseer lege sessie."""
     if session_id in SESSION:
         return SESSION[session_id]
 
-    if (db_state := load_state(session_id)):
-        SESSION[session_id] = {**db_state, "history": []}
+    if (db := load_state(session_id)):
+        SESSION[session_id] = {**db, "history": []}
         return SESSION[session_id]
 
     SESSION[session_id] = {
-        "stage":   "choose_theme",
-        "themes":  [],
-        "topics":  {},
-        "qa":      [],
-        "history": []
+        "stage":  "choose_theme",
+        "themes": [],
+        "topics": {},
+        "qa":     [],
+        "history": [],
+        "summary": ""
     }
     return SESSION[session_id]
 
 def persist(session_id: str) -> None:
     save_state(session_id, SESSION[session_id])
 
-# ─────────────── Tool-implementaties ───────────────────────
+# ─────────────── Summarizer helper ────────────────────────
+def summarize_chunk(chunk: list[dict]) -> str:
+    """Vat een lijst messages samen met GPT-3.5-turbo (~300 tokens)."""
+    if not chunk:
+        return ""
+    text = "\n".join(f"{m['role']}: {m['content']}" for m in chunk)
+    res = client.chat.completions.create(
+        model="gpt-3.5-turbo",
+        messages=[
+            {"role": "system",
+             "content": ("Je bent een samenvatter. Vat beknopt samen in max 300 tokens, "
+                         "zodat alle belangrijke details bewaard blijven.")},
+            {"role": "user", "content": text}
+        ],
+        max_tokens=300
+    )
+    return res.choices[0].message.content.strip()
+
+# ─────────────── Tool-implementaties ──────────────────────
 def _register_theme(session_id: str, theme: str, description: str = "") -> str:
     st = get_session(session_id)
     if len(st["themes"]) < 6 and theme not in [t["name"] for t in st["themes"]]:
@@ -124,8 +141,7 @@ def _log_answer(session_id: str, theme: str,
     persist(session_id)
     return "ok"
 
-def _update_answer(session_id: str, question: str,
-                   new_answer: str) -> str:
+def _update_answer(session_id: str, question: str, new_answer: str) -> str:
     st = get_session(session_id)
     for qa in st["qa"]:
         if qa["question"] == question:
@@ -137,7 +153,7 @@ def _update_answer(session_id: str, question: str,
 def _get_state(session_id: str) -> str:
     return json.dumps(get_session(session_id))
 
-# ─────────────── Tool-wrappers ─────────────────────────────
+# ─────────────── Tool-wrappers ────────────────────────────
 register_theme   = function_tool(_register_theme)
 deregister_theme = function_tool(_deregister_theme)
 register_topic   = function_tool(_register_topic)
@@ -146,7 +162,7 @@ log_answer       = function_tool(_log_answer)
 update_answer    = function_tool(_update_answer)
 get_state_tool   = function_tool(_get_state)
 
-# ─────────────── Basismodel voor Agents-SDK ───────────────
+# ─────────────── Base-agent (GPT-4.1) ─────────────────────
 BASE_AGENT = Agent(
     name="Geboorteplan-agent",
     model="gpt-4.1",
@@ -154,10 +170,9 @@ BASE_AGENT = Agent(
         "Je bent een digitale verloskundige.\n"
         "Fase 1 → vraag max 6 thema’s (`register_theme`).\n"
         "Fase 2 → per thema max 4 onderwerpen (`register_topic`).\n"
-        "Fase 3 → stel vragen, log ze met `log_answer`.\n"
-        "Sta wijzigen toe via `deregister_*` en `update_answer`.\n"
-        "Na alles klaar: zet `stage` op **review** zodat de front-end "
-        "een popup toont.\n"
+        "Fase 3 → stel vragen, log die met `log_answer`.\n"
+        "Sta wijzigen toe via `deregister_*` & `update_answer`.\n"
+        "Is alles afgerond? zet `stage` op **review**.\n"
         "Gebruik `get_state` om keuzes op te vragen.\n"
         "Antwoord altijd in het Nederlands."
     ),
@@ -168,11 +183,11 @@ BASE_AGENT = Agent(
     ],
 )
 
-# ─────────────── Assistants v2 /chat (streaming) ───────────
+# ─────────────── Assistants-v2 /chat (stream) ──────────────
 def stream_run(thread_id: str):
     with client.beta.threads.runs.stream(thread_id=thread_id,
-                                         assistant_id=ASSISTANT_ID) as events:
-        for ev in events:
+                                         assistant_id=ASSISTANT_ID) as evs:
+        for ev in evs:
             if ev.event == "thread.message.delta" and ev.data.delta.content:
                 yield ev.data.delta.content[0].text.value
             elif ev.event == "error":
@@ -213,15 +228,28 @@ def agent():
 
     st = get_session(session_id)
 
+    # ---------- Samenvattting  ----------
+    if len(st["history"]) > 40:          # > 40 turns ⇒ compress
+        summary = summarize_chunk(st["history"][:-20])
+        st["summary"] = (st.get("summary","") + "\n" + summary).strip()
+        st["history"] = st["history"][-20:]
+        persist(session_id)
+
+    # ---------- Prompt opbouwen ----------
+    system_intro = []
+    if st.get("summary"):
+        system_intro = [{"role":"system",
+                         "content": "Samenvatting tot nu toe:\n"+st["summary"]}]
+    input_items = system_intro + deepcopy(st["history"])
+    input_items.append({"role": "user", "content": user_msg})
+
+    # ---------- Run GPT-4.1 agent ----------
     agent_instance = Agent(
         **{**BASE_AGENT.__dict__,
            "instructions": BASE_AGENT.instructions +
                f"\n\nBelangrijk: gebruik altijd "
                f"`session_id=\"{session_id}\"` in elke tool-aanroep."}
     )
-
-    input_items = deepcopy(st["history"])
-    input_items.append({"role": "user", "content": user_msg})
 
     result = Runner().run_sync(agent_instance, input_items)
     st["history"] = result.to_input_list()
@@ -235,18 +263,18 @@ def agent():
         **public_state,
     })
 
-# ─────────────── JSON-export endpoint ──────────────────────
+# ─────────────── JSON-export ───────────────────────────────
 @app.get("/export/<session_id>")
 def export(session_id: str):
     st = load_state(session_id)
     if not st:
         abort(404)
-    filename = f"geboorteplan_{session_id}.json"
-    path     = f"/tmp/{filename}"
+    path = f"/tmp/geboorteplan_{session_id}.json"
     with open(path, "w", encoding="utf-8") as fh:
         json.dump(st, fh, ensure_ascii=False, indent=2)
     return send_file(path, as_attachment=True,
-                     download_name=filename, mimetype="application/json")
+                     download_name=path.split("/")[-1],
+                     mimetype="application/json")
 
 # ─────────────── Local run ─────────────────────────────────
 if __name__ == "__main__":
