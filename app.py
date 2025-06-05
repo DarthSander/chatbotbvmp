@@ -117,28 +117,30 @@ chat_agent = Agent(
 
 @app.post("/agent")
 def agent():
+    # --- CORS-origin-check blijft ---
     if (origin := request.headers.get("Origin")) and origin not in ALLOWED_ORIGINS:
         abort(403)
 
+    # --- payload ophalen ---
     data       = request.get_json(force=True)
     user_msg   = data.get("message", "")
     session_id = data.get("session_id") or str(uuid.uuid4())
 
-    # 👉 0.0.17-API: agent en message *positioneel*
+    # ----------- HIER DE FIX -----------
+    # Runner.run_sync(agent, message, **run_config)
     result = Runner().run_sync(
-        chat_agent,         # 1) agent
-        user_msg,           # 2) message
-        memory=session_id,  # rest mag keyword
-        step_id=session_id
+        chat_agent,         # 1) agent  (positioneel)
+        user_msg,           # 2) message (positioneel)
+        step_id=session_id  # optioneel, maar memory 0.0.17 nog niet
     )
+    # ------------------------------------
 
     state = json.loads(get_state(session_id))
     return jsonify({
         "assistant_reply": result.output,
         "session_id": session_id,
-        **state
+        **state             # stage, themes, topics, qa
     })
-
 
 
 # ─── local run (Render gebruikt gunicorn) ────────────────────
