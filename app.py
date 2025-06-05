@@ -130,12 +130,13 @@ def agent():
 
     # run agent
     result  = Runner().run_sync(agent_instance, input_items)
-    st["history"] = result.to_input_list()            # altijd geldige InputItems
+    st["history"] = result.to_input_list()
 
-    public_state = {k: v for k, v in st.items() if k != "history"}
-    return jsonify({"assistant_reply": str(result.output),
-                    "session_id": session_id,
-                    **public_state})
+    return jsonify({
+        "assistant_reply": str(result.final_output),  # ✅ werkt in 0.0.17
+        "session_id": session_id,
+        **public_state,
+    })
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=10000, debug=True)
