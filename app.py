@@ -116,7 +116,6 @@ chat_agent = Agent(
 )
 
 @app.post("/agent")
-@cross_origin(origins=ALLOWED_ORIGINS)   # mag blijven, maar is optioneel
 def agent():
     if (origin := request.headers.get("Origin")) and origin not in ALLOWED_ORIGINS:
         abort(403)
@@ -125,20 +124,21 @@ def agent():
     user_msg   = data.get("message", "")
     session_id = data.get("session_id") or str(uuid.uuid4())
 
-    # ---------- nieuwe Runner-aanroep ----------
+    # 👉 0.0.17-API: agent en message *positioneel*
     result = Runner().run_sync(
-        agent   = chat_agent,
-        message = user_msg,
-        memory  = session_id,
-        step_id = session_id
+        chat_agent,         # 1) agent
+        user_msg,           # 2) message
+        memory=session_id,  # rest mag keyword
+        step_id=session_id
     )
 
     state = json.loads(get_state(session_id))
     return jsonify({
         "assistant_reply": result.output,
         "session_id": session_id,
-        **state            # stage, themes, topics, qa
+        **state
     })
+
 
 
 # ─── local run (Render gebruikt gunicorn) ────────────────────
