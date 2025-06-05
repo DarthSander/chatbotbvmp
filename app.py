@@ -7,7 +7,7 @@ from openai import OpenAI, RateLimitError                       # Assistant-v2 c
 
 # ─── basisconfig ─────────────────────────────────────────────
 openai.api_key = os.getenv("OPENAI_API_KEY")
-client         = OpenAI()                                       # gedeeld client-object
+client         = OpenAI()                                       
 ASSISTANT_ID   = os.getenv("ASSISTANT_ID")                      # bestaande v2-assistant
 
 ALLOWED_ORIGINS = [
