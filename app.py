@@ -116,24 +116,23 @@ def agent():
     st = SESSION.setdefault(session_id, {"stage":"choose_theme","themes":[],
                                          "topics":{}, "qa":[], "history":[]})
 
-    # voeg extra instructie toe zodat de LLM zijn eigen session_id kent
     agent_instance = Agent(
         **{**BASE_AGENT.__dict__,
            "instructions": BASE_AGENT.instructions +
-                           f"\n\nBelangrijk: gebruik altijd `session_id=\"{session_id}\"` "
-                           f"in elke tool-aanroep."}
+             f"\n\nBelangrijk: gebruik altijd `session_id=\"{session_id}\"` in elke tool-aanroep."}
     )
 
-    # ---------- HIER WAS DE BUG ----------
-    input_items = deepcopy(st["history"])             # eerdere InputItems
-    input_items.append({"role": "user", "content": user_msg})  # ✨ als object
+    input_items = deepcopy(st["history"])
+    input_items.append({"role": "user", "content": user_msg})
 
-    # run agent
     result  = Runner().run_sync(agent_instance, input_items)
     st["history"] = result.to_input_list()
 
+    # --------------- FIX ---------------
+    public_state = {k: v for k, v in st.items() if k != "history"}
+
     return jsonify({
-        "assistant_reply": str(result.final_output),  # ✅ werkt in 0.0.17
+        "assistant_reply": str(result.final_output),
         "session_id": session_id,
         **public_state,
     })
