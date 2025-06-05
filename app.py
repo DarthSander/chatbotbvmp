@@ -16,10 +16,15 @@ ALLOWED_ORIGINS = [
 ]
 
 app = Flask(__name__)
-CORS(app,
-     origins=ALLOWED_ORIGINS,
-     allow_headers="*",
-     methods=["GET","POST","OPTIONS"])
+CORS(
+    app,
+    origins=[
+        "https://bevalmeteenplan.nl",
+        "https://www.bevalmeteenplan.nl",
+    ],
+    allow_headers="*",
+    methods=["GET", "POST", "OPTIONS"]
+)
 
 # ─── /chat – onveranderd (Assistants v2 + stream) ────────────
 def stream_run(thread_id:str):
