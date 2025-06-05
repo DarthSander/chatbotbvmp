@@ -26,8 +26,15 @@ CORS(app, origins=ALLOWED_ORIGINS,
      allow_headers="*", methods=["GET", "POST", "OPTIONS"])
 
 # ───────────────── SQLite helper (sessie-persist) ─────────
+# ───────────────── SQLite helper (sessie-persist) ──────────────────
 def init_db():
-    with closing(sqlite3.connect(DB_FILE)) as con, con.cursor() as cur:
+    """Maakt (indien nodig) de SQLite-tabel aan.
+
+    NB: We gebruiken géén cursor-contextmanager; we sluiten handmatig.
+    """
+    con = sqlite3.connect(DB_FILE)
+    try:
+        cur = con.cursor()
         cur.execute("""
             CREATE TABLE IF NOT EXISTS sessions (
                 id    TEXT PRIMARY KEY,
@@ -35,12 +42,10 @@ def init_db():
             )
         """)
         con.commit()
+    finally:
+        cur.close()
+        con.close()
 
-def load_state(session_id: str) -> dict | None:
-    with sqlite3.connect(DB_FILE) as con:
-        cur = con.execute("SELECT state FROM sessions WHERE id=?", (session_id,))
-        row = cur.fetchone()
-        return json.loads(row[0]) if row else None
 
 def save_state(session_id: str, state: dict):
     # history mag weg uit persist (te groot)
