@@ -17,14 +17,9 @@ ALLOWED_ORIGINS = [
 
 app = Flask(__name__)
 CORS(app,
-     resources={
-         r"/chat":  {"origins": ALLOWED_ORIGINS,
-                     "methods": ["POST","OPTIONS"],
-                     "allow_headers": ["Content-Type"]},
-         r"/agent": {"origins": ALLOWED_ORIGINS,
-                     "methods": ["POST","OPTIONS"],
-                     "allow_headers": ["Content-Type"]},
-     })
+     origins=ALLOWED_ORIGINS,
+     allow_headers="*",
+     methods=["GET","POST","OPTIONS"])
 
 # ─── /chat – onveranderd (Assistants v2 + stream) ────────────
 def stream_run(thread_id:str):
