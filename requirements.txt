@@ -1,6 +1,12 @@
-openai>=1.26.0,<2.0                 # SDK met Assistants & GPT-4.1
-openai-agents==0.0.17               # laatst gepubliceerde Agents SDK :contentReference[oaicite:4]{index=4}
+# OpenAI / Agents
+openai>=1.26.0,<2.0          # GPT-4.1, Assistants-v2
+openai-agents==0.0.17        # Agents-SDK
+
+# Back-end
 Flask==2.3.2
 flask-cors==4.0.0
 gunicorn==21.2.0
 requests==2.31.0
+Flask-SQLAlchemy==3.1.1      # ↓ eenvoudige ORM-laag (SQLite)
+
+# (geen extra deps nodig)
