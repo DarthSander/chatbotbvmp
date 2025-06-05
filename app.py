@@ -1,15 +1,11 @@
 import os, json, uuid, sqlite3
 from copy import deepcopy
-from contextlib import closing
-
-from flask import (
-    Flask, request, Response, jsonify, abort, send_file
-)
+from flask import Flask, request, Response, jsonify, abort, send_file
 from flask_cors import CORS
 from openai import OpenAI, RateLimitError
 from agents import Agent, Runner, function_tool
 
-# ──────────────────── Config ───────────────────────────────
+# ─────────────────── Config ───────────────────────────────
 openai_api_key = os.getenv("OPENAI_API_KEY")
 client         = OpenAI(api_key=openai_api_key)
 ASSISTANT_ID   = os.getenv("ASSISTANT_ID")           # alleen /chat-endpoint
@@ -25,13 +21,9 @@ app = Flask(__name__)
 CORS(app, origins=ALLOWED_ORIGINS,
      allow_headers="*", methods=["GET", "POST", "OPTIONS"])
 
-# ───────────────── SQLite helper (sessie-persist) ─────────
-# ───────────────── SQLite helper (sessie-persist) ──────────────────
+# ────────── SQLite helpers (eerst definiëren!) ────────────
 def init_db():
-    """Maakt (indien nodig) de SQLite-tabel aan.
-
-    NB: We gebruiken géén cursor-contextmanager; we sluiten handmatig.
-    """
+    """Maak de tabel als die er nog niet is (géén cursor-contextmanager)."""
     con = sqlite3.connect(DB_FILE)
     try:
         cur = con.cursor()
@@ -46,9 +38,13 @@ def init_db():
         cur.close()
         con.close()
 
+def load_state(session_id: str) -> dict | None:
+    with sqlite3.connect(DB_FILE) as con:
+        cur = con.execute("SELECT state FROM sessions WHERE id=?", (session_id,))
+        row = cur.fetchone()
+        return json.loads(row[0]) if row else None
 
 def save_state(session_id: str, state: dict):
-    # history mag weg uit persist (te groot)
     blob = json.dumps({k: v for k, v in state.items() if k != "history"})
     with sqlite3.connect(DB_FILE) as con:
         con.execute("REPLACE INTO sessions(id, state) VALUES(?,?)",
@@ -57,8 +53,8 @@ def save_state(session_id: str, state: dict):
 
 init_db()
 
-# ───────────────── In-memory cache ─────────────────────────
-SESSION: dict[str, dict] = {}      # session_id → state-dict
+# ────────── In-memory cache + helpers ─────────────────────
+SESSION: dict[str, dict] = {}      # session_id → state
 
 def get_session(session_id: str) -> dict:
     if session_id in SESSION:
@@ -81,8 +77,8 @@ def get_session(session_id: str) -> dict:
 def persist(session_id: str):
     save_state(session_id, SESSION[session_id])
 
-# ───────────────── Tool-implementaties (zonder decorator) ──
-def _register_theme(session_id: str, theme: str, description: str = "") -> str:
+# ────────── Tool-implementaties (zonder decorator) ────────
+def _register_theme(session_id, theme, description=""):
     st = get_session(session_id)
     if len(st["themes"]) < 6 and theme not in [t["name"] for t in st["themes"]]:
         st["themes"].append({"name": theme, "description": description})
@@ -90,7 +86,7 @@ def _register_theme(session_id: str, theme: str, description: str = "") -> str:
     persist(session_id)
     return json.dumps(st)
 
-def _deregister_theme(session_id: str, theme: str) -> str:
+def _deregister_theme(session_id, theme):
     st = get_session(session_id)
     st["themes"] = [t for t in st["themes"] if t["name"] != theme]
     st["topics"].pop(theme, None)
@@ -99,44 +95,34 @@ def _deregister_theme(session_id: str, theme: str) -> str:
     persist(session_id)
     return json.dumps(st)
 
-def _register_topic(session_id: str, theme: str,
-                    topic: str, description: str = "") -> str:
+def _register_topic(session_id, theme, topic, description=""):
     st = get_session(session_id)
     topics = st["topics"].setdefault(theme, [])
     if len(topics) < 4 and topic not in [t["name"] for t in topics]:
         topics.append({"name": topic, "description": description})
-    if st["themes"] and all(
-            len(st["topics"].get(t["name"], [])) >= 4
-            for t in st["themes"]):
+    if st["themes"] and all(len(st["topics"].get(t["name"], [])) >= 4
+                            for t in st["themes"]):
         st["stage"] = "qa"
     persist(session_id)
     return json.dumps(st)
 
-def _deregister_topic(session_id: str, theme: str, topic: str) -> str:
+def _deregister_topic(session_id, theme, topic):
     st = get_session(session_id)
     if theme in st["topics"]:
-        st["topics"][theme] = [
-            t for t in st["topics"][theme] if t["name"] != topic
-        ]
-        st["qa"] = [
-            qa for qa in st["qa"]
-            if not (qa["theme"] == theme and qa["question"].startswith(topic))
-        ]
+        st["topics"][theme] = [t for t in st["topics"][theme] if t["name"] != topic]
+        st["qa"] = [qa for qa in st["qa"]
+                    if not (qa["theme"] == theme and qa["question"].startswith(topic))]
     st["stage"] = "choose_topic"
     persist(session_id)
     return json.dumps(st)
 
-def _log_answer(session_id: str, theme: str,
-                question: str, answer: str) -> str:
+def _log_answer(session_id, theme, question, answer):
     st = get_session(session_id)
-    st["qa"].append({"theme": theme,
-                     "question": question,
-                     "answer": answer})
+    st["qa"].append({"theme": theme, "question": question, "answer": answer})
     persist(session_id)
     return "ok"
 
-def _update_answer(session_id: str,
-                   question: str, new_answer: str) -> str:
+def _update_answer(session_id, question, new_answer):
     st = get_session(session_id)
     for qa in st["qa"]:
         if qa["question"] == question:
@@ -145,11 +131,11 @@ def _update_answer(session_id: str,
     persist(session_id)
     return "ok"
 
-def _get_state(session_id: str) -> str:
-    """Hulpmiddel voor de agent om keuzes op te vragen."""
+def _get_state(session_id):
     return json.dumps(get_session(session_id))
 
-# ───────────────── Tool-wrappers ────────────────────────────
+# ────────── Tool-wrappers ─────────────────────────────────
+from agents import function_tool
 register_theme   = function_tool(_register_theme)
 deregister_theme = function_tool(_deregister_theme)
 register_topic   = function_tool(_register_topic)
@@ -158,19 +144,18 @@ log_answer       = function_tool(_log_answer)
 update_answer    = function_tool(_update_answer)
 get_state_tool   = function_tool(_get_state)
 
-# ───────────────── Basismodel voor de Agents-SDK ────────────
+# ────────── Basismodel voor Agents-SDK ────────────────────
 BASE_AGENT = Agent(
     name="Geboorteplan-agent",
     model="gpt-4.1",
     instructions=(
         "Je bent een digitale verloskundige.\n"
-        "Fase 1: vraag max 6 thema’s en roep `register_theme`.\n"
-        "Fase 2: per thema max 4 onderwerpen via `register_topic`.\n"
-        "Fase 3: stel vragen en registreer antwoorden met `log_answer`.\n"
-        "Sta wijzigingen toe via `deregister_*` en `update_answer`.\n"
-        "Is alles besproken? Zet `stage` naar **review** zodat de "
-        "front-end een popup kan tonen.\n"
-        "Gebruik `get_state` om de huidige keuzes te zien.\n"
+        "Fase 1: max 6 thema’s (`register_theme`).\n"
+        "Fase 2: per thema max 4 onderwerpen (`register_topic`).\n"
+        "Fase 3: stel vragen, log met `log_answer`.\n"
+        "Sta wijzigingen toe met `deregister_*` en `update_answer`.\n"
+        "Als alles besproken is, zet `stage` naar **review**\n"
+        "Gebruik `get_state` om keuzes op te vragen.\n"
         "Antwoord altijd in het Nederlands."
     ),
     tools=[
@@ -180,11 +165,11 @@ BASE_AGENT = Agent(
     ],
 )
 
-# ───────────────── /chat — streaming (Assistants-v2) ───────
+# ────────── Assistants-v2 /chat (streaming) ───────────────
 def stream_run(thread_id: str):
     with client.beta.threads.runs.stream(thread_id=thread_id,
-                                         assistant_id=ASSISTANT_ID) as events:
-        for ev in events:
+                                         assistant_id=ASSISTANT_ID) as evs:
+        for ev in evs:
             if ev.event == "thread.message.delta" and ev.data.delta.content:
                 yield ev.data.delta.content[0].text.value
             elif ev.event == "error":
@@ -192,17 +177,14 @@ def stream_run(thread_id: str):
 
 @app.post("/chat")
 def chat():
-    if (origin := request.headers.get("Origin")) \
-            and origin not in ALLOWED_ORIGINS:
+    if (origin := request.headers.get("Origin")) and origin not in ALLOWED_ORIGINS:
         abort(403)
 
     data      = request.get_json(force=True)
     user_msg  = data.get("message", "")
     thread_id = data.get("thread_id") or client.beta.threads.create().id
-
-    client.beta.threads.messages.create(
-        thread_id=thread_id, role="user", content=user_msg
-    )
+    client.beta.threads.messages.create(thread_id=thread_id,
+                                        role="user", content=user_msg)
 
     def gen():
         try:
@@ -215,11 +197,10 @@ def chat():
     return Response(gen(), headers={"X-Thread-ID": thread_id},
                     mimetype="text/plain")
 
-# ───────────────── /agent — synchroon (Agents-SDK) ─────────
+# ────────── Agents-SDK /agent (sync) ───────────────────────
 @app.post("/agent")
 def agent():
-    if (origin := request.headers.get("Origin")) \
-            and origin not in ALLOWED_ORIGINS:
+    if (origin := request.headers.get("Origin")) and origin not in ALLOWED_ORIGINS:
         abort(403)
 
     data       = request.get_json(force=True)
@@ -228,7 +209,6 @@ def agent():
 
     st = get_session(session_id)
 
-    # apart Agent-object zodat session-id in instructies zit
     agent_instance = Agent(
         **{**BASE_AGENT.__dict__,
            "instructions": BASE_AGENT.instructions +
@@ -243,7 +223,6 @@ def agent():
     st["history"] = result.to_input_list()
     persist(session_id)
 
-    # terug naar front-end (history weglaten → te groot)
     public_state = {k: v for k, v in st.items() if k != "history"}
 
     return jsonify({
@@ -252,7 +231,7 @@ def agent():
         **public_state,
     })
 
-# ───────────────── /export — JSON-download ─────────────────
+# ────────── JSON-export endpoint ───────────────────────────
 @app.get("/export/<session_id>")
 def export(session_id):
     st = load_state(session_id)
@@ -265,6 +244,6 @@ def export(session_id):
     return send_file(path, as_attachment=True,
                      download_name=filename, mimetype="application/json")
 
-# ───────────────────────── main ────────────────────────────
+# ────────── Run local ──────────────────────────────────────
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=10000, debug=True)
