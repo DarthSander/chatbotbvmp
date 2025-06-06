@@ -1,0 +1,343 @@
+<!doctype html>
+<html lang="nl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Geboorteplan-agent</title>
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+
+<style>
+/* ─── kleurpalet ─── */
+:root{
+  --rose:#d5848d; --rose-dark:#c26b75; --rose-light:#e8a8b0; --rose-subtle:#f5d5d8;
+  --peach:#f2c4a8; --cream:#fef9f5; --beige:#fdf7f2; --white:#ffffff;
+  --sage:#9abf9e; --sage-light:#cfe6d0;
+  --lavender:#f0ebf8;
+  --text:#2d3436; --text-light:#636e72; --text-subtle:#a0a9b8;
+  --shadow-soft: 0 8px 32px rgba(213,132,141,.12);
+  --shadow-gentle: 0 4px 20px rgba(213,132,141,.08);
+  --shadow-whisper: 0 2px 12px rgba(213,132,141,.05);
+  --gradient-main: linear-gradient(135deg,var(--cream)0%,var(--beige)50%,var(--rose-subtle)100%);
+  --gradient-glass: linear-gradient(135deg,rgba(255,255,255,.4)0%,rgba(255,255,255,.1)100%);
+  --gradient-rose: linear-gradient(135deg,var(--rose)0%,var(--rose-light)100%);
+  --backdrop-blur: blur(20px) saturate(180%);
+}
+
+/* ─── basis / layout ─── */
+*{box-sizing:border-box;margin:0;padding:0}
+body{
+  font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Inter',sans-serif;
+  background:var(--gradient-main);color:var(--text);line-height:1.6;min-height:100vh;
+  background-attachment:fixed;letter-spacing:-.01em;font-weight:400;
+}
+#layout{
+  display:flex;flex-direction:column;gap:24px;padding:20px;max-width:1200px;
+  margin:auto;min-height:100vh;
+}
+@media(min-width:900px){
+  #layout{flex-direction:row;gap:32px;padding:32px}
+}
+
+/* ─── chatkolom ─── */
+#chat-col{
+  flex:3;min-width:280px;display:flex;flex-direction:column;gap:20px;
+  backdrop-filter:var(--backdrop-blur);background:var(--gradient-glass);
+  border-radius:24px;padding:24px;border:1px solid rgba(255,255,255,.3);
+  box-shadow:var(--shadow-soft);
+}
+#chatbox{
+  flex:1 1 auto;height:65vh;overflow-y:auto;background:transparent;border:none;
+  box-shadow:none;padding:8px;scrollbar-width:thin;scrollbar-color:var(--rose-subtle)transparent;
+}
+#chatbox::-webkit-scrollbar{width:6px}
+#chatbox::-webkit-scrollbar-track{background:transparent}
+#chatbox::-webkit-scrollbar-thumb{background:var(--rose-subtle);border-radius:10px}
+#chatbox::-webkit-scrollbar-thumb:hover{background:var(--rose-light)}
+#choices,#q-options{display:flex;flex-wrap:wrap;gap:12px;margin-top:12px}
+
+/* ─── chips ─── */
+.chip{
+  display:inline-flex;align-items:center;justify-content:center;border-radius:24px;
+  padding:10px 20px;font-size:14px;font-weight:500;cursor:pointer;user-select:none;
+  position:relative;transition:.3s cubic-bezier(.4,0,.2,1);backdrop-filter:blur(10px);
+}
+.chip.option{
+  border:1px solid rgba(213,132,141,.4);color:var(--rose);
+  background:rgba(255,255,255,.6);box-shadow:var(--shadow-whisper);
+}
+.chip.option:hover{
+  background:var(--gradient-rose);color:var(--white);transform:translateY(-2px);
+  box-shadow:var(--shadow-gentle);border-color:transparent;scale:1.02;
+}
+.chip.topic{
+  border:1px solid rgba(154,191,158,.5);color:var(--sage);
+  background:rgba(255,255,255,.6);box-shadow:var(--shadow-whisper);
+}
+.chip.topic:hover{
+  background:linear-gradient(135deg,var(--sage)0%,var(--sage-light)100%);
+  color:var(--white);transform:translateY(-2px);box-shadow:var(--shadow-gentle);scale:1.02;
+}
+.chip.selected{background:var(--gradient-rose);color:var(--white);border:1px solid transparent;box-shadow:var(--shadow-gentle)}
+.chip.selected:hover{
+  background:linear-gradient(135deg,var(--rose-dark)0%,var(--rose)100%);
+  transform:translateY(-1px) scale(.98);box-shadow:var(--shadow-soft);
+}
+.chip.selected::after{
+  content:"– Verwijderen";position:absolute;inset:0;display:flex;
+  align-items:center;justify-content:center;color:var(--white);font-size:12px;
+  font-weight:600;opacity:0;transition:.3s;background:rgba(0,0,0,.1);
+  border-radius:inherit;backdrop-filter:blur(5px);
+}
+.chip.selected:hover::after{opacity:1}
+
+/* ─── invoer & send ─── */
+textarea{
+  width:100%;padding:18px 22px;font-size:16px;border:none;resize:vertical;min-height:100px;
+  border-radius:20px;background:rgba(255,255,255,.8);backdrop-filter:blur(10px);
+  box-shadow:var(--shadow-whisper);border:1px solid rgba(255,255,255,.3);color:var(--text);
+  transition:.3s;font-family:inherit;line-height:1.5;
+}
+textarea:focus{outline:none;background:rgba(255,255,255,.95);box-shadow:var(--shadow-gentle);
+  border-color:var(--rose-light);transform:translateY(-1px)}
+textarea::placeholder{color:var(--text-subtle);font-weight:300}
+button#send{
+  margin-top:12px;padding:14px 28px;font-size:16px;font-weight:600;border:none;
+  background:var(--gradient-rose);color:var(--white);border-radius:20px;cursor:pointer;
+  transition:.3s cubic-bezier(.4,0,.2,1);box-shadow:var(--shadow-gentle);letter-spacing:.02em;
+}
+button#send:hover{
+  background:linear-gradient(135deg,var(--rose-dark)0%,var(--rose)100%);
+  transform:translateY(-2px);box-shadow:var(--shadow-soft);scale:1.02;
+}
+button#send:active{transform:translateY(0);scale:.98}
+@media(min-width:900px){button#send{width:auto;align-self:flex-end}}
+
+/* ─── zijpaneel ─── */
+#sidebar{
+  flex:2;padding:24px;background:rgba(255,255,255,.4);backdrop-filter:var(--backdrop-blur);
+  border-radius:24px;border:1px solid rgba(255,255,255,.3);box-shadow:var(--shadow-soft);
+  position:relative;max-height:calc(65vh + 48px);overflow:auto;
+  scrollbar-width:thin;scrollbar-color:var(--rose-subtle)transparent;
+}
+#sidebar::-webkit-scrollbar{width:6px}
+#sidebar::-webkit-scrollbar-thumb{background:var(--rose-subtle);border-radius:10px}
+
+#popup{
+  display:none;position:absolute;right:0;top:0;max-width:240px;z-index:10;
+  background:rgba(255,255,255,.95);backdrop-filter:blur(20px);padding:16px;font-size:13px;
+  border-radius:16px;box-shadow:var(--shadow-soft);border:1px solid rgba(255,255,255,.4);
+  color:var(--text-light);line-height:1.5;
+}
+
+/* ─── bubbels ─── */
+.bubble{
+  padding:16px 20px;border-radius:20px;margin:12px 0;max-width:88%;
+  box-shadow:var(--shadow-whisper);backdrop-filter:blur(10px);transition:.3s;font-weight:400;
+}
+.bubble.bot{
+  background:rgba(255,255,255,.7);border:1px solid rgba(255,255,255,.3);
+  color:var(--text);border-radius:20px 20px 20px 6px;animation:slideInLeft .4s cubic-bezier(.4,0,.2,1);
+}
+.bubble.user{
+  background:var(--gradient-rose);color:var(--white);margin-left:auto;
+  border-radius:20px 20px 6px 20px;animation:slideInRight .4s cubic-bezier(.4,0,.2,1);
+  font-weight:500;
+}
+.bubble:hover{transform:translateY(-1px);box-shadow:var(--shadow-gentle)}
+.bubble pre{white-space:pre-wrap;font-family:inherit}
+@keyframes slideInLeft{from{opacity:0;transform:translateX(-20px)}to{opacity:1;transform:translateX(0)}}
+@keyframes slideInRight{from{opacity:0;transform:translateX(20px)}to{opacity:1;transform:translateX(0)}}
+
+/* ─── modal ─── */
+dialog{
+  border:none;border-radius:24px;padding:32px;max-width:520px;width:90%;
+  background:rgba(255,255,255,.95);backdrop-filter:var(--backdrop-blur);
+  box-shadow:var(--shadow-soft);border:1px solid rgba(255,255,255,.4);
+  animation:modalSlideIn .4s cubic-bezier(.4,0,.2,1);
+}
+dialog::backdrop{background:rgba(213,132,141,.2);backdrop-filter:blur(8px);animation:backdropFadeIn .4s}
+@keyframes modalSlideIn{from{opacity:0;transform:translateY(-20px) scale(.95)}to{opacity:1;transform:translateY(0) scale(1)}}
+@keyframes backdropFadeIn{from{opacity:0}to{opacity:1}}
+
+.edit-icon{cursor:pointer;font-size:14px;margin-left:6px;color:var(--text-subtle);
+  transition:.3s;padding:4px;border-radius:8px}
+.edit-icon:hover{color:var(--rose);background:rgba(213,132,141,.1);transform:scale(1.1)}
+
+/* ─── typography ─── */
+h3,h4,h5{font-weight:600;color:var(--text);letter-spacing:-.02em;margin-bottom:12px}
+h3{font-size:24px}
+h4{font-size:18px;color:var(--text-light);font-weight:500}
+h5{font-size:16px;color:var(--text-light);font-weight:500;margin-top:20px}
+hr{border:none;height:1px;background:linear-gradient(90deg,transparent,var(--rose-subtle),transparent);margin:20px 0}
+
+/* ─── QA-log ─── */
+#qa-log p{
+  padding:12px;margin-bottom:12px;background:rgba(255,255,255,.5);border-radius:12px;
+  border:1px solid rgba(255,255,255,.3);transition:.3s;
+}
+#qa-log p:hover{background:rgba(255,255,255,.7);transform:translateX(4px);box-shadow:var(--shadow-whisper)}
+
+/* ─── responsive tweaks ─── */
+@media(max-width:899px){
+  #layout{padding:16px;gap:20px}
+  #chat-col,#sidebar{padding:20px;border-radius:20px}
+  .bubble{max-width:92%}
+  dialog{padding:24px}
+}
+</style>
+</head>
+<body>
+
+<main id="layout">
+  <div id="chat-col">
+    <div id="chatbox"></div>
+    <div id="choices"></div>
+    <textarea id="input" placeholder="Typ je bericht…" autocomplete="off"></textarea>
+    <button id="send">Verstuur</button>
+  </div>
+
+  <aside id="sidebar">
+    <div id="popup"></div>
+    <h4 id="q-title"></h4>
+    <div id="q-options"></div>
+    <hr>
+    <h5>Antwoorden</h5>
+    <div id="qa-log"></div>
+  </aside>
+</main>
+
+<dialog id="reviewDlg">
+  <h3>Alles nog even nalopen?</h3>
+  <div id="reviewContent" style="max-height:50vh;overflow:auto;margin:16px 0"></div>
+  <span id="backBtn" class="chip option" style="margin-right:10px">Terug</span>
+  <span id="dlBtn"   class="chip option">Download JSON</span>
+</dialog>
+
+<script>
+/* ─── config ─── */
+const API = "https://chatbotbvmp.onrender.com/agent";  // lokaal: http://127.0.0.1:10000/agent
+let sessionId = sessionStorage.getItem("agentSession") || null;
+const chatbox  = document.getElementById("chatbox");
+
+/* ─── helpers ─── */
+const popup = document.getElementById("popup");
+const showPopup = txt => {popup.textContent = txt; popup.style.display = txt ? "block" : "none"};
+const hidePopup = () => showPopup("");
+function addMsg(role,md){
+  const div=document.createElement("div");
+  div.className="bubble "+(role==="bot"?"bot":"user");
+  div.innerHTML=marked.parse(md);
+  chatbox.appendChild(div);chatbox.scrollTop=chatbox.scrollHeight;
+}
+
+/* ─── chips ─── */
+function renderBadges(themes=[]){
+  const wrap=document.getElementById("choices");wrap.innerHTML="";
+  themes.forEach(t=>{
+    const chip=document.createElement("span");
+    chip.className="chip selected";chip.textContent=t.name;
+    chip.dataset.desc=t.description||"";
+    chip.onclick=()=>sendChoice(`Verwijder het thema ${t.name}.`);
+    chip.onmouseenter=()=>showPopup(chip.dataset.desc);
+    chip.onmouseleave=hidePopup;
+    wrap.appendChild(chip);
+  });
+}
+function renderOptions(opts=[],stage,current){
+  const box=document.getElementById("q-options"),
+        title=document.getElementById("q-title");
+  box.innerHTML=""; title.textContent="";
+  if(!opts.length) return;
+  if(stage==="choose_theme"){
+    title.textContent="Kies (max 6) thema’s:";
+    opts.forEach(opt=>{
+      const chip=document.createElement("span");
+      chip.className="chip option"; chip.textContent=opt;
+      chip.onclick=()=>sendChoice(`Ik kies het thema ${opt}.`);
+      box.appendChild(chip);
+    });
+  }else if(stage==="choose_topic" && current){
+    title.textContent=`Onderwerpen binnen “${current.name}” (max 4):`;
+    opts.forEach(opt=>{
+      const chip=document.createElement("span");
+      chip.className="chip topic"; chip.textContent=opt;
+      chip.onclick=()=>sendChoice(`In het thema ${current.name} kies ik het onderwerp ${opt}.`);
+      box.appendChild(chip);
+    });
+  }
+}
+
+/* ─── review ─── */
+function buildReview(st){
+  const wrap=document.getElementById("reviewContent");wrap.innerHTML="";
+  (st.qa||[]).forEach(q=>{
+    const div=document.createElement("div");
+    div.style.marginBottom="14px";
+    div.innerHTML=`<strong>${q.theme}</strong><br><em>${q.question}</em>
+                   <span class="edit-icon">✏️</span><br>${q.answer}`;
+    div.querySelector(".edit-icon").onclick=()=>{
+      const n=prompt("Wijzig antwoord:",q.answer);
+      if(n!==null && n.trim()) sendChoice(`Wijzig mijn antwoord op "${q.question}" naar: ${n.trim()}`);
+    };
+    wrap.appendChild(div);
+  });
+  document.getElementById("reviewDlg").showModal();
+}
+
+/* ─── API ─── */
+async function callAgent(msg){
+  const res=await fetch(API,{method:"POST",headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({message:msg,session_id:sessionId})});
+  if(!res.ok) throw new Error("server");
+  const data=await res.json();
+  sessionId=data.session_id;
+  sessionStorage.setItem("agentSession",sessionId);
+  return data;
+}
+
+/* ─── main update ─── */
+async function send(){
+  const inp=document.getElementById("input"),
+        txt=inp.value.trim();
+  if(!txt) return;
+  addMsg("user",txt); inp.value="";
+  try{
+    const d=await callAgent(txt);
+    if(d.assistant_reply) addMsg("bot",d.assistant_reply);
+    renderBadges(d.themes||[]);
+    renderOptions(d.options||[],d.stage,d.current_theme);
+    const log=document.getElementById("qa-log");log.innerHTML="";
+    (d.qa||[]).forEach(r=>{
+      log.insertAdjacentHTML("beforeend",
+        `<p><strong>${r.theme}</strong><br><em>${r.question}</em><br>${r.answer}</p>`);
+    });
+    if(d.stage==="review") buildReview(d);
+  }catch(e){
+    addMsg("bot","⚠️ Er ging iets mis.");
+    console.error(e);
+  }
+}
+const sendChoice=txt=>{
+  document.getElementById("input").value=txt;
+  send();
+};
+
+/* ─── events ─── */
+document.getElementById("send").onclick=send;
+document.getElementById("input").addEventListener("keydown",e=>{
+  if(e.key==="Enter" && !e.shiftKey){e.preventDefault();send();}
+});
+document.getElementById("backBtn").onclick=()=>document.getElementById("reviewDlg").close();
+document.getElementById("dlBtn").onclick=
+  ()=>window.open(`https://chatbotbvmp.onrender.com/export/${sessionId}`,"_blank");
+
+/* ─── welkom ─── */
+(async()=>{
+  try{
+    const d=await callAgent("Hallo!");
+    if(d.assistant_reply) addMsg("bot",d.assistant_reply);
+  }catch(e){console.error(e);}
+})();
+</script>
+</body>
+</html>
