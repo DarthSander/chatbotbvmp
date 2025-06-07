@@ -506,8 +506,6 @@
     });
   }
 
-  /* Flip-container en rendering van onderwerpen gebeurt nu in callAndRender */
-
   /* Topic-chips renderen (back-side) */
   function renderTopicChips(options) {
     console.log('[renderTopicChips] opties ontvangen:', options);
@@ -549,17 +547,20 @@
     document.querySelector(".flip-container").classList.remove("flipped");
   };
 
-  /* Bevestig onderwerpen: opslaan, flip terug, thema markeren */
-  document.getElementById("confirm-topics").onclick = () => {
+  /* Vervang hier de confirm-topics-handler door async confirmTopics */
+  async function confirmTopics() {
     console.log('[confirm-topics] bevestig onderwerpen:', selectedTopics);
-    selectedTopics.forEach((topicName) => {
-      handleChoice(`Onderwerp geselecteerd: ${topicName}`);
-    });
-    handleChoice(`Ik ben klaar met de onderwerpen voor ${currentTheme}.`);
-    console.log('[confirm-topics] flip terug en markeer thema:', currentTheme);
+    for (let topicName of selectedTopics) {
+      console.log('[confirmTopics] verzend topic:', topicName);
+      await handleChoice(`Onderwerp geselecteerd: ${topicName}`);
+    }
+    console.log('[confirmTopics] verzend complete message');
+    await handleChoice(`Ik ben klaar met de onderwerpen voor ${currentTheme}.`);
+    console.log('[confirmTopics] flip terug en markeer thema:', currentTheme);
     document.querySelector(".flip-container").classList.remove("flipped");
     markThemeAsSelected(currentTheme);
-  };
+  }
+  document.getElementById("confirm-topics").onclick = confirmTopics;
 
   /* Thema-chip markeren en bewerkbaar maken */
   function markThemeAsSelected(themeName) {
