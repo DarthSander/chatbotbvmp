@@ -87,14 +87,8 @@
       border-bottom-right-radius: 6px;
     }
     @keyframes fade {
-      from {
-        opacity: 0;
-        transform: translateY(6px);
-      }
-      to {
-        opacity: 1;
-        transform: translateY(0);
-      }
+      from { opacity: 0; transform: translateY(6px); }
+      to   { opacity: 1; transform: translateY(0); }
     }
     .typing {
       display: inline-block;
@@ -110,19 +104,11 @@
       border-radius: 50%;
       animation: blink 1.2s infinite;
     }
-    .typing span:nth-child(2) {
-      animation-delay: .2s;
-    }
-    .typing span:nth-child(3) {
-      animation-delay: .4s;
-    }
+    .typing span:nth-child(2) { animation-delay: .2s; }
+    .typing span:nth-child(3) { animation-delay: .4s; }
     @keyframes blink {
-      0%, 80%, 100% {
-        opacity: .2;
-      }
-      40% {
-        opacity: 1;
-      }
+      0%,80%,100% { opacity: .2; }
+      40%         { opacity: 1;   }
     }
     textarea {
       width: 100%;
@@ -160,10 +146,7 @@
       user-select: none;
       transition: .25s;
     }
-    .badge {
-      background: var(--grad-rose);
-      color: #fff;
-    }
+    .badge { background: var(--grad-rose); color: #fff; }
     .theme-chip {
       border: 1px solid var(--rose);
       color: var(--rose);
@@ -191,14 +174,13 @@
       cursor: pointer;
       opacity: 0.8;
     }
-    .edit-bar:hover {
-      opacity: 1;
-    }
+    .edit-bar:hover { opacity: 1; }
+
     .topic-chip {
       position: relative;
       border: 1px solid var(--sage);
       color: var(--sage);
-      background: rgba(140, 191, 157, .12);
+      background: rgba(140,191,157,.12);
       margin: 4px;
     }
     .topic-chip.selected {
@@ -237,7 +219,7 @@
       display: flex;
       flex-direction: column;
       height: 100%;
-      position: relative; /* nodig voor sidebar-loader overlay */
+      position: relative; /* voor loader overlay */
     }
     .flip-container {
       width: 100%;
@@ -254,34 +236,29 @@
       backface-visibility: hidden;
       -webkit-backface-visibility: hidden;
       position: absolute;
-      top: 0;
-      left: 0;
-      background: rgba(255, 255, 255, .6);
+      top: 0; left: 0;
+      background: rgba(255,255,255,.6);
       border-radius: 24px;
       box-shadow: var(--shadow);
-      border: 1px solid rgba(255, 255, 255, .4);
+      border: 1px solid rgba(255,255,255,.4);
       padding: 24px;
       box-sizing: border-box;
       overflow-y: auto;
       transform-style: preserve-3d;
       transition: transform 0.6s ease;
-      display: flex;
-      flex-direction: column;
+      display: flex; flex-direction: column;
     }
     .sidebar-face.front {
-      transform: rotateY(0deg);
-      z-index: 2;
+      transform: rotateY(0deg); z-index: 2;
     }
     .sidebar-face.back {
-      transform: rotateY(-180deg);
-      z-index: 1;
+      transform: rotateY(-180deg); z-index: 1;
     }
     .flip-container.flipped .front {
       transform: rotateY(180deg);
     }
     .flip-container.flipped .back {
-      transform: rotateY(0deg);
-      z-index: 2;
+      transform: rotateY(0deg); z-index: 2;
     }
     #q-title {
       margin-bottom: 6px;
@@ -301,19 +278,14 @@
       padding: 8px;
       margin-top: 8px;
     }
-
-    /* Terug-knop bovenaan back-face */
     .back-button {
-      background: none;
-      border: none;
-      font-size: 1rem;
-      color: var(--rose);
-      cursor: pointer;
-      margin-bottom: 16px;
+      background: none; border: none;
+      font-size: 1rem; color: var(--rose);
+      cursor: pointer; margin-bottom: 16px;
       align-self: flex-start;
     }
 
-    /* Loader in sidebar overlay */
+    /* Sidebar loader overlay */
     #sidebar-loader {
       position: absolute;
       top: 0; left: 0;
@@ -333,59 +305,46 @@
     }
     @keyframes spin { to { transform: rotate(360deg); } }
 
-    /* Loader (simpele spinner + voortgangsbalk) */
+    /* Loader (spinner + voortgangsbalk) */
     .loader-container {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      margin-bottom: 16px;
+      display: flex; flex-direction: column;
+      align-items: center; margin-bottom: 16px;
     }
     .loader {
-      width: 32px;
-      height: 32px;
-      border: 4px solid rgba(0, 0, 0, 0.1);
+      width: 32px; height: 32px;
+      border: 4px solid rgba(0,0,0,0.1);
       border-top-color: var(--rose);
       border-radius: 50%;
       animation: spin 1s linear infinite;
       margin-bottom: 8px;
     }
-    @keyframes spin { to { transform: rotate(360deg); } }
     .progress-bar {
-      width: 100%;
-      height: 8px;
-      background: rgba(0, 0, 0, 0.05);
-      border-radius: 4px;
-      overflow: hidden;
+      width: 100%; height: 8px;
+      background: rgba(0,0,0,0.05);
+      border-radius: 4px; overflow: hidden;
       margin-bottom: 16px;
     }
     .progress-fill {
-      height: 100%;
-      width: 0%;
+      height: 100%; width: 0%;
       background: var(--sage);
       transition: width 0.3s ease;
     }
     .confirm-button {
-      width: 100%;
-      padding: 12px 0;
-      border: none;
-      border-radius: 18px;
+      width: 100%; padding: 12px 0;
+      border: none; border-radius: 18px;
       background: var(--grad-rose);
-      color: #fff;
-      font-size: 16px;
-      cursor: pointer;
-      margin-top: 12px;
+      color: #fff; font-size: 16px;
+      cursor: pointer; margin-top: 12px;
       align-self: stretch;
     }
     .confirm-button:disabled {
-      opacity: 0.5;
-      cursor: not-allowed;
+      opacity: 0.5; cursor: not-allowed;
     }
   </style>
 </head>
 <body>
 
 <main id="layout">
-  <!-- Chatkolom -->
   <div id="chat-col">
     <div id="chatbox"></div>
     <div id="choices"></div>
@@ -393,10 +352,8 @@
     <button id="send">Verstuur</button>
   </div>
 
-  <!-- Sidebar met omklap-container -->
   <div id="sidebar-flip-container">
     <div class="flip-container">
-      <!-- Front-zijde: thema's & QA-log -->
       <aside class="sidebar-face front" id="sidebar-front">
         <h4 id="q-title"></h4>
         <div id="q-options"></div>
@@ -405,7 +362,6 @@
         <div id="qa-log"></div>
       </aside>
 
-      <!-- Achterkant: onderwerpen + loader/progress -->
       <aside class="sidebar-face back" id="sidebar-back">
         <button id="back-to-themes" class="back-button">← Terug</button>
         <h4 id="back-title" style="margin-bottom:6px; color: var(--text-light); font-weight:600;"></h4>
@@ -425,40 +381,34 @@
 <script>
   console.log('[init] Geboorteplan-agent frontend initialiseren');
 
-  /* ---------- mini TaskAgent ---------- */
+  /* TaskAgent */
   (() => {
     const done = new Set();
     window.TaskAgent = {
       start(o) {
         if (done.has(o.id)) return;
         console.log('[TaskAgent] pop-up tonen:', o);
-        const { title, description, labels, onYes, onNo, onOther } = o;
         const ov = document.createElement("div");
         Object.assign(ov.style, {
-          position: "fixed",
-          inset: 0,
-          display: "flex",
-          background: "rgba(0,0,0,.55)",
-          alignItems: "center",
-          justifyContent: "center",
+          position: "fixed", inset: 0,
+          display: "flex", background: "rgba(0,0,0,.55)",
+          alignItems: "center", justifyContent: "center",
           zIndex: 9999
         });
         const card = document.createElement("div");
         card.style.cssText =
-          "background:#fff;padding:26px;border-radius:18px;max-width:440px;width:90%;text-align:center;font-family:inherit;box-shadow:0 8px 40px rgba(0,0,0,.15)";
-        card.innerHTML = `<h2 style="font-size:1.25rem;margin:0 0 10px">${title}</h2><p style="font-size:.95rem;margin:0 0 18px">${description}</p>`;
+          "background:#fff;padding:26px;border-radius:18px;max-width:440px;width:90%;text-align:center;box-shadow:0 8px 40px rgba(0,0,0,.15)";
+        card.innerHTML = `<h2 style="font-size:1.25rem;margin:0 0 10px">${o.title}</h2><p style="font-size:.95rem;margin:0 0 18px">${o.description}</p>`;
         const wrap = document.createElement("div");
-        wrap.style.display = "flex";
-        wrap.style.gap = "10px";
-        ["yes", "no", "other"].forEach((k) => {
+        wrap.style.display = "flex"; wrap.style.gap = "10px";
+        ["yes","no","other"].forEach(k => {
           const b = document.createElement("button");
-          b.textContent = labels[k];
-          b.style.cssText =
-            "flex:1 1 100px;padding:10px 0;border:none;border-radius:10px;background:#667eea;color:#fff;cursor:pointer";
+          b.textContent = o.labels[k];
+          b.style.cssText = "flex:1 1 100px;padding:10px 0;border:none;border-radius:10px;background:#667eea;color:#fff;cursor:pointer";
           b.onclick = () => {
             console.log(`[TaskAgent] knop ${k} gekozen`);
             ov.remove();
-            ({ yes: onYes, no: onNo, other: onOther })[k]?.();
+            o[{yes:"onYes",no:"onNo",other:"onOther"}[k]]();
           };
           wrap.appendChild(b);
         });
@@ -474,13 +424,12 @@
   let sessionId = sessionStorage.getItem("agentSession") || null;
   console.log('[init] sessionId from storage:', sessionId);
 
-  /* DOM-elementen */
   const chatbox = document.getElementById("chatbox");
 
   function addMsg(role, md) {
     console.log(`[addMsg] role=${role}`, md);
     const d = document.createElement("div");
-    d.className = "bubble " + (role === "bot" ? "bot" : "user");
+    d.className = "bubble " + (role==="bot"?"bot":"user");
     d.innerHTML = marked.parse(md);
     chatbox.appendChild(d);
     chatbox.scrollTop = chatbox.scrollHeight;
@@ -489,259 +438,219 @@
 
   function typingBubble() {
     console.log('[typingBubble] toon typing indicator');
-    const b = addMsg("bot", "<span class='typing'><span></span><span></span><span></span></span>");
-    return b;
+    return addMsg("bot","<span class='typing'><span></span><span></span><span></span></span>");
   }
 
   async function callAgent(message) {
-    console.log('[callAgent] verzend naar API:', { message, sessionId });
+    console.log('[callAgent] verzend naar API:', {message, sessionId});
     const wait = typingBubble();
     let data;
     try {
       const r = await fetch(API, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message, session_id: sessionId })
+        headers: {"Content-Type":"application/json"},
+        body: JSON.stringify({message, session_id: sessionId})
       });
       chatbox.removeChild(wait);
       data = await r.json();
       console.log('[callAgent] API response:', data);
       sessionId = data.session_id;
       sessionStorage.setItem("agentSession", sessionId);
-    } catch (err) {
-      console.error('[callAgent] fout bij API-aanroep', err);
+    } catch(err) {
+      console.error('[callAgent] error', err);
       chatbox.removeChild(wait);
       throw err;
     }
     return data;
   }
 
-  /* Silent variant: geen UI-bubbles bij elk topic */
   async function handleChoiceSilent(txt) {
     console.log('[handleChoiceSilent] txt=', txt);
-    try {
-      await callAgent(txt);
-    } catch (err) {
-      console.error('[handleChoiceSilent] fout tijdens verwerking', err);
-    }
+    try { await callAgent(txt); }
+    catch(err){ console.error('[handleChoiceSilent] error', err); }
   }
 
-  /* QA-log bijwerken */
   function logQA(qa) {
     console.log('[logQA] bijwerken met', qa);
     const el = document.getElementById("qa-log");
     el.innerHTML = "";
-    (qa || []).forEach((r) => {
-      const p = document.createElement("p");
-      p.innerHTML = `<strong>${r.theme}</strong><br><em>${r.question}</em><br>${r.answer}`;
+    (qa||[]).forEach(r=>{
+      const p=document.createElement("p");
+      p.innerHTML=`<strong>${r.theme}</strong><br><em>${r.question}</em><br>${r.answer}`;
       el.appendChild(p);
     });
-    el.scrollTop = el.scrollHeight;
+    el.scrollTop=el.scrollHeight;
   }
 
-  /* ─── Globals ─── */
-  let currentTheme = null;
-  let selectedTopics = [];
-  window.uiTopicOptionsForTheme = [];
+  let currentTheme=null, selectedTopics=[];
+  window.uiTopicOptionsForTheme=[];
 
-  /* Thema-chips renderen (front-side) */
+  function showSidebarLoader(){
+    const sidebar=document.getElementById('sidebar-flip-container');
+    if(!document.getElementById('sidebar-loader')){
+      const l=document.createElement('div');
+      l.id='sidebar-loader';
+      l.innerHTML=`<div class="spinner"></div>`;
+      sidebar.appendChild(l);
+    }
+  }
+  function hideSidebarLoader(){
+    const l=document.getElementById('sidebar-loader');
+    if(l) l.remove();
+  }
+
   function renderThemes(opts) {
     console.log('[renderThemes] opties ontvangen:', opts);
-    const box = document.getElementById("q-options"),
-      tit = document.getElementById("q-title");
-    box.innerHTML = "";
-    tit.textContent = "Kies een thema (max 6):";
-    opts.forEach((o) => {
-      const c = document.createElement("span");
-      c.className = "theme-chip";
-      c.textContent = o.name;
-      c.onclick = () => {
+    const box=document.getElementById("q-options"),
+          tit=document.getElementById("q-title");
+    box.innerHTML="";
+    tit.textContent="Kies een thema (max 6):";
+    opts.forEach(o=>{
+      const c=document.createElement("span");
+      c.className="theme-chip";
+      c.textContent=o.name;
+      c.onclick=()=>{
         console.log('[renderThemes] thema-chip geklikt:', o.name);
+        showSidebarLoader();
         handleChoice(`Thema geselecteerd: ${o.name}`);
       };
       box.appendChild(c);
     });
   }
 
-  /* Topic-chips renderen (back-side) */
-  function renderTopicChips(options) {
+  function renderTopicChips(options){
     console.log('[renderTopicChips] opties ontvangen:', options);
-    const container = document.getElementById("q-topic-options");
-    container.innerHTML = "";
-    options.forEach((opt) => {
-      const chip = document.createElement("span");
-      chip.className = "topic-chip";
-      chip.textContent = opt.name;
-      chip.dataset.desc = opt.description || "";
-      chip.onclick = () => {
+    const ctn=document.getElementById("q-topic-options");
+    ctn.innerHTML="";
+    options.forEach(opt=>{
+      const chip=document.createElement("span");
+      chip.className="topic-chip";
+      chip.textContent=opt.name;
+      chip.dataset.desc=opt.description||"";
+      chip.onclick=()=>{
         chip.classList.toggle("selected");
         console.log(`[renderTopicChips] chip ${opt.name} toggled:`, chip.classList.contains("selected"));
-        if (chip.classList.contains("selected")) {
-          if (selectedTopics.length < 4) {
-            selectedTopics.push(opt.name);
-          } else {
-            chip.classList.remove("selected");
-          }
+        if(chip.classList.contains("selected")){
+          if(selectedTopics.length<4) selectedTopics.push(opt.name);
+          else chip.classList.remove("selected");
         } else {
-          selectedTopics = selectedTopics.filter((t) => t !== opt.name);
+          selectedTopics=selectedTopics.filter(t=>t!==opt.name);
         }
         updateConfirmButtonState();
       };
-      container.appendChild(chip);
+      ctn.appendChild(chip);
     });
   }
 
-  /* Bevestig-knop activeren/deactiveren */
-  function updateConfirmButtonState() {
-    const btn = document.getElementById("confirm-topics");
-    btn.disabled = selectedTopics.length === 0;
-    console.log('[updateConfirmButtonState] disabled=', btn.disabled, 'selectedTopics=', selectedTopics);
+  function updateConfirmButtonState(){
+    const btn=document.getElementById("confirm-topics");
+    btn.disabled = selectedTopics.length===0;
+    console.log('[updateConfirmButtonState] disabled=',btn.disabled,'selectedTopics=',selectedTopics);
   }
 
-  /* Terug-knop (back to themes) */
-  document.getElementById("back-to-themes").onclick = () => {
-    console.log('[back-to-themes] geklikt – flip terug');
+  document.getElementById("back-to-themes").onclick=()=>{
+    console.log('[back-to-themes] flip terug');
     document.querySelector(".flip-container").classList.remove("flipped");
   };
 
-  /* Confirm-topics met één samenvatting */
-  async function confirmTopics() {
-    console.log('[confirm-topics] bevestig onderwerpen (silent):', selectedTopics);
-    for (let topicName of selectedTopics) {
-      console.log('[confirmTopics] verzend topic:', topicName);
-      await handleChoiceSilent(`Onderwerp geselecteerd: ${topicName}`);
+  async function confirmTopics(){
+    console.log('[confirm-topics] bevestig onderwerpen (silent):',selectedTopics);
+    for(let t of selectedTopics){
+      console.log('[confirmTopics] verzend topic:',t);
+      await handleChoiceSilent(`Onderwerp geselecteerd: ${t}`);
     }
     await handleChoice(`Ik ben klaar met de onderwerpen voor ${currentTheme}.`);
-    console.log('[confirmTopics] flip terug en markeer thema:', currentTheme);
+    console.log('[confirmTopics] flip terug en markeer thema:',currentTheme);
     document.querySelector(".flip-container").classList.remove("flipped");
     markThemeAsSelected(currentTheme);
   }
-  document.getElementById("confirm-topics").onclick = confirmTopics;
+  document.getElementById("confirm-topics").onclick=confirmTopics;
 
-  /* Thema-chip markeren en bewerkbaar maken */
-  function markThemeAsSelected(themeName) {
-    console.log('[markThemeAsSelected] thema selecteren:', themeName);
-    const chips = document.querySelectorAll("#q-options .theme-chip");
-    chips.forEach((chip) => {
-      if (chip.textContent.trim() === themeName) {
+  function markThemeAsSelected(themeName){
+    console.log('[markThemeAsSelected] thema selecteren:',themeName);
+    document.querySelectorAll("#q-options .theme-chip").forEach(chip=>{
+      if(chip.textContent.trim()===themeName){
         chip.classList.add("selected");
-        if (!chip.querySelector(".edit-bar")) {
-          const editBar = document.createElement("span");
-          editBar.className = "edit-bar";
-          editBar.textContent = "✎";
-          editBar.onclick = (e) => {
+        if(!chip.querySelector(".edit-bar")){
+          const eb=document.createElement("span");
+          eb.className="edit-bar";
+          eb.textContent="✎";
+          eb.onclick=e=>{
             e.stopPropagation();
-            console.log('[edit-bar] thema heropenen:', themeName);
+            console.log('[edit-bar] thema heropenen:',themeName);
             handleChoice(`Thema geselecteerd: ${themeName}`);
           };
-          chip.appendChild(editBar);
+          chip.appendChild(eb);
         }
       }
     });
   }
 
-  /* callAndRender en sidebar-loader rond thema→onderwerpen */
-  async function callAndRender(msg) {
-    console.log('[callAndRender] verwerking starten voor:', msg);
-    const data = await callAgent(msg);
-    if (data.assistant_reply) {
+  async function callAndRender(msg){
+    console.log('[callAndRender] verwerking starten voor:',msg);
+    const data=await callAgent(msg);
+    if(data.assistant_reply){
       console.log('[callAndRender] toont assistant_reply');
-      addMsg("bot", data.assistant_reply);
+      addMsg("bot",data.assistant_reply);
     }
 
-    // Kies thema-fase
-    if (data.stage === "choose_theme" && data.options) {
-      console.log('[callAndRender] stage=choose_theme, renderThemes');
+    if(data.stage==="choose_theme"&&data.options){
+      console.log('[callAndRender] renderThemes');
       renderThemes(data.options);
+      hideSidebarLoader();
     }
 
-    // Kies topic-fase
-    if (data.stage === "choose_topic" && data.options && data.current_theme) {
-      console.log('[callAndRender] stage=choose_topic, options & current_theme:', {
-        options: data.options,
-        current_theme: data.current_theme
-      });
-      window.uiTopicOptionsForTheme = data.options;
-      currentTheme = data.current_theme;
-
-      // Sidebar loader overlay
-      console.log('[callAndRender] toon sidebar-loader');
-      const sidebar = document.getElementById('sidebar-flip-container');
-      let loader = document.getElementById('sidebar-loader');
-      if (!loader) {
-        loader = document.createElement('div');
-        loader.id = 'sidebar-loader';
-        loader.innerHTML = `<div class="spinner"></div>`;
-        sidebar.appendChild(loader);
-      }
-
-      // Flip naar onderwerpen
-      console.log('[callAndRender] flip-container aan');
+    if(data.stage==="choose_topic"&&data.options&&data.current_theme){
+      console.log('[callAndRender] toon sidebar loader & flip');
+      currentTheme=data.current_theme;
+      window.uiTopicOptionsForTheme=data.options;
+      showSidebarLoader();
       document.querySelector(".flip-container").classList.add("flipped");
-      document.getElementById("back-title").textContent = `Onderwerpen voor “${currentTheme}”`;
-
-      // Render topics na korte timeout
-      setTimeout(() => {
-        console.log('[callAndRender] renderTopicChips nu');
-        loader.remove();
+      document.getElementById("back-title").textContent=`Onderwerpen voor “${currentTheme}”`;
+      setTimeout(()=>{
+        hideSidebarLoader();
         renderTopicChips(window.uiTopicOptionsForTheme);
-        selectedTopics = [];
+        selectedTopics=[];
         updateConfirmButtonState();
-        console.log('[callAndRender] topics volledig geladen');
-      }, 600);
+        console.log('[callAndRender] topics geladen');
+      },600);
     }
 
-    logQA(data.qa || []);
+    logQA(data.qa||[]);
   }
 
-  /* Gebruikersinvoer afhandelen */
-  async function handleChoice(txt, showBubble = true) {
-    console.log('[handleChoice] txt=', txt, 'showBubble=', showBubble);
-    if (!txt) return;
-    const inp = document.getElementById("input");
-    if (showBubble) addMsg("user", txt);
-    inp.value = "";
-    try {
-      await callAndRender(txt);
-    } catch (err) {
-      console.error('[handleChoice] fout tijdens verwerking', err);
-      addMsg("bot", "⚠️ Fout.");
-    }
+  async function handleChoice(txt,showBubble=true){
+    console.log('[handleChoice] txt=',txt,'showBubble=',showBubble);
+    if(!txt) return;
+    const inp=document.getElementById("input");
+    if(showBubble) addMsg("user",txt);
+    inp.value="";
+    try{ await callAndRender(txt); }
+    catch(err){ console.error('[handleChoice] error',err); addMsg("bot","⚠️ Fout."); }
   }
 
-  document.getElementById("send").onclick = () => {
-    console.log('[send-button] geklikt');
+  document.getElementById("send").onclick=()=>
     handleChoice(document.getElementById("input").value.trim());
-  };
-  document.getElementById("input").addEventListener("keydown", (e) => {
-    if (e.key === "Enter" && !e.shiftKey) {
-      console.log('[input] Enter key zonder shift');
+
+  document.getElementById("input").addEventListener("keydown",e=>{
+    if(e.key==="Enter"&&!e.shiftKey){
+      console.log('[input] Enter zonder shift');
       e.preventDefault();
       document.getElementById("send").click();
     }
   });
 
-  /* Welkomstbericht & TaskAgent-popup */
   console.log('[init] welkomsbericht');
-  addMsg("bot", "Welkom bij <strong>Beval met een Plan</strong>! Ik help je stap-voor-stap bij jouw geboorte­plan.");
-  setTimeout(() =>
-    TaskAgent.start({
-      id: "start1",
-      title: "Aan de slag",
-      description: "Zullen we samen eerst de thema’s kiezen die jij belangrijk vindt?",
-      labels: { yes: "Ja!", no: "Later", other: "Anders" },
-      onYes: () => handleChoice("Ik ben klaar om thema’s te kiezen."),
-      onNo: () => {
-        console.log('[TaskAgent] No gekozen');
-        addMsg("bot", "Geen probleem – typ ‘begin’ als je wilt starten.");
-      },
-      onOther: () => {
-        console.log('[TaskAgent] Other gekozen');
-        addMsg("bot", "Vertel wat je nu nodig hebt.");
-      },
-    }),
-    3000
-  );
+  addMsg("bot","Welkom bij <strong>Beval met een Plan</strong>! Ik help je stap-voor-stap bij jouw geboorte­plan.");
+  setTimeout(()=>TaskAgent.start({
+    id:"start1",
+    title:"Aan de slag",
+    description:"Zullen we samen eerst de thema’s kiezen die jij belangrijk vindt?",
+    labels:{yes:"Ja!",no:"Later",other:"Anders"},
+    onYes:() => handleChoice("Ik ben klaar om thema’s te kiezen."),
+    onNo:()=>{console.log('[TaskAgent] No gekozen');addMsg("bot","Geen probleem – typ ‘begin’ als je wilt starten.");},
+    onOther:()=>{console.log('[TaskAgent] Other gekozen');addMsg("bot","Vertel wat je nu nodig hebt.");}
+  }),3000);
 </script>
 </body>
 </html>
