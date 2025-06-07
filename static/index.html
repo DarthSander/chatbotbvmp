@@ -1,5 +1,3 @@
-<!-- static/index.html -->
-
 <!doctype html>
 <html lang="nl">
 <head>
@@ -226,7 +224,8 @@
     .topic-chip[data-desc]:hover::before {
       content: "";
       position: absolute;
-      left: 50%; transform: translateX(-50%);
+      left: 50%;
+      transform: translateX(-50%);
       top: 100%;
       border: 6px solid transparent;
       border-top-color: var(--rose-light);
@@ -238,6 +237,7 @@
       display: flex;
       flex-direction: column;
       height: 100%;
+      position: relative; /* nodig voor sidebar-loader overlay */
     }
     .flip-container {
       width: 100%;
@@ -249,62 +249,101 @@
       box-sizing: border-box;
     }
     .sidebar-face {
-      width: 100%; height: 100%;
+      width: 100%;
+      height: 100%;
       backface-visibility: hidden;
       -webkit-backface-visibility: hidden;
-      position: absolute; top: 0; left: 0;
-      background: rgba(255,255,255,.6);
+      position: absolute;
+      top: 0;
+      left: 0;
+      background: rgba(255, 255, 255, .6);
       border-radius: 24px;
       box-shadow: var(--shadow);
-      border: 1px solid rgba(255,255,255,.4);
-      padding: 24px; box-sizing: border-box;
+      border: 1px solid rgba(255, 255, 255, .4);
+      padding: 24px;
+      box-sizing: border-box;
       overflow-y: auto;
       transform-style: preserve-3d;
       transition: transform 0.6s ease;
-      display: flex; flex-direction: column;
+      display: flex;
+      flex-direction: column;
     }
     .sidebar-face.front {
-      transform: rotateY(0deg); z-index: 2;
+      transform: rotateY(0deg);
+      z-index: 2;
     }
     .sidebar-face.back {
-      transform: rotateY(-180deg); z-index: 1;
+      transform: rotateY(-180deg);
+      z-index: 1;
     }
     .flip-container.flipped .front {
       transform: rotateY(180deg);
     }
     .flip-container.flipped .back {
-      transform: rotateY(0deg); z-index: 2;
+      transform: rotateY(0deg);
+      z-index: 2;
     }
     #q-title {
-      margin-bottom: 6px; color: var(--text-light);
+      margin-bottom: 6px;
+      color: var(--text-light);
       font-weight: 600;
     }
     #q-options {
-      display: flex; flex-wrap: wrap;
-      column-gap: 14px; row-gap: 12px;
+      display: flex;
+      flex-wrap: wrap;
+      column-gap: 14px;
+      row-gap: 12px;
       margin-bottom: 12px;
     }
     #qa-log {
-      flex: 1; overflow-y: auto;
-      padding: 8px; margin-top: 8px;
+      flex: 1;
+      overflow-y: auto;
+      padding: 8px;
+      margin-top: 8px;
     }
 
     /* Terug-knop bovenaan back-face */
     .back-button {
-      background: none; border: none;
-      font-size: 1rem; color: var(--rose);
-      cursor: pointer; margin-bottom: 16px;
+      background: none;
+      border: none;
+      font-size: 1rem;
+      color: var(--rose);
+      cursor: pointer;
+      margin-bottom: 16px;
       align-self: flex-start;
     }
 
-    /* Loader (spinner + voortgangsbalk) */
+    /* Loader in sidebar overlay */
+    #sidebar-loader {
+      position: absolute;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+      background: rgba(255,255,255,0.8);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 10;
+    }
+    #sidebar-loader .spinner {
+      border: 4px solid rgba(0,0,0,0.1);
+      border-top-color: var(--rose);
+      border-radius: 50%;
+      width: 32px; height: 32px;
+      animation: spin 1s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* Loader (simpele spinner + voortgangsbalk) */
     .loader-container {
-      display: flex; flex-direction: column;
-      align-items: center; margin-bottom: 16px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      margin-bottom: 16px;
     }
     .loader {
-      width: 32px; height: 32px;
-      border: 4px solid rgba(0,0,0,0.1);
+      width: 32px;
+      height: 32px;
+      border: 4px solid rgba(0, 0, 0, 0.1);
       border-top-color: var(--rose);
       border-radius: 50%;
       animation: spin 1s linear infinite;
@@ -312,26 +351,34 @@
     }
     @keyframes spin { to { transform: rotate(360deg); } }
     .progress-bar {
-      width: 100%; height: 8px;
-      background: rgba(0,0,0,0.05);
-      border-radius: 4px; overflow: hidden;
+      width: 100%;
+      height: 8px;
+      background: rgba(0, 0, 0, 0.05);
+      border-radius: 4px;
+      overflow: hidden;
       margin-bottom: 16px;
     }
     .progress-fill {
-      height: 100%; width: 0%;
+      height: 100%;
+      width: 0%;
       background: var(--sage);
       transition: width 0.3s ease;
     }
     .confirm-button {
-      width: 100%; padding: 12px 0;
-      border: none; border-radius: 18px;
+      width: 100%;
+      padding: 12px 0;
+      border: none;
+      border-radius: 18px;
       background: var(--grad-rose);
-      color: #fff; font-size: 16px;
-      cursor: pointer; margin-top: 12px;
+      color: #fff;
+      font-size: 16px;
+      cursor: pointer;
+      margin-top: 12px;
       align-self: stretch;
     }
     .confirm-button:disabled {
-      opacity: 0.5; cursor: not-allowed;
+      opacity: 0.5;
+      cursor: not-allowed;
     }
   </style>
 </head>
@@ -469,6 +516,16 @@
     return data;
   }
 
+  /* Silent variant: geen UI-bubbles bij elk topic */
+  async function handleChoiceSilent(txt) {
+    console.log('[handleChoiceSilent] txt=', txt);
+    try {
+      await callAgent(txt);
+    } catch (err) {
+      console.error('[handleChoiceSilent] fout tijdens verwerking', err);
+    }
+  }
+
   /* QA-log bijwerken */
   function logQA(qa) {
     console.log('[logQA] bijwerken met', qa);
@@ -534,7 +591,7 @@
     });
   }
 
-  /* Bevestig-knop (back-side) activeren/deactiveren */
+  /* Bevestig-knop activeren/deactiveren */
   function updateConfirmButtonState() {
     const btn = document.getElementById("confirm-topics");
     btn.disabled = selectedTopics.length === 0;
@@ -547,14 +604,13 @@
     document.querySelector(".flip-container").classList.remove("flipped");
   };
 
-  /* Vervang hier de confirm-topics-handler door async confirmTopics */
+  /* Confirm-topics met één samenvatting */
   async function confirmTopics() {
-    console.log('[confirm-topics] bevestig onderwerpen:', selectedTopics);
+    console.log('[confirm-topics] bevestig onderwerpen (silent):', selectedTopics);
     for (let topicName of selectedTopics) {
       console.log('[confirmTopics] verzend topic:', topicName);
-      await handleChoice(`Onderwerp geselecteerd: ${topicName}`);
+      await handleChoiceSilent(`Onderwerp geselecteerd: ${topicName}`);
     }
-    console.log('[confirmTopics] verzend complete message');
     await handleChoice(`Ik ben klaar met de onderwerpen voor ${currentTheme}.`);
     console.log('[confirmTopics] flip terug en markeer thema:', currentTheme);
     document.querySelector(".flip-container").classList.remove("flipped");
@@ -584,7 +640,7 @@
     });
   }
 
-  /* callAndRender koppelt met back-end-stadia en handelt flip/renders één keer af */
+  /* callAndRender en sidebar-loader rond thema→onderwerpen */
   async function callAndRender(msg) {
     console.log('[callAndRender] verwerking starten voor:', msg);
     const data = await callAgent(msg);
@@ -607,23 +663,30 @@
       });
       window.uiTopicOptionsForTheme = data.options;
       currentTheme = data.current_theme;
+
+      // Sidebar loader overlay
+      console.log('[callAndRender] toon sidebar-loader');
+      const sidebar = document.getElementById('sidebar-flip-container');
+      let loader = document.getElementById('sidebar-loader');
+      if (!loader) {
+        loader = document.createElement('div');
+        loader.id = 'sidebar-loader';
+        loader.innerHTML = `<div class="spinner"></div>`;
+        sidebar.appendChild(loader);
+      }
+
+      // Flip naar onderwerpen
       console.log('[callAndRender] flip-container aan');
       document.querySelector(".flip-container").classList.add("flipped");
       document.getElementById("back-title").textContent = `Onderwerpen voor “${currentTheme}”`;
-      document.getElementById("topic-loader").style.display = "flex";
-      document.getElementById("q-topic-options").style.display = "none";
-      console.log('[callAndRender] simulate progress to 80%');
-      setTimeout(() => {
-        document.getElementById("progress-fill").style.width = "80%";
-      }, 200);
+
+      // Render topics na korte timeout
       setTimeout(() => {
         console.log('[callAndRender] renderTopicChips nu');
+        loader.remove();
         renderTopicChips(window.uiTopicOptionsForTheme);
-        document.getElementById("topic-loader").style.display = "none";
-        document.getElementById("q-topic-options").style.display = "flex";
         selectedTopics = [];
         updateConfirmButtonState();
-        document.getElementById("progress-fill").style.width = "100%";
         console.log('[callAndRender] topics volledig geladen');
       }, 600);
     }
