@@ -22,7 +22,11 @@ class NamedDescription(TypedDict):
 # ---------- basisconfig ----------
 client           = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 ASSISTANT_ID     = os.getenv("ASSISTANT_ID")                # gerelateerd aan je Assistants-dashboard
-ALLOWED_ORIGINS  = ["https://bevalmeteenplan.nl", "https://www.bevalmeteenplan.nl"]
+ALLOWED_ORIGINS = [
+  "https://bevalmeteenplan.nl",
+  "https://www.bevalmeteenplan.nl",
+  "https://chatbotbvmp.onrender.com"
+]
 DB_FILE          = "sessions.db"
 
 app = Flask(__name__)
@@ -281,6 +285,12 @@ def export_json(sid: str):
     with open(path, "w", encoding="utf-8") as f:
         json.dump(st, f, ensure_ascii=False, indent=2)
     return send_file(path, as_attachment=True, download_name=path.split("/")[-1])
+
+@app.after_request
+def allow_iframe(response):
+    response.headers.pop("X-Frame-Options", None)
+    return response
+
 
 # ---------- main ----------
 if __name__ == "__main__":
