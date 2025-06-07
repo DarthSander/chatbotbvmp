@@ -226,8 +226,7 @@
     .topic-chip[data-desc]:hover::before {
       content: "";
       position: absolute;
-      left: 50%;
-      transform: translateX(-50%);
+      left: 50%; transform: translateX(-50%);
       top: 100%;
       border: 6px solid transparent;
       border-top-color: var(--rose-light);
@@ -250,118 +249,89 @@
       box-sizing: border-box;
     }
     .sidebar-face {
-      width: 100%;
-      height: 100%;
+      width: 100%; height: 100%;
       backface-visibility: hidden;
       -webkit-backface-visibility: hidden;
-      position: absolute;
-      top: 0;
-      left: 0;
-      background: rgba(255, 255, 255, .6);
+      position: absolute; top: 0; left: 0;
+      background: rgba(255,255,255,.6);
       border-radius: 24px;
       box-shadow: var(--shadow);
-      border: 1px solid rgba(255, 255, 255, .4);
-      padding: 24px;
-      box-sizing: border-box;
+      border: 1px solid rgba(255,255,255,.4);
+      padding: 24px; box-sizing: border-box;
       overflow-y: auto;
       transform-style: preserve-3d;
       transition: transform 0.6s ease;
-      display: flex;
-      flex-direction: column;
+      display: flex; flex-direction: column;
     }
     .sidebar-face.front {
-      transform: rotateY(0deg);
-      z-index: 2;
+      transform: rotateY(0deg); z-index: 2;
     }
     .sidebar-face.back {
-      transform: rotateY(-180deg);
-      z-index: 1;
+      transform: rotateY(-180deg); z-index: 1;
     }
     .flip-container.flipped .front {
       transform: rotateY(180deg);
     }
     .flip-container.flipped .back {
-      transform: rotateY(0deg);
-      z-index: 2;
+      transform: rotateY(0deg); z-index: 2;
     }
     #q-title {
-      margin-bottom: 6px;
-      color: var(--text-light);
+      margin-bottom: 6px; color: var(--text-light);
       font-weight: 600;
     }
     #q-options {
-      display: flex;
-      flex-wrap: wrap;
-      column-gap: 14px;
-      row-gap: 12px;
+      display: flex; flex-wrap: wrap;
+      column-gap: 14px; row-gap: 12px;
       margin-bottom: 12px;
     }
     #qa-log {
-      flex: 1;
-      overflow-y: auto;
-      padding: 8px;
-      margin-top: 8px;
+      flex: 1; overflow-y: auto;
+      padding: 8px; margin-top: 8px;
     }
 
     /* Terug-knop bovenaan back-face */
     .back-button {
-      background: none;
-      border: none;
-      font-size: 1rem;
-      color: var(--rose);
-      cursor: pointer;
-      margin-bottom: 16px;
+      background: none; border: none;
+      font-size: 1rem; color: var(--rose);
+      cursor: pointer; margin-bottom: 16px;
       align-self: flex-start;
     }
 
-    /* Loader (simpele spinner + voortgangsbalk) */
+    /* Loader (spinner + voortgangsbalk) */
     .loader-container {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      margin-bottom: 16px;
+      display: flex; flex-direction: column;
+      align-items: center; margin-bottom: 16px;
     }
     .loader {
-      width: 32px;
-      height: 32px;
-      border: 4px solid rgba(0, 0, 0, 0.1);
+      width: 32px; height: 32px;
+      border: 4px solid rgba(0,0,0,0.1);
       border-top-color: var(--rose);
       border-radius: 50%;
       animation: spin 1s linear infinite;
       margin-bottom: 8px;
     }
-    @keyframes spin {
-      to { transform: rotate(360deg); }
-    }
+    @keyframes spin { to { transform: rotate(360deg); } }
     .progress-bar {
-      width: 100%;
-      height: 8px;
-      background: rgba(0, 0, 0, 0.05);
-      border-radius: 4px;
-      overflow: hidden;
+      width: 100%; height: 8px;
+      background: rgba(0,0,0,0.05);
+      border-radius: 4px; overflow: hidden;
       margin-bottom: 16px;
     }
     .progress-fill {
-      height: 100%;
-      width: 0%;
+      height: 100%; width: 0%;
       background: var(--sage);
       transition: width 0.3s ease;
     }
     .confirm-button {
-      width: 100%;
-      padding: 12px 0;
-      border: none;
-      border-radius: 18px;
+      width: 100%; padding: 12px 0;
+      border: none; border-radius: 18px;
       background: var(--grad-rose);
-      color: #fff;
-      font-size: 16px;
-      cursor: pointer;
-      margin-top: 12px;
+      color: #fff; font-size: 16px;
+      cursor: pointer; margin-top: 12px;
       align-self: stretch;
     }
     .confirm-button:disabled {
-      opacity: 0.5;
-      cursor: not-allowed;
+      opacity: 0.5; cursor: not-allowed;
     }
   </style>
 </head>
@@ -406,12 +376,15 @@
 </main>
 
 <script>
+  console.log('[init] Geboorteplan-agent frontend initialiseren');
+
   /* ---------- mini TaskAgent ---------- */
   (() => {
     const done = new Set();
     window.TaskAgent = {
       start(o) {
         if (done.has(o.id)) return;
+        console.log('[TaskAgent] pop-up tonen:', o);
         const { title, description, labels, onYes, onNo, onOther } = o;
         const ov = document.createElement("div");
         Object.assign(ov.style, {
@@ -436,6 +409,7 @@
           b.style.cssText =
             "flex:1 1 100px;padding:10px 0;border:none;border-radius:10px;background:#667eea;color:#fff;cursor:pointer";
           b.onclick = () => {
+            console.log(`[TaskAgent] knop ${k} gekozen`);
             ov.remove();
             ({ yes: onYes, no: onNo, other: onOther })[k]?.();
           };
@@ -451,11 +425,13 @@
 
   const API = "https://chatbotbvmp.onrender.com/agent";
   let sessionId = sessionStorage.getItem("agentSession") || null;
+  console.log('[init] sessionId from storage:', sessionId);
 
   /* DOM-elementen */
   const chatbox = document.getElementById("chatbox");
 
   function addMsg(role, md) {
+    console.log(`[addMsg] role=${role}`, md);
     const d = document.createElement("div");
     d.className = "bubble " + (role === "bot" ? "bot" : "user");
     d.innerHTML = marked.parse(md);
@@ -465,26 +441,37 @@
   }
 
   function typingBubble() {
+    console.log('[typingBubble] toon typing indicator');
     const b = addMsg("bot", "<span class='typing'><span></span><span></span><span></span></span>");
     return b;
   }
 
   async function callAgent(message) {
+    console.log('[callAgent] verzend naar API:', { message, sessionId });
     const wait = typingBubble();
-    const r = await fetch(API, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ message, session_id: sessionId })
-    });
-    chatbox.removeChild(wait);
-    const data = await r.json();
-    sessionId = data.session_id;
-    sessionStorage.setItem("agentSession", sessionId);
+    let data;
+    try {
+      const r = await fetch(API, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message, session_id: sessionId })
+      });
+      chatbox.removeChild(wait);
+      data = await r.json();
+      console.log('[callAgent] API response:', data);
+      sessionId = data.session_id;
+      sessionStorage.setItem("agentSession", sessionId);
+    } catch (err) {
+      console.error('[callAgent] fout bij API-aanroep', err);
+      chatbox.removeChild(wait);
+      throw err;
+    }
     return data;
   }
 
   /* QA-log bijwerken */
   function logQA(qa) {
+    console.log('[logQA] bijwerken met', qa);
     const el = document.getElementById("qa-log");
     el.innerHTML = "";
     (qa || []).forEach((r) => {
@@ -502,6 +489,7 @@
 
   /* Thema-chips renderen (front-side) */
   function renderThemes(opts) {
+    console.log('[renderThemes] opties ontvangen:', opts);
     const box = document.getElementById("q-options"),
       tit = document.getElementById("q-title");
     box.innerHTML = "";
@@ -511,7 +499,7 @@
       c.className = "theme-chip";
       c.textContent = o.name;
       c.onclick = () => {
-        // Opdracht naar agent: register_theme
+        console.log('[renderThemes] thema-chip geklikt:', o.name);
         handleChoice(`Thema geselecteerd: ${o.name}`);
       };
       box.appendChild(c);
@@ -522,6 +510,7 @@
 
   /* Topic-chips renderen (back-side) */
   function renderTopicChips(options) {
+    console.log('[renderTopicChips] opties ontvangen:', options);
     const container = document.getElementById("q-topic-options");
     container.innerHTML = "";
     options.forEach((opt) => {
@@ -531,6 +520,7 @@
       chip.dataset.desc = opt.description || "";
       chip.onclick = () => {
         chip.classList.toggle("selected");
+        console.log(`[renderTopicChips] chip ${opt.name} toggled:`, chip.classList.contains("selected"));
         if (chip.classList.contains("selected")) {
           if (selectedTopics.length < 4) {
             selectedTopics.push(opt.name);
@@ -550,29 +540,30 @@
   function updateConfirmButtonState() {
     const btn = document.getElementById("confirm-topics");
     btn.disabled = selectedTopics.length === 0;
+    console.log('[updateConfirmButtonState] disabled=', btn.disabled, 'selectedTopics=', selectedTopics);
   }
 
   /* Terug-knop (back to themes) */
   document.getElementById("back-to-themes").onclick = () => {
+    console.log('[back-to-themes] geklikt – flip terug');
     document.querySelector(".flip-container").classList.remove("flipped");
   };
 
   /* Bevestig onderwerpen: opslaan, flip terug, thema markeren */
   document.getElementById("confirm-topics").onclick = () => {
+    console.log('[confirm-topics] bevestig onderwerpen:', selectedTopics);
     selectedTopics.forEach((topicName) => {
-      // Opdracht naar agent: register_topic
       handleChoice(`Onderwerp geselecteerd: ${topicName}`);
     });
-    // Opdracht naar agent: complete_theme
     handleChoice(`Ik ben klaar met de onderwerpen voor ${currentTheme}.`);
-    // Flip terug
+    console.log('[confirm-topics] flip terug en markeer thema:', currentTheme);
     document.querySelector(".flip-container").classList.remove("flipped");
-    // Markeer thema-chip en voeg edit-bar toe
     markThemeAsSelected(currentTheme);
   };
 
   /* Thema-chip markeren en bewerkbaar maken */
   function markThemeAsSelected(themeName) {
+    console.log('[markThemeAsSelected] thema selecteren:', themeName);
     const chips = document.querySelectorAll("#q-options .theme-chip");
     chips.forEach((chip) => {
       if (chip.textContent.trim() === themeName) {
@@ -583,6 +574,7 @@
           editBar.textContent = "✎";
           editBar.onclick = (e) => {
             e.stopPropagation();
+            console.log('[edit-bar] thema heropenen:', themeName);
             handleChoice(`Thema geselecteerd: ${themeName}`);
           };
           chip.appendChild(editBar);
@@ -593,35 +585,45 @@
 
   /* callAndRender koppelt met back-end-stadia en handelt flip/renders één keer af */
   async function callAndRender(msg) {
+    console.log('[callAndRender] verwerking starten voor:', msg);
     const data = await callAgent(msg);
-    if (data.assistant_reply) addMsg("bot", data.assistant_reply);
+    if (data.assistant_reply) {
+      console.log('[callAndRender] toont assistant_reply');
+      addMsg("bot", data.assistant_reply);
+    }
 
     // Kies thema-fase
     if (data.stage === "choose_theme" && data.options) {
+      console.log('[callAndRender] stage=choose_theme, renderThemes');
       renderThemes(data.options);
     }
 
     // Kies topic-fase
     if (data.stage === "choose_topic" && data.options && data.current_theme) {
+      console.log('[callAndRender] stage=choose_topic, options & current_theme:', {
+        options: data.options,
+        current_theme: data.current_theme
+      });
       window.uiTopicOptionsForTheme = data.options;
       currentTheme = data.current_theme;
-      // Flip naar onderwerpen en toon loader
+      console.log('[callAndRender] flip-container aan');
       document.querySelector(".flip-container").classList.add("flipped");
       document.getElementById("back-title").textContent = `Onderwerpen voor “${currentTheme}”`;
       document.getElementById("topic-loader").style.display = "flex";
       document.getElementById("q-topic-options").style.display = "none";
-      // Simuleer voortgang
+      console.log('[callAndRender] simulate progress to 80%');
       setTimeout(() => {
         document.getElementById("progress-fill").style.width = "80%";
       }, 200);
-      // Render topics na korte timeout
       setTimeout(() => {
+        console.log('[callAndRender] renderTopicChips nu');
         renderTopicChips(window.uiTopicOptionsForTheme);
         document.getElementById("topic-loader").style.display = "none";
         document.getElementById("q-topic-options").style.display = "flex";
         selectedTopics = [];
         updateConfirmButtonState();
         document.getElementById("progress-fill").style.width = "100%";
+        console.log('[callAndRender] topics volledig geladen');
       }, 600);
     }
 
@@ -630,27 +632,33 @@
 
   /* Gebruikersinvoer afhandelen */
   async function handleChoice(txt, showBubble = true) {
+    console.log('[handleChoice] txt=', txt, 'showBubble=', showBubble);
     if (!txt) return;
     const inp = document.getElementById("input");
     if (showBubble) addMsg("user", txt);
     inp.value = "";
     try {
       await callAndRender(txt);
-    } catch {
+    } catch (err) {
+      console.error('[handleChoice] fout tijdens verwerking', err);
       addMsg("bot", "⚠️ Fout.");
     }
   }
 
-  document.getElementById("send").onclick = () =>
+  document.getElementById("send").onclick = () => {
+    console.log('[send-button] geklikt');
     handleChoice(document.getElementById("input").value.trim());
+  };
   document.getElementById("input").addEventListener("keydown", (e) => {
     if (e.key === "Enter" && !e.shiftKey) {
+      console.log('[input] Enter key zonder shift');
       e.preventDefault();
       document.getElementById("send").click();
     }
   });
 
   /* Welkomstbericht & TaskAgent-popup */
+  console.log('[init] welkomsbericht');
   addMsg("bot", "Welkom bij <strong>Beval met een Plan</strong>! Ik help je stap-voor-stap bij jouw geboorte­plan.");
   setTimeout(() =>
     TaskAgent.start({
@@ -659,8 +667,14 @@
       description: "Zullen we samen eerst de thema’s kiezen die jij belangrijk vindt?",
       labels: { yes: "Ja!", no: "Later", other: "Anders" },
       onYes: () => handleChoice("Ik ben klaar om thema’s te kiezen."),
-      onNo: () => addMsg("bot", "Geen probleem – typ ‘begin’ als je wilt starten."),
-      onOther: () => addMsg("bot", "Vertel wat je nu nodig hebt."),
+      onNo: () => {
+        console.log('[TaskAgent] No gekozen');
+        addMsg("bot", "Geen probleem – typ ‘begin’ als je wilt starten.");
+      },
+      onOther: () => {
+        console.log('[TaskAgent] Other gekozen');
+        addMsg("bot", "Vertel wat je nu nodig hebt.");
+      },
     }),
     3000
   );
