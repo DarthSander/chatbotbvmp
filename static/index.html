@@ -26,13 +26,13 @@
     }
     html, body {
       height: 100%;
-      margin: 0;
-      padding: 0;
+      margin: 0; padding: 0;
       font-family: Inter, system-ui, sans-serif;
       background: var(--grad-main);
       color: var(--text);
       line-height: 1.55;
     }
+    /* ---------- desktop layout ---------- */
     #layout {
       display: flex;
       gap: 24px;
@@ -42,11 +42,9 @@
       height: 100%;
       box-sizing: border-box;
     }
-    @media (max-width: 900px) {
-      #layout { flex-direction: column; }
-    }
+    /* mobile overrides below */
 
-    /* ---------- chat ---------- */
+    /* ---------- chat column ---------- */
     #chat-col {
       flex: 3;
       display: flex;
@@ -56,7 +54,7 @@
       background: rgba(255,255,255,.6);
       border-radius: 24px;
       box-shadow: var(--shadow);
-      border: 1px solid rgba(255,255,255,.4);
+      border:1px solid rgba(255,255,255,.4);
       box-sizing: border-box;
       height: 100%;
     }
@@ -66,164 +64,128 @@
       padding: 8px;
     }
     .bubble {
-      padding: 12px 18px;
-      margin: 10px 0;
-      border-radius: 18px;
-      max-width: 88%;
-      animation: fade .25s;
+      padding:12px 18px;
+      margin:10px 0;
+      border-radius:18px;
+      max-width:88%;
+      animation:fade .25s;
     }
     .bubble.bot {
-      background: #fff;
-      border: 1px solid rgba(0,0,0,.05);
+      background:#fff;
+      border:1px solid rgba(0,0,0,.05);
     }
     .bubble.user {
-      background: var(--grad-rose);
-      color: #fff;
-      margin-left: auto;
-      border-bottom-right-radius: 6px;
+      background:var(--grad-rose);
+      color:#fff;
+      margin-left:auto;
+      border-bottom-right-radius:6px;
     }
-    @keyframes fade { from {opacity:0;transform:translateY(6px);} to{opacity:1;transform:translateY(0);} }
+    @keyframes fade { from{opacity:0;transform:translateY(6px);} to{opacity:1;transform:translateY(0);} }
     .typing {
-      display: inline-block;
-      width: 32px;
-      height: 8px;
+      display:inline-block; width:32px; height:8px;
     }
     .typing span {
-      display: inline-block;
-      width: 6px;
-      height: 6px;
-      margin: 0 2px;
-      background: #888;
-      border-radius: 50%;
-      animation: blink 1.2s infinite;
+      display:inline-block;
+      width:6px; height:6px; margin:0 2px;
+      background:#888; border-radius:50%;
+      animation:blink 1.2s infinite;
     }
-    .typing span:nth-child(2){ animation-delay: .2s; }
-    .typing span:nth-child(3){ animation-delay: .4s; }
-    @keyframes blink { 0%,80%,100%{opacity:.2;}40%{opacity:1;} }
+    .typing span:nth-child(2){animation-delay:.2s;}
+    .typing span:nth-child(3){animation-delay:.4s;}
+    @keyframes blink {0%,80%,100%{opacity:.2;}40%{opacity:1;}}
     textarea {
-      width: 100%;
-      min-height: 90px;
-      padding: 16px 20px;
-      font-size: 16px;
-      border-radius: 18px;
-      border: 1px solid rgba(0,0,0,.15);
-      box-sizing: border-box;
+      width:100%; min-height:90px; padding:16px 20px;
+      font-size:16px; border-radius:18px;
+      border:1px solid rgba(0,0,0,.15); box-sizing:border-box;
     }
     button#send {
-      align-self: flex-end;
-      margin-top: 6px;
-      padding: 12px 24px;
-      border: none;
-      border-radius: 18px;
-      background: var(--grad-rose);
-      color: #fff;
-      font-size: 16px;
-      cursor: pointer;
+      align-self:flex-end; margin-top:6px;
+      padding:12px 24px; border:none; border-radius:18px;
+      background:var(--grad-rose); color:#fff;
+      font-size:16px; cursor:pointer;
     }
 
-    /* ---------- sidebar container ---------- */
+    /* ---------- sidebar container for desktop ---------- */
     #sidebar-flip-container {
       flex: 2;
-      position: relative; /* voor loader-overlay */
-      height: 100%;
-    }
-    .flip-container {
-      width: 100%;
-      height: 100%;
-      perspective: 1000px;
-      transform-style: preserve-3d;
-      transition: transform 0.6s ease;
       position: relative;
+      height: 100%;
     }
-    .flip-container.show-back   { transform: rotateY(-180deg); }
-    .flip-container.show-third  { transform: rotateY(-360deg); }
+    /* sidebar faces (desktop) */
+    .flip-container {
+      width:100%; height:100%;
+      perspective:1000px;
+      transform-style:preserve-3d;
+      transition:transform .6s ease;
+      position:relative;
+    }
+    .flip-container.show-back  { transform:rotateY(-180deg); }
+    .flip-container.show-third { transform:rotateY(-360deg); }
 
     .sidebar-face {
-      position: absolute;
-      top: 0; left: 0;
-      width: 100%; height: 100%;
-      backface-visibility: hidden;
-      -webkit-backface-visibility: hidden;
-      background: rgba(255,255,255,.6);
-      border-radius: 24px;
-      box-shadow: var(--shadow);
-      border: 1px solid rgba(255,255,255,.4);
-      padding: 24px;
-      box-sizing: border-box;
-      overflow-y: auto;
-      display: flex;
-      flex-direction: column;
-    }
-    .sidebar-face.front { transform: rotateY(0deg);   z-index:3; }
-    .sidebar-face.back  { transform: rotateY(-180deg);z-index:2; }
-    .sidebar-face.third { transform: rotateY(-360deg);z-index:1; }
-
-    /* loader-overlay */
-    #sidebar-loader {
-      position: absolute;
-      top:0; left:0;
+      position:absolute; top:0; left:0;
       width:100%; height:100%;
-      background: rgba(255,255,255,0.8);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      z-index: 4;
+      backface-visibility:hidden;
+      -webkit-backface-visibility:hidden;
+      background:rgba(255,255,255,.6);
+      border-radius:24px; box-shadow:var(--shadow);
+      border:1px solid rgba(255,255,255,.4);
+      padding:24px; box-sizing:border-box;
+      display:flex; flex-direction:column; overflow-y:auto;
+    }
+    .sidebar-face.front { transform:rotateY(0deg); z-index:3; }
+    .sidebar-face.back  { transform:rotateY(-180deg); z-index:2; }
+    .sidebar-face.third { transform:rotateY(-360deg); z-index:1; }
+
+    .back-button {
+      background:none; border:none;
+      color:var(--rose); font-size:1rem;
+      cursor:pointer; margin-bottom:16px;
+      align-self:flex-start;
+    }
+
+    /* loader overlay for desktop sidebar */
+    #sidebar-loader {
+      position:absolute; top:0; left:0;
+      width:100%; height:100%;
+      background:rgba(255,255,255,0.8);
+      display:flex; align-items:center; justify-content:center;
+      z-index:4;
     }
     #sidebar-loader .spinner {
       border:4px solid rgba(0,0,0,0.1);
-      border-top-color: var(--rose);
-      border-radius:50%;
-      width:32px; height:32px;
-      animation: spin 1s linear infinite;
+      border-top-color:var(--rose);
+      border-radius:50%; width:32px; height:32px;
+      animation:spin 1s linear infinite;
     }
-    @keyframes spin{ to{transform:rotate(360deg);} }
+    @keyframes spin{to{transform:rotate(360deg);}}
 
-    .back-button {
-      background: none;
-      border: none;
-      color: var(--rose);
-      font-size: 1rem;
-      cursor: pointer;
-      margin-bottom: 16px;
-      align-self: flex-start;
-    }
-
-    /* Thema- en topic-view */
-    #q-title { margin-bottom:6px; color: var(--text-light); font-weight:600; }
+    /* theme & topic chips (desktop) */
+    #q-title { margin-bottom:6px; color:var(--text-light); font-weight:600; }
     #q-options { display:flex; flex-wrap:wrap; gap:12px 14px; margin-bottom:12px; }
     .theme-chip, .topic-chip {
-      padding:8px 16px;
-      border-radius:9999px;
-      font-size:14px;
-      cursor:pointer;
-      user-select:none;
-      transition:.25s;
-      min-height:44px; /* mobiel vlot klikbaar */
+      padding:8px 16px; border-radius:9999px;
+      font-size:14px; cursor:pointer; user-select:none;
+      transition:.25s; min-height:44px;
     }
     .theme-chip {
-      border:1px solid var(--rose);
-      color:var(--rose);
+      border:1px solid var(--rose); color:var(--rose);
       background:#fff;
     }
-    .theme-chip:hover {
-      background:var(--grad-rose);
-      color:#fff;
-    }
+    .theme-chip:hover { background:var(--grad-rose); color:#fff; }
     .theme-chip.selected {
       background:linear-gradient(135deg,var(--sage),var(--sage-light));
-      color:#fff;
-      border:none;
-      padding-right:28px;
+      color:#fff; border:none; padding-right:28px;
     }
     .edit-bar {
-      position:absolute; right:8px; top:50%; transform:translateY(-50%);
-      font-size:.85rem; cursor:pointer; opacity:.8;
+      position:absolute; right:8px; top:50%;
+      transform:translateY(-50%); font-size:.85rem;
+      cursor:pointer; opacity:.8;
     }
     .edit-bar:hover { opacity:1; }
 
     .topic-chip {
-      border:1px solid var(--sage);
-      color:var(--sage);
+      border:1px solid var(--sage); color:var(--sage);
       background:rgba(140,191,157,.12);
     }
     .topic-chip.selected {
@@ -239,357 +201,364 @@
       box-shadow:0 4px 12px rgba(0,0,0,.15); z-index:20;
     }
     .topic-chip[data-desc]:hover::before {
-      content:""; position:absolute; left:50%; transform:translateX(-50%);
-      top:100%; border:6px solid transparent; border-top-color:var(--rose-light);
+      content:""; position:absolute; left:50%;
+      transform:translateX(-50%); top:100%;
+      border:6px solid transparent; border-top-color:var(--rose-light);
     }
     #q-topic-options { display:flex; flex-wrap:wrap; gap:8px; }
 
     .confirm-button {
-      margin-top:auto;
-      width:100%;
-      padding:12px 0;
-      border:none;
-      border-radius:18px;
-      background:var(--grad-rose);
-      color:#fff;
-      font-size:16px;
-      cursor:pointer;
+      margin-top:auto; width:100%; padding:12px 0;
+      border:none; border-radius:18px;
+      background:var(--grad-rose); color:#fff;
+      font-size:16px; cursor:pointer;
     }
-    .confirm-button:disabled { opacity:.5; cursor:not-allowed; }
+    .confirm-button:disabled {
+      opacity:.5; cursor:not-allowed;
+    }
 
-    /* Third paneel: Vragen & Antwoorden */
-    #sidebar-third h5 {
-      margin-top:0; font-size:1rem; font-weight:600;
-    }
+    /* third paneel: Q&A (desktop) */
+    #sidebar-third h5 { margin-top:0; font-size:1rem; font-weight:600; }
     #q-and-a { flex:1; overflow-y:auto; padding:8px; }
     .qa-item { margin-bottom:16px; }
     .qa-item .label { font-size:.85rem; color:var(--text-light); margin-bottom:4px; }
     .qa-item .question { font-weight:600; margin-bottom:2px; }
     .qa-item .answer   { margin-left:8px; }
 
-    /* ---------- mobile bottom-nav ---------- */
-    #mobile-nav {
+    /* ---------- mobile flip & tabs ---------- */
+    #mobile-flip {
       display: none;
     }
-    @media (max-width: 600px) {
-      #layout { flex-direction: column; padding: 8px; }
-      #chat-col, #sidebar-flip-container {
-        height: calc(100vh - 48px);
+    .face {
+      position:absolute; top:0; left:0;
+      width:100%; height:100%;
+      backface-visibility:hidden;
+      -webkit-backface-visibility:hidden;
+      padding:24px; box-sizing:border-box;
+      overflow-y:auto;
+      background:rgba(255,255,255,.6);
+      border-radius:24px; box-shadow:var(--shadow);
+      border:1px solid rgba(255,255,255,.4);
+    }
+    .chat-face  { transform: rotateY(   0deg); z-index:4; }
+    .theme-face { transform: rotateY( -90deg); z-index:3; }
+    .topic-face { transform: rotateY(-180deg); z-index:2; }
+    .qa-face    { transform: rotateY(-270deg); z-index:1; }
+
+    #mobile-flip {
+      position:relative;
+      width:100%; height:100%;
+      transform-style:preserve-3d;
+      transition:transform .6s ease;
+    }
+    #mobile-flip.show-chat   { transform:rotateY(   0deg); }
+    #mobile-flip.show-themes { transform:rotateY( -90deg); }
+    #mobile-flip.show-topics { transform:rotateY(-180deg); }
+    #mobile-flip.show-qa     { transform:rotateY(-270deg); }
+
+    #mobile-tabs {
+      display:none;
+    }
+    @media (max-width:600px) {
+      /* hide desktop layout */
+      #layout { display:none; }
+      /* show mobile flip */
+      #mobile-flip { display:block; }
+      #mobile-tabs {
+        display:flex;
+        position:fixed; bottom:0; left:0; right:0;
+        height:48px; background:#fff;
+        box-shadow:0 -2px 8px rgba(0,0,0,.1);
+        z-index:10;
       }
-      #mobile-nav {
-        position: fixed;
-        bottom: 0; left: 0; right: 0;
-        height: 48px;
-        display: flex;
-        background: #fff;
-        box-shadow: 0 -2px 8px rgba(0,0,0,.1);
-        z-index: 20;
+      #mobile-tabs button {
+        flex:1; border:none; background:none;
+        font-size:1rem; cursor:pointer;
       }
-      #mobile-nav button {
-        flex: 1;
-        border: none;
-        background: none;
-        font-size: 1.2rem;
-        cursor: pointer;
+      /* highlight Q&A tab */
+      #mobile-tabs button.new-qa {
+        background:var(--rose-light);
+        color:#fff;
       }
     }
   </style>
 </head>
+
 <body>
+  <!-- Desktop layout -->
+  <main id="layout">
+    <!-- Chat column -->
+    <div id="chat-col">
+      <div id="chatbox"></div>
+      <div id="choices"></div>
+      <textarea id="input" placeholder="Typ je bericht…"></textarea>
+      <button id="send">Verstuur</button>
+    </div>
 
-<main id="layout">
-  <!-- Chat -->
-  <div id="chat-col">
-    <div id="chatbox"></div>
-    <div id="choices"></div>
-    <textarea id="input" placeholder="Typ je bericht…"></textarea>
-    <button id="send">Verstuur</button>
+    <!-- Sidebar (3 panels) -->
+    <div id="sidebar-flip-container">
+      <div id="sidebar-loader" style="display:none;">
+        <div class="spinner"></div>
+      </div>
+      <div class="flip-container">
+        <!-- Front: Thema's & QA-log -->
+        <aside class="sidebar-face front" id="sidebar-front">
+          <h4 id="q-title"></h4>
+          <div id="q-options"></div>
+          <hr>
+          <h5>Antwoorden</h5>
+          <div id="qa-log"></div>
+        </aside>
+        <!-- Back: Onderwerpen -->
+        <aside class="sidebar-face back" id="sidebar-back">
+          <button id="back-to-themes" class="back-button">← Thema’s</button>
+          <h4 id="back-title"></h4>
+          <div id="q-topic-options"></div>
+          <button id="confirm-topics" class="confirm-button" disabled>Bevestig onderwerpen →</button>
+        </aside>
+        <!-- Third: Vragen & Antwoorden -->
+        <aside class="sidebar-face third" id="sidebar-third">
+          <button id="back-to-topics" class="back-button">← Onderwerpen</button>
+          <h5>Vragen & Antwoorden</h5>
+          <div id="q-and-a"></div>
+        </aside>
+      </div>
+    </div>
+  </main>
+
+  <!-- Mobile flip container -->
+  <div id="mobile-flip" class="show-chat">
+    <div class="face chat-face">
+      <!-- mobile chat = same chat-col content -->
+      <div id="chatbox-mobile"></div>
+      <div id="choices-mobile"></div>
+      <textarea id="input-mobile" placeholder="Typ je bericht…"></textarea>
+      <button id="send-mobile">Verstuur</button>
+    </div>
+    <div class="face theme-face">
+      <!-- mobile thema's = same q-options -->
+      <h4 id="q-title-mobile"></h4>
+      <div id="q-options-mobile"></div>
+    </div>
+    <div class="face topic-face">
+      <!-- mobile onderwerpen -->
+      <button id="back-to-themes-mobile" class="back-button">← Thema’s</button>
+      <h4 id="back-title-mobile"></h4>
+      <div id="q-topic-options-mobile"></div>
+      <button id="confirm-topics-mobile" class="confirm-button" disabled>Bevestig onderwerpen →</button>
+    </div>
+    <div class="face qa-face">
+      <!-- mobile Q&A -->
+      <button id="back-to-topics-mobile" class="back-button">← Onderwerpen</button>
+      <h5>Vragen & Antwoorden</h5>
+      <div id="q-and-a-mobile"></div>
+    </div>
   </div>
 
-  <!-- Sidebar -->
-  <div id="sidebar-flip-container">
-    <div id="sidebar-loader" style="display:none;">
-      <div class="spinner"></div>
-    </div>
-    <div class="flip-container">
-      <!-- 1. Thema's & QA-log -->
-      <aside class="sidebar-face front" id="sidebar-front">
-        <h4 id="q-title"></h4>
-        <div id="q-options"></div>
-        <hr>
-        <h5>Antwoorden</h5>
-        <div id="qa-log"></div>
-      </aside>
-      <!-- 2. Onderwerpen -->
-      <aside class="sidebar-face back" id="sidebar-back">
-        <button id="back-to-themes" class="back-button">← Thema’s</button>
-        <h4 id="back-title"></h4>
-        <div id="q-topic-options"></div>
-        <button id="confirm-topics" class="confirm-button" disabled>Bevestig onderwerpen →</button>
-      </aside>
-      <!-- 3. Vragen & Antwoorden -->
-      <aside class="sidebar-face third" id="sidebar-third">
-        <button id="back-to-topics" class="back-button">← Onderwerpen</button>
-        <h5>Vragen & Antwoorden</h5>
-        <div id="q-and-a"></div>
-      </aside>
-    </div>
-  </div>
-</main>
+  <!-- Mobile text tabs -->
+  <nav id="mobile-tabs">
+    <button data-view="chat">Chat</button>
+    <button data-view="themes">Thema’s</button>
+    <button data-view="topics">Onderwerpen</button>
+    <button data-view="qa" id="qa-tab">Q&A</button>
+  </nav>
 
-<nav id="mobile-nav">
-  <button id="nav-chat">💬 Chat</button>
-  <button id="nav-themes">📂 Thema’s</button>
-  <button id="nav-topics">📝 Onderwerpen</button>
-  <button id="nav-qa">❓ Q&A</button>
-</nav>
+  <script>
+    console.log('[init] frontend initialiseren');
+    // Copy desktop chat into mobile faces
+    const chatCol = document.getElementById('chat-col');
+    const chatMobile = document.getElementById('chatbox-mobile');
+    const choicesMobile = document.getElementById('choices-mobile');
+    const inputMobile = document.getElementById('input-mobile');
+    const sendMobile = document.getElementById('send-mobile');
+    chatMobile.parentNode.replaceChild(chatbox, chatMobile);
+    // Similarly: choices, input, send
+    document.getElementById('choices-mobile').replaceWith(document.getElementById('choices'));
+    document.getElementById('input-mobile').replaceWith(document.getElementById('input'));
+    document.getElementById('send-mobile').replaceWith(document.getElementById('send'));
 
-<script>
-  console.log('[init] frontend initialiseren');
+    /* Shared variables */
+    const API = "https://chatbotbvmp.onrender.com/agent";
+    let sessionId = sessionStorage.getItem("agentSession") || null;
+    let currentTheme = null, selectedTopics = [];
+    window.uiTopicOptionsForTheme = [];
 
-  const API = "https://chatbotbvmp.onrender.com/agent";
-  let sessionId = sessionStorage.getItem("agentSession") || null;
-  let currentTheme = null;
-  let selectedTopics = [];
-  window.uiTopicOptionsForTheme = [];
+    /* Reuse desktop functions for mobile by aliasing element IDs */
+    function addMsg(role, md) {
+      console.log(`[addMsg] role=${role}`, md);
+      const box = document.querySelector(
+        window.innerWidth <= 600
+          ? '#chatbox-mobile'
+          : '#chatbox'
+      );
+      const d = document.createElement("div");
+      d.className = "bubble " + (role === "bot" ? "bot" : "user");
+      d.innerHTML = marked.parse(md);
+      box.appendChild(d);
+      box.scrollTop = box.scrollHeight;
+      return d;
+    }
 
-  const chatbox = document.getElementById("chatbox");
+    function typingBubble() {
+      console.log('[typingBubble] toon typing indicator');
+      return addMsg("bot", "<span class='typing'><span></span><span></span><span></span></span>");
+    }
 
-  function addMsg(role, md) {
-    console.log(`[addMsg] role=${role}`, md);
-    const d = document.createElement("div");
-    d.className = "bubble " + (role === "bot" ? "bot" : "user");
-    d.innerHTML = marked.parse(md);
-    chatbox.appendChild(d);
-    chatbox.scrollTop = chatbox.scrollHeight;
-    return d;
-  }
+    async function callAgent(message) {
+      console.log('[callAgent] verzend naar API:', { message, sessionId });
+      const wait = typingBubble();
+      let data;
+      try {
+        const r = await fetch(API, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ message, session_id: sessionId })
+        });
+        const chatEl = (window.innerWidth <= 600)
+          ? document.querySelector('#chatbox-mobile')
+          : document.querySelector('#chatbox');
+        chatEl.removeChild(wait);
+        data = await r.json();
+        console.log('[callAgent] API response:', data);
+        sessionId = data.session_id;
+        sessionStorage.setItem("agentSession", sessionId);
+      } catch (err) {
+        console.error('[callAgent] fout bij API-aanroep', err);
+        const chatEl = (window.innerWidth <= 600)
+          ? document.querySelector('#chatbox-mobile')
+          : document.querySelector('#chatbox');
+        chatEl.removeChild(wait);
+        throw err;
+      }
+      return data;
+    }
 
-  function typingBubble() {
-    console.log('[typingBubble] toon typing indicator');
-    return addMsg("bot", "<span class='typing'><span></span><span></span><span></span></span>");
-  }
+    async function handleChoiceSilent(txt) {
+      console.log('[handleChoiceSilent] txt=', txt);
+      try { await callAgent(txt); }
+      catch(err){ console.error('[handleChoiceSilent] error', err); }
+    }
 
-  async function callAgent(message) {
-    console.log('[callAgent] verzend naar API:', { message, sessionId });
-    const wait = typingBubble();
-    let data;
-    try {
-      const r = await fetch(API, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message, session_id: sessionId })
+    function logQA(qa) {
+      console.log('[logQA] bijwerken met', qa);
+      const el = window.innerWidth <= 600
+        ? document.getElementById('q-and-a-mobile')
+        : document.getElementById("qa-log");
+      el.innerHTML = "";
+      (qa || []).forEach(r => {
+        const p = document.createElement("div");
+        p.className = 'qa-item';
+        p.innerHTML = `
+          <div class="label">Thema: ${r.theme}</div>
+          <div class="label">Vraag: <strong>${r.question}</strong></div>
+          <div class="label">Antwoord: ${r.answer}</div>
+        `;
+        el.appendChild(p);
       });
-      chatbox.removeChild(wait);
-      data = await r.json();
-      console.log('[callAgent] API response:', data);
-      sessionId = data.session_id;
-      sessionStorage.setItem("agentSession", sessionId);
-    } catch (err) {
-      console.error('[callAgent] fout bij API-aanroep', err);
-      chatbox.removeChild(wait);
-      throw err;
     }
-    return data;
-  }
 
-  async function handleChoiceSilent(txt) {
-    console.log('[handleChoiceSilent] txt=', txt);
-    try {
-      await callAgent(txt);
-    } catch (err) {
-      console.error('[handleChoiceSilent] error', err);
+    /* Sidebar (desktop) loader */
+    function showLoader() { document.getElementById('sidebar-loader').style.display='flex'; }
+    function hideLoader() { document.getElementById('sidebar-loader').style.display='none'; }
+
+    /* Desktop flip helpers */
+    const flipContainer = document.querySelector('.flip-container');
+    function showFront()   { flipContainer.className='flip-container'; }
+    function showBack()    { flipContainer.className='flip-container show-back'; }
+    function showThird()   { flipContainer.className='flip-container show-third'; }
+
+    /* Mobile flip helpers */
+    const mobileFlip = document.getElementById('mobile-flip');
+    function mobileShow(view) {
+      ['chat','themes','topics','qa'].forEach(v=> mobileFlip.classList.remove('show-'+v));
+      mobileFlip.classList.add('show-'+view);
     }
-  }
 
-  function logQA(qa) {
-    console.log('[logQA] bijwerken met', qa);
-    const el = document.getElementById("qa-log");
-    el.innerHTML = "";
-    (qa || []).forEach(r => {
-      const p = document.createElement("p");
-      p.innerHTML = `<strong>${r.theme}</strong><br><em>${r.question}</em><br>${r.answer}`;
-      el.appendChild(p);
-    });
-    el.scrollTop = el.scrollHeight;
-  }
-
-  // Sidebar loader
-  function showLoader() { document.getElementById('sidebar-loader').style.display = 'flex'; }
-  function hideLoader() { document.getElementById('sidebar-loader').style.display = 'none'; }
-
-  // Flip helpers
-  const flipContainer = document.querySelector('.flip-container');
-  function showFront()  { flipContainer.className = 'flip-container'; }
-  function showBack()   { flipContainer.className = 'flip-container show-back'; }
-  function showThird()  { flipContainer.className = 'flip-container show-third'; }
-
-  function renderThemes(opts) {
-    console.log('[renderThemes] opties ontvangen:', opts);
-    const box = document.getElementById("q-options"),
-          tit = document.getElementById("q-title");
-    box.innerHTML = "";
-    tit.textContent = "Kies een thema (max 6):";
-    opts.forEach(o => {
-      const c = document.createElement("span");
-      c.className = "theme-chip";
-      c.textContent = o.name;
-      c.onclick = () => {
-        console.log('[renderThemes] thema-chip geklikt:', o.name);
-        showLoader();
-        handleChoice(`Thema geselecteerd: ${o.name}`);
-      };
-      box.appendChild(c);
-    });
-  }
-
-  function renderTopicChips(options) {
-    console.log('[renderTopicChips] opties ontvangen:', options);
-    const container = document.getElementById("q-topic-options");
-    container.innerHTML = "";
-    options.forEach(opt => {
-      const chip = document.createElement("span");
-      chip.className = "topic-chip";
-      chip.textContent = opt.name;
-      chip.dataset.desc = opt.description || "";
-      chip.onclick = () => {
-        chip.classList.toggle("selected");
-        console.log(`[renderTopicChips] chip ${opt.name} toggled:`, chip.classList.contains("selected"));
-        if (chip.classList.contains("selected")) {
-          if (selectedTopics.length < 4) selectedTopics.push(opt.name);
-          else chip.classList.remove("selected");
-        } else {
-          selectedTopics = selectedTopics.filter(t => t !== opt.name);
-        }
-        updateConfirmButtonState();
-      };
-      container.appendChild(chip);
-    });
-  }
-
-  function updateConfirmButtonState() {
-    const btn = document.getElementById("confirm-topics");
-    btn.disabled = selectedTopics.length === 0;
-    console.log('[updateConfirmButtonState] disabled=', btn.disabled, 'selectedTopics=', selectedTopics);
-  }
-
-  document.getElementById("back-to-themes").onclick = async () => {
-    console.log('[back-to-themes] terug naar thema’s');
-    showLoader();
-    await new Promise(r => setTimeout(r, 300));
-    hideLoader();
-    showFront();
-  };
-
-  document.getElementById("back-to-topics").onclick = () => {
-    console.log('[back-to-topics] terug naar onderwerpen');
-    showBack();
-  };
-
-  async function confirmTopics() {
-    console.log('[confirm-topics] bevestig onderwerpen (silent):', selectedTopics);
-    for (let t of selectedTopics) {
-      console.log('[confirmTopics] verzend topic:', t);
-      await handleChoiceSilent(`Onderwerp geselecteerd: ${t}`);
+    /* renderThemes reused for mobile & desktop */
+    function renderThemes(opts) {
+      console.log('[renderThemes] opties ontvangen:', opts);
+      const box = (window.innerWidth <= 600)
+        ? document.getElementById('q-options-mobile')
+        : document.getElementById("q-options");
+      const tit = (window.innerWidth <= 600)
+        ? document.getElementById('q-title-mobile')
+        : document.getElementById("q-title");
+      box.innerHTML=""; tit.textContent = "Kies een thema (max 6):";
+      opts.forEach(o=>{
+        const c = document.createElement("span");
+        c.className = "theme-chip";
+        c.textContent = o.name;
+        c.onclick = () => {
+          console.log('[renderThemes] thema-chip geklikt:', o.name);
+          if(window.innerWidth<=600){
+            mobileShow('themes'); // direct flip to themes face
+          } else {
+            showLoader();
+          }
+          handleChoice(`Thema geselecteerd: ${o.name}`);
+        };
+        box.appendChild(c);
+      });
     }
-    await handleChoice(`Ik ben klaar met de onderwerpen voor ${currentTheme}.`);
-    console.log('[confirmTopics] open Q&A');
-    showThird();
-    // laad Q&A
-    const qaList = window._qa || []; // veronderstelde state
-    const qaContainer = document.getElementById('q-and-a');
-    qaContainer.innerHTML = "";
-    qaList.forEach(item => {
-      const div = document.createElement("div");
-      div.className = "qa-item";
-      div.innerHTML = `
-        <div class="label">Thema: ${item.theme}</div>
-        <div class="label">Onderwerp: ${item.topic}</div>
-        <div class="question">${item.question}</div>
-        <div class="answer">${item.answer}</div>
-      `;
-      qaContainer.appendChild(div);
-    });
-  }
-  document.getElementById("confirm-topics").onclick = confirmTopics;
 
-  async function callAndRender(msg) {
-    console.log('[callAndRender] verwerking starten voor:', msg);
-    const data = await callAgent(msg);
-    if (data.assistant_reply) {
-      console.log('[callAndRender] toont assistant_reply');
-      addMsg("bot", data.assistant_reply);
+    function renderTopicChips(options) {
+      console.log('[renderTopicChips] opties ontvangen:', options);
+      const container = (window.innerWidth<=600)
+        ? document.getElementById("q-topic-options-mobile")
+        : document.getElementById("q-topic-options");
+      container.innerHTML="";
+      options.forEach(opt=>{
+        const chip = document.createElement("span");
+        chip.className="topic-chip";
+        chip.textContent=opt.name;
+        chip.dataset.desc=opt.description||"";
+        chip.onclick=()=>{
+          chip.classList.toggle("selected");
+          console.log(`[renderTopicChips] chip ${opt.name} toggled:`, chip.classList.contains("selected"));
+          if(chip.classList.contains("selected")){
+            if(selectedTopics.length<4) selectedTopics.push(opt.name);
+            else chip.classList.remove("selected");
+          } else {
+            selectedTopics = selectedTopics.filter(t=>t!==opt.name);
+          }
+          const btn = window.innerWidth<=600
+            ? document.getElementById("confirm-topics-mobile")
+            : document.getElementById("confirm-topics");
+          btn.disabled = selectedTopics.length===0;
+        };
+        container.appendChild(chip);
+      });
     }
-    if (data.stage === "choose_theme" && data.options) {
-      console.log('[callAndRender] renderThemes');
-      renderThemes(data.options);
-      hideLoader();
-      showFront();
-    }
-    if (data.stage === "choose_topic" && data.options && data.current_theme) {
-      console.log('[callAndRender] topics laden');
-      currentTheme = data.current_theme;
-      window.uiTopicOptionsForTheme = data.options;
-      showLoader();
-      setTimeout(() => {
-        hideLoader();
-        showBack();
-        renderTopicChips(window.uiTopicOptionsForTheme);
-        selectedTopics = [];
-        updateConfirmButtonState();
-      }, 600);
-    }
-    window._qa = data.qa || [];  // sla QA op voor derde paneel
-    logQA(data.qa || []);
-  }
 
-  async function handleChoice(txt, showBubble = true) {
-    console.log('[handleChoice] txt=', txt, 'showBubble=', showBubble);
-    if (!txt) return;
-    const inp = document.getElementById("input");
-    if (showBubble) addMsg("user", txt);
-    inp.value = "";
-    try {
-      await callAndRender(txt);
-    } catch (err) {
-      console.error('[handleChoice] error', err);
-      addMsg("bot", "⚠️ Fout.");
-    }
-  }
+    /* Back buttons */
+    document.getElementById("back-to-themes").onclick = async()=>{
+      console.log('[back-to-themes] desktop'); showLoader();
+      await new Promise(r=>setTimeout(r,300));
+      hideLoader(); showFront();
+    };
+    document.getElementById("back-to-themes-mobile").onclick = ()=>{
+      console.log('[back-to-themes-mobile]'); mobileShow('chat');
+    };
 
-  document.getElementById("send").onclick = () =>
-    handleChoice(document.getElementById("input").value.trim());
+    document.getElementById("back-to-topics").onclick = ()=>{
+      console.log('[back-to-topics] desktop'); showBack();
+    };
+    document.getElementById("back-to-topics-mobile").onclick = ()=>{
+      console.log('[back-to-topics-mobile]'); mobileShow('themes');
+    };
 
-  document.getElementById("input").addEventListener("keydown", e => {
-    if (e.key === "Enter" && !e.shiftKey) {
-      console.log('[input] Enter zonder shift');
-      e.preventDefault();
-      document.getElementById("send").click();
-    }
-  });
-
-  // Mobile nav logic
-  if (window.matchMedia("(max-width:600px)").matches) {
-    document.getElementById("mobile-nav").style.display = "flex";
-    document.getElementById("nav-chat").onclick   = () => { console.log('[mobile-nav] Chat');   showFront(); };
-    document.getElementById("nav-themes").onclick = () => { console.log('[mobile-nav] Thema’s'); showFront(); };
-    document.getElementById("nav-topics").onclick = () => { console.log('[mobile-nav] Onderwerpen'); showBack(); };
-    document.getElementById("nav-qa").onclick     = () => { console.log('[mobile-nav] Q&A');   showThird(); };
-  }
-
-  // Welkomstbericht & TaskAgent-popup
-  console.log('[init] welkomsbericht');
-  addMsg("bot", "Welkom bij <strong>Beval met een Plan</strong>! Ik help je stap-voor-stap bij jouw geboorte­plan.");
-  setTimeout(() =>
-    TaskAgent.start({
-      id: "start1",
-      title: "Aan de slag",
-      description: "Zullen we samen eerst de thema’s kiezen die jij belangrijk vindt?",
-      labels: { yes: "Ja!", no: "Later", other: "Anders" },
-      onYes: () => handleChoice("Ik ben klaar om thema’s te kiezen."),
-      onNo: () => { console.log('[TaskAgent] No gekozen'); addMsg("bot", "Geen probleem – typ ‘begin’ als je wilt starten."); },
-      onOther: () => { console.log('[TaskAgent] Other gekozen'); addMsg("bot", "Vertel wat je nu nodig hebt."); }
-    }), 3000);
-</script>
-</body>
-</html>
+    /* Confirm topics */
+    async function confirmTopics() {
+      console.log('[confirmTopics] bevestig onderwerpen:', selectedTopics);
+      for(let t of selectedTopics){
+        console.log('[confirmTopics] verzend topic:',t);
+        await handleChoiceSilent(`Onderwerp geselecteerd: ${t}`);
+      }
+      await handleChoice(`Ik ben klaar met de onderwerpen voor ${currentTheme}.`);
+      console.log('[confirmTopics] desktop open Q&A'); showThird();
+      // mobile flip to Q&A
+      if(window.innerWidth<=600){
+        mobileShow('qa');
+        // highlight mobile Q&A tab
+        document.getElementById('qa-tab').classList.add('new-qa');
+    
