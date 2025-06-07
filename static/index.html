@@ -53,6 +53,7 @@
     }
 
     /* ---------- chat ---------- */
+    /* De chat-kolom op desktop */
     #chat-col {
       flex: 3;
       display: flex;
@@ -66,28 +67,19 @@
       box-sizing: border-box;
       height: 100%;
     }
+
     @media (max-width: 900px) {
+      /* Verberg de desktop chat-kolom volledig op mobiel */
       #chat-col {
-        width: 100%;
-        height: 100%;
-        padding: 24px; /* Behoud interne padding */
-        box-shadow: none;
-        border: none;
-        background: transparent;
-        border-radius: 0;
-        /* Moet deel worden van mobile-flip-container */
-        position: absolute; /* Voor mobile-face positioning */
-        top: 0; left: 0;
-        transform: rotateY(0deg); /* Standaard zichtbaar op mobiel */
-        backface-visibility: hidden;
-        -webkit-backface-visibility: hidden;
-        transition: transform 0.6s ease;
+        display: none;
       }
     }
-    #chatbox {
+
+    /* De chatbox zelf (scrollbaar) */
+    #chatbox, #mobile-chatbox {
       flex: 1;
       overflow-y: auto;
-      padding: 8px;
+      padding: 8px; /* Ruimte binnen de chatbox */
       background: transparent;
     }
     .bubble {
@@ -96,6 +88,7 @@
       border-radius: 18px;
       max-width: 88%;
       animation: fade .25s;
+      word-wrap: break-word; /* Voorkom overflow van lange woorden */
     }
     .bubble.bot {
       background: #fff;
@@ -131,6 +124,13 @@
       0%,80%,100% { opacity: .2; }
       40%         { opacity: 1;   }
     }
+
+    /* Input area voor zowel desktop als mobiel (specifieke IDs) */
+    #input-area, #mobile-input-area {
+      display: flex;
+      flex-direction: column;
+      width: 100%;
+    }
     textarea {
       width: 100%;
       min-height: 90px;
@@ -139,8 +139,9 @@
       border-radius: 18px;
       border: 1px solid rgba(0, 0, 0, .15);
       box-sizing: border-box;
+      resize: vertical; /* Toestaan dat de gebruiker de textarea verticaal resizet */
     }
-    button#send {
+    button#send, button#mobile-send {
       align-self: flex-end;
       margin-top: 6px;
       padding: 12px 24px;
@@ -150,41 +151,60 @@
       color: #fff;
       font-size: 16px;
       cursor: pointer;
+      transition: background 0.2s ease;
+    }
+    button#send:hover, button#mobile-send:hover {
+      opacity: 0.9;
     }
 
-    /* ---------- chips ---------- */
-    #choices {
+    /* ---------- chips (gedeeld) ---------- */
+    #choices, #mobile-choices { /* Container voor themachips in de chat (als ze daar getoond worden) */
       display: flex;
       flex-wrap: wrap;
       column-gap: 14px;
       row-gap: 12px;
+      margin-top: 12px;
+      margin-bottom: 12px;
     }
+    #q-options, #mobile-q-options, /* Thema opties in de sidebar/mobile-face */
+    #q-topic-options, #mobile-q-topic-options { /* Onderwerp opties in de sidebar/mobile-face */
+      display: flex;
+      flex-wrap: wrap;
+      column-gap: 14px;
+      row-gap: 12px;
+      margin-bottom: 12px;
+    }
+
     .badge, .theme-chip, .topic-chip {
       padding: 8px 16px;
       border-radius: 9999px;
       font-size: 14px;
       cursor: pointer;
       user-select: none;
-      transition: .25s;
+      transition: all .25s ease;
+      box-shadow: 0 2px 5px rgba(0,0,0,0.05);
     }
-    .badge { background: var(--grad-rose); color: #fff; }
+    .badge { background: var(--grad-rose); color: #fff; } /* Wordt nu niet gebruikt in deze code, maar voor de zekerheid */
+
     .theme-chip {
       border: 1px solid var(--rose);
       color: var(--rose);
       background: #fff;
-      position: relative;
-      padding-right: 12px;
-      margin: 4px;
+      position: relative; /* Voor de edit-bar */
+      padding-right: 16px; /* Ruimte voor edit-bar */
     }
     .theme-chip:hover {
       background: var(--grad-rose);
       color: #fff;
+      border-color: transparent;
+      transform: translateY(-2px);
     }
     .theme-chip.selected {
       background: linear-gradient(135deg, var(--sage), var(--sage-light));
       color: #fff;
       border: none;
-      padding-right: 28px;
+      padding-right: 28px; /* Meer ruimte voor edit-bar */
+      box-shadow: 0 4px 10px rgba(0,0,0,0.1);
     }
     .edit-bar {
       position: absolute;
@@ -193,7 +213,8 @@
       transform: translateY(-50%);
       font-size: 0.85rem;
       cursor: pointer;
-      opacity: 0.8;
+      opacity: 0.7;
+      transition: opacity 0.2s ease;
     }
     .edit-bar:hover { opacity: 1; }
 
@@ -202,13 +223,18 @@
       border: 1px solid var(--sage);
       color: var(--sage);
       background: rgba(140,191,157,.12);
-      margin: 4px;
+      /* margin: 4px; -- niet nodig als gap wordt gebruikt */
+    }
+    .topic-chip:hover {
+      transform: translateY(-2px);
     }
     .topic-chip.selected {
       background: linear-gradient(135deg, var(--sage), var(--sage-light));
       color: #fff;
       border: 0;
+      box-shadow: 0 4px 10px rgba(0,0,0,0.1);
     }
+    /* Tooltip voor topic beschrijving */
     .topic-chip[data-desc]:hover::after {
       content: attr(data-desc);
       position: absolute;
@@ -223,6 +249,7 @@
       font-size: 12px;
       box-shadow: 0 4px 12px rgba(0,0,0,.15);
       z-index: 20;
+      text-align: center;
     }
     .topic-chip[data-desc]:hover::before {
       content: "";
@@ -232,19 +259,20 @@
       top: 100%;
       border: 6px solid transparent;
       border-top-color: var(--rose-light);
+      z-index: 21;
     }
 
-    /* ---------- sidebar (front/back flip) ---------- */
+    /* ---------- sidebar (desktop view) ---------- */
     #sidebar-flip-container {
       flex: 2;
-      display: flex;
+      display: flex; /* Standaard op desktop is flex */
       flex-direction: column;
       height: 100%;
       position: relative; /* voor loader overlay */
     }
     @media (max-width: 900px) {
       #sidebar-flip-container {
-        display: none; /* Sidebar is niet zichtbaar op mobiel, wordt vervangen door mobile-flip-container */
+        display: none; /* Verberg op mobiel */
       }
     }
 
@@ -252,10 +280,7 @@
       width: 100%;
       height: 100%;
       perspective: 1000px;
-      position: relative;
-      display: flex;
-      flex-direction: column;
-      box-sizing: border-box;
+      position: relative; /* voor absolute positioning van faces */
     }
     .sidebar-face {
       width: 100%;
@@ -278,60 +303,71 @@
     .sidebar-face.front { /* Thema's */
       transform: rotateY(0deg); z-index: 2;
     }
-    .sidebar-face.topics { /* Onderwerpen (was 'back') */
-      transform: rotateY(-180deg); z-index: 1;
+    .sidebar-face.topics { /* Onderwerpen */
+      transform: rotateY(180deg); z-index: 1;
     }
-    .sidebar-face.qa { /* Q&A (nieuwe face) */
-      transform: rotateY(180deg); z-index: 1; /* Start gesloten */
+    .sidebar-face.qa { /* Q&A */
+      transform: rotateY(-180deg); z-index: 1; /* Start gesloten, andere kant op dan topics */
     }
 
     /* Flip states voor desktop sidebar */
     .flip-container.flipped-to-topics .front {
-      transform: rotateY(180deg);
+      transform: rotateY(-180deg); /* Draai de front face de andere kant op */
     }
     .flip-container.flipped-to-topics .topics {
       transform: rotateY(0deg); z-index: 2;
     }
-
     .flip-container.flipped-to-qa .front {
-      transform: rotateY(-180deg); /* Kan ook 0deg zijn afhankelijk van gewenste animatie */
+      transform: rotateY(180deg); /* Draai de front face de andere kant op */
     }
     .flip-container.flipped-to-qa .qa {
       transform: rotateY(0deg); z-index: 2;
     }
 
-    #q-title {
+    /* Basis styling voor titels en knoppen in sidebar faces */
+    #q-title, #mobile-q-title {
       margin-bottom: 6px;
       color: var(--text-light);
       font-weight: 600;
     }
-    #q-options {
-      display: flex;
-      flex-wrap: wrap;
-      column-gap: 14px;
-      row-gap: 12px;
-      margin-bottom: 12px;
+    #back-title, #mobile-back-title {
+      margin-bottom: 6px;
+      color: var(--text-light);
+      font-weight: 600;
     }
-    #qa-log {
-      flex: 1;
+    hr {
+      border: none;
+      border-top: 1px solid rgba(0,0,0,0.1);
+      margin: 20px 0;
+    }
+    h5 {
+      margin-top: 0;
+      margin-bottom: 10px;
+      color: var(--text-light);
+    }
+
+    /* Q&A log styling (gedeeld voor desktop en mobiel) */
+    #qa-log-desktop, #qa-log-full-desktop, #qa-log-mobile {
+      flex: 1; /* Zorgt dat de log de beschikbare ruimte inneemt en scrollbaar is */
       overflow-y: auto;
       padding: 8px;
       margin-top: 8px;
     }
-    #qa-log p {
+    #qa-log-desktop p, #qa-log-full-desktop p, #qa-log-mobile p {
       margin-bottom: 15px;
       padding-bottom: 15px;
       border-bottom: 1px dotted rgba(0,0,0,0.1);
     }
-    #qa-log p:last-child {
+    #qa-log-desktop p:last-child, #qa-log-full-desktop p:last-child, #qa-log-mobile p:last-child {
       border-bottom: none;
     }
-    #qa-log strong { /* Thema */
+    #qa-log-desktop strong, #qa-log-full-desktop strong, #qa-log-mobile strong { /* Thema */
       display: block;
       margin-bottom: 4px;
       color: var(--rose);
+      font-size: 0.95rem;
     }
-    #qa-log em { /* Vraag */
+    #qa-log-desktop em, #qa-log-full-desktop em, #qa-log-mobile em { /* Vraag */
       display: block;
       margin-top: 4px;
       font-style: normal;
@@ -343,9 +379,13 @@
       font-size: 1rem; color: var(--rose);
       cursor: pointer; margin-bottom: 16px;
       align-self: flex-start;
+      transition: color 0.2s ease;
+    }
+    .back-button:hover {
+      color: var(--rose-light);
     }
 
-    /* Sidebar loader overlay */
+    /* Sidebar loader overlay (voor desktop) */
     #sidebar-loader {
       position: absolute;
       top: 0; left: 0;
@@ -366,7 +406,7 @@
     }
     @keyframes spin { to { transform: rotate(360deg); } }
 
-    /* Loader (spinner + voortgangsbalk) */
+    /* Loader (spinner + voortgangsbalk) (gedeeld) */
     .loader-container {
       display: flex; flex-direction: column;
       align-items: center; margin-bottom: 16px;
@@ -397,9 +437,11 @@
       color: #fff; font-size: 16px;
       cursor: pointer; margin-top: 12px;
       align-self: stretch;
+      transition: background 0.2s ease, opacity 0.2s ease;
     }
     .confirm-button:disabled {
       opacity: 0.5; cursor: not-allowed;
+      background: #ccc; /* Grijs als disabled */
     }
 
     /* ---------- Mobiel specifieke stijlen ---------- */
@@ -411,12 +453,14 @@
       }
 
       #mobile-flip-container {
+        /* Mobile flip container neemt de plaats in van de chat-kolom en sidebar */
         width: 100%;
         height: calc(100% - 60px); /* Ruimte voor de tabs onderin */
         perspective: 1000px;
         position: relative;
         box-sizing: border-box;
-        overflow: hidden;
+        overflow: hidden; /* Om te voorkomen dat roterende elementen buiten de container komen */
+        display: block; /* Zorg dat de mobiele container zichtbaar is */
       }
 
       .mobile-face {
@@ -426,7 +470,7 @@
         top: 0; left: 0;
         backface-visibility: hidden;
         -webkit-backface-visibility: hidden;
-        background: rgba(255,255,255,.6);
+        background: var(--grad-main); /* Match background van body voor naadloze overgang */
         border-radius: 0;
         box-shadow: none;
         border: none;
@@ -439,35 +483,36 @@
       }
 
       #mobile-chat-face { transform: rotateY(0deg); z-index: 2; }
-      #mobile-themes-face { transform: rotateY(180deg); } /* Start gesloten */
-      #mobile-topics-face { transform: rotateY(-180deg); } /* Start gesloten */
-      #mobile-qa-face { transform: rotateY(180deg); } /* Start gesloten */
+      #mobile-themes-face { transform: rotateY(180deg); z-index: 1; } /* Start gesloten, naar rechts */
+      #mobile-topics-face { transform: rotateY(-180deg); z-index: 1; } /* Start gesloten, naar links */
+      #mobile-qa-face { transform: rotateY(180deg); z-index: 1; } /* Start gesloten, naar rechts (zelfde als themes) */
+
 
       /* Mobile Flip States */
       #mobile-flip-container.show-chat #mobile-chat-face { transform: rotateY(0deg); z-index: 2; }
       #mobile-flip-container.show-chat #mobile-themes-face,
       #mobile-flip-container.show-chat #mobile-topics-face,
-      #mobile-flip-container.show-chat #mobile-qa-face { transform: rotateY(180deg); z-index: 1; } /* Wegdraaien */
+      #mobile-flip-container.show-chat #mobile-qa-face { transform: rotateY(180deg); z-index: 1; } /* Wegdraaien (naar rechts) */
 
       #mobile-flip-container.show-themes #mobile-chat-face,
       #mobile-flip-container.show-themes #mobile-topics-face,
-      #mobile-flip-container.show-themes #mobile-qa-face { transform: rotateY(-180deg); z-index: 1; }
+      #mobile-flip-container.show-themes #mobile-qa-face { transform: rotateY(-180deg); z-index: 1; } /* Wegdraaien (naar links) */
       #mobile-flip-container.show-themes #mobile-themes-face { transform: rotateY(0deg); z-index: 2; }
 
 
       #mobile-flip-container.show-topics #mobile-chat-face,
       #mobile-flip-container.show-topics #mobile-themes-face,
-      #mobile-flip-container.show-topics #mobile-qa-face { transform: rotateY(180deg); z-index: 1; }
+      #mobile-flip-container.show-topics #mobile-qa-face { transform: rotateY(180deg); z-index: 1; } /* Wegdraaien (naar rechts) */
       #mobile-flip-container.show-topics #mobile-topics-face { transform: rotateY(0deg); z-index: 2; }
 
       #mobile-flip-container.show-qa #mobile-chat-face,
       #mobile-flip-container.show-qa #mobile-themes-face,
-      #mobile-flip-container.show-qa #mobile-topics-face { transform: rotateY(-180deg); z-index: 1; }
+      #mobile-flip-container.show-qa #mobile-topics-face { transform: rotateY(-180deg); z-index: 1; } /* Wegdraaien (naar links) */
       #mobile-flip-container.show-qa #mobile-qa-face { transform: rotateY(0deg); z-index: 2; }
 
 
       #mobile-tabs {
-        display: flex;
+        display: flex; /* Zorg dat de tabs zichtbaar zijn op mobiel */
         width: 100%;
         height: 60px;
         background: #fff;
@@ -475,33 +520,44 @@
         position: fixed;
         bottom: 0; left: 0;
         z-index: 1000;
+        align-items: center;
+        justify-content: space-around;
       }
       #mobile-tabs button {
         flex: 1;
         border: none;
         background: none;
-        font-size: 1rem;
+        font-size: 0.9rem;
         color: var(--text-light);
         cursor: pointer;
         transition: color 0.2s, background-color 0.2s;
+        padding: 5px 0;
+        text-align: center;
+        /* icon toevoegen kan hier via :before/:after of een img */
       }
       #mobile-tabs button.active {
         color: var(--rose);
         font-weight: 600;
       }
       #mobile-tabs button#tab-qa.new-qa {
-        background-color: var(--rose-sub); /* Bijv. een lichtere roze */
-        color: var(--rose); /* Contrasterende kleur */
+        background-color: var(--rose-sub);
+        color: var(--rose);
+        animation: pulse-new-qa 1.5s infinite ease-out;
+      }
+      @keyframes pulse-new-qa {
+        0%, 100% { transform: scale(1); opacity: 1; }
+        50% { transform: scale(1.05); opacity: 0.9; }
       }
 
       /* Input op mobiel: blijft onderaan in de chat-face */
-      #chat-col #input-area {
+      #mobile-input-area {
         position: sticky;
         bottom: 0;
-        background: rgba(255, 255, 255, .6); /* Achtergrond over input */
+        background: rgba(255, 255, 255, 0.9); /* Licht transparant om over chat te kunnen scrollen */
         padding-top: 12px;
         margin-top: auto; /* Zorgt dat het onder blijft */
         border-radius: 0;
+        border-top: 1px solid rgba(0,0,0,0.05);
       }
     }
   </style>
@@ -509,10 +565,10 @@
 <body>
 
 <main id="layout">
-      <div id="chat-col">
+    <div id="chat-col">
     <div id="chatbox"></div>
-    <div id="choices"></div>
-    <div id="input-area">       <textarea id="input" placeholder="Typ je bericht…"></textarea>
+    <div id="choices"></div>     <div id="input-area">
+      <textarea id="input" placeholder="Typ je bericht…"></textarea>
       <button id="send">Verstuur</button>
     </div>
   </div>
@@ -523,33 +579,34 @@
         <div id="q-options"></div>
         <hr>
         <h5>Antwoorden</h5>
-        <div id="qa-log-desktop"></div>         <button id="view-all-qa" class="confirm-button" style="margin-top:20px;">Bekijk alle Vragen & Antwoorden →</button>
+        <div id="qa-log-desktop"></div>
+        <button id="view-all-qa" class="confirm-button" style="margin-top:20px;">Bekijk alle Vragen & Antwoorden →</button>
       </aside>
 
       <aside class="sidebar-face topics" id="sidebar-topics">
         <button id="back-to-themes" class="back-button">← Terug naar thema's</button>
-        <h4 id="back-title" style="margin-bottom:6px; color: var(--text-light); font-weight:600;"></h4>
+        <h4 id="back-title"></h4>
         <div id="topic-loader" class="loader-container" style="display: none;">
           <div class="loader"></div>
           <div class="progress-bar">
             <div class="progress-fill" id="progress-fill"></div>
           </div>
         </div>
-        <div id="q-topic-options" style="display: flex; flex-wrap: wrap; row-gap: 8px;"></div>
+        <div id="q-topic-options"></div>
         <button id="confirm-topics" class="confirm-button" disabled>Bevestig onderwerpen →</button>
       </aside>
 
       <aside class="sidebar-face qa" id="sidebar-qa-desktop">
         <button id="back-from-qa-desktop" class="back-button">← Terug</button>
-        <h4 style="margin-bottom:6px; color: var(--text-light); font-weight:600;">Jouw Vragen & Antwoorden</h4>
-        <div id="qa-log-full-desktop" style="flex: 1; overflow-y: auto; padding: 8px;"></div>
+        <h4>Jouw Vragen & Antwoorden</h4>
+        <div id="qa-log-full-desktop"></div>
       </aside>
     </div>
   </div>
 
     <div id="mobile-flip-container" class="flip-container">
     <div class="mobile-face" id="mobile-chat-face">
-            <div id="mobile-chatbox"></div>
+      <div id="mobile-chatbox"></div>
       <div id="mobile-choices"></div>
       <div id="mobile-input-area">
         <textarea id="mobile-input" placeholder="Typ je bericht…"></textarea>
@@ -564,21 +621,21 @@
 
     <div class="mobile-face" id="mobile-topics-face">
       <button id="mobile-back-to-themes" class="back-button">← Terug naar thema's</button>
-      <h4 id="mobile-back-title" style="margin-bottom:6px; color: var(--text-light); font-weight:600;"></h4>
+      <h4 id="mobile-back-title"></h4>
       <div id="mobile-topic-loader" class="loader-container" style="display: none;">
         <div class="loader"></div>
         <div class="progress-bar">
           <div class="progress-fill" id="mobile-progress-fill"></div>
         </div>
       </div>
-      <div id="mobile-q-topic-options" style="display: flex; flex-wrap: wrap; row-gap: 8px;"></div>
+      <div id="mobile-q-topic-options"></div>
       <button id="mobile-confirm-topics" class="confirm-button" disabled>Bevestig onderwerpen →</button>
     </div>
 
     <div class="mobile-face" id="mobile-qa-face">
       <button id="mobile-back-from-qa" class="back-button">← Terug</button>
-      <h4 style="margin-bottom:6px; color: var(--text-light); font-weight:600;">Jouw Vragen & Antwoorden</h4>
-      <div id="qa-log-mobile" style="flex: 1; overflow-y: auto; padding: 8px;"></div>
+      <h4>Jouw Vragen & Antwoorden</h4>
+      <div id="qa-log-mobile"></div>
     </div>
   </div>
 </main>
@@ -593,7 +650,7 @@
 <script>
   console.log('[init] Geboorteplan-agent frontend initialiseren');
 
-  /* TaskAgent */
+  /* TaskAgent (pop-up voor initiële actie) */
   (() => {
     const done = new Set();
     window.TaskAgent = {
@@ -616,7 +673,9 @@
         ["yes","no","other"].forEach(k => {
           const b = document.createElement("button");
           b.textContent = o.labels[k];
-          b.style.cssText = "flex:1 1 100px;padding:10px 0;border:none;border-radius:10px;background:#667eea;color:#fff;cursor:pointer";
+          b.style.cssText = "flex:1 1 100px;padding:10px 0;border:none;border-radius:10px;background:#667eea;color:#fff;cursor:pointer;transition:background 0.2s ease";
+          b.onmouseover = () => b.style.backgroundColor = "#5a67d8";
+          b.onmouseout = () => b.style.backgroundColor = "#667eea";
           b.onclick = () => {
             console.log(`[TaskAgent] knop ${k} gekozen`);
             ov.remove();
@@ -632,80 +691,89 @@
     };
   })();
 
+  // Backend API endpoint
   const API = "https://chatbotbvmp.onrender.com/agent";
   let sessionId = sessionStorage.getItem("agentSession") || null;
   console.log('[init] sessionId from storage:', sessionId);
 
-  const chatbox = document.getElementById("chatbox"); // Desktop chatbox
-  const mobileChatbox = document.getElementById("mobile-chatbox"); // Mobile chatbox
+  // Referenties naar DOM-elementen
+  const chatbox = document.getElementById("chatbox"); // Desktop
+  const mobileChatbox = document.getElementById("mobile-chatbox"); // Mobiel
 
+  // Functie om een bericht (bubbel) toe te voegen aan de chat
   function addMsg(role, md, isMobile = false) {
     console.log(`[addMsg] role=${role} (mobile: ${isMobile})`, md);
     const d = document.createElement("div");
     d.className = "bubble " + (role==="bot"?"bot":"user");
-    d.innerHTML = marked.parse(md);
+    d.innerHTML = marked.parse(md); // Markdown naar HTML
 
-    if (isMobile && mobileChatbox) {
-      mobileChatbox.appendChild(d);
-      mobileChatbox.scrollTop = mobileChatbox.scrollHeight;
-    } else if (chatbox) {
-      chatbox.appendChild(d);
-      chatbox.scrollTop = chatbox.scrollHeight;
+    const targetChatbox = isMobile ? mobileChatbox : chatbox;
+    if (targetChatbox) {
+      targetChatbox.appendChild(d);
+      targetChatbox.scrollTop = targetChatbox.scrollHeight; // Scroll naar beneden
     }
     return d;
   }
 
+  // Functie om een "typing" indicator toe te voegen
   function typingBubble(isMobile = false) {
     console.log('[typingBubble] toon typing indicator (mobile: ' + isMobile + ')');
     return addMsg("bot","<span class='typing'><span></span><span></span><span></span></span>", isMobile);
   }
 
+  // Functie om de agent API aan te roepen
   async function callAgent(message) {
     console.log('[callAgent] verzend naar API:', {message, sessionId});
-    const isMobile = window.innerWidth <= 900; // Check if it's mobile
-    const wait = typingBubble(isMobile); // Show typing bubble in relevant chatbox
-    let data;
+    const isMobile = window.innerWidth <= 900;
+    const wait = typingBubble(isMobile); // Toon typing bubble
+
     try {
       const r = await fetch(API, {
         method: "POST",
         headers: {"Content-Type":"application/json"},
         body: JSON.stringify({message, session_id: sessionId})
       });
-      if (isMobile && mobileChatbox.contains(wait)) {
-        mobileChatbox.removeChild(wait);
-      } else if (chatbox.contains(wait)) {
-        chatbox.removeChild(wait);
+      
+      // Verwijder typing bubble
+      const targetChatbox = isMobile ? mobileChatbox : chatbox;
+      if (targetChatbox && targetChatbox.contains(wait)) {
+        targetChatbox.removeChild(wait);
       }
-      data = await r.json();
+      
+      const data = await r.json();
       console.log('[callAgent] API response:', data);
       sessionId = data.session_id;
       sessionStorage.setItem("agentSession", sessionId);
+      return data;
     } catch(err) {
       console.error('[callAgent] error', err);
-      if (isMobile && mobileChatbox.contains(wait)) {
-        mobileChatbox.removeChild(wait);
-      } else if (chatbox.contains(wait)) {
-        chatbox.removeChild(wait);
+      // Verwijder typing bubble bij fout
+      const targetChatbox = isMobile ? mobileChatbox : chatbox;
+      if (targetChatbox && targetChatbox.contains(wait)) {
+        targetChatbox.removeChild(wait);
       }
+      addMsg("bot","⚠️ Er is een fout opgetreden. Probeer het later opnieuw.", isMobile);
       throw err;
     }
-    return data;
   }
 
+  // Functie voor het stil verzenden van keuzes (zonder user bubbel)
   async function handleChoiceSilent(txt) {
     console.log('[handleChoiceSilent] txt=', txt);
     try { await callAgent(txt); }
     catch(err){ console.error('[handleChoiceSilent] error', err); }
   }
 
+  // Functie om de Q&A log bij te werken
   function logQA(qa) {
     console.log('[logQA] bijwerken met', qa);
-    const qaLogDesktop = document.getElementById("qa-log-desktop");
-    const qaLogFullDesktop = document.getElementById("qa-log-full-desktop");
-    const qaLogMobile = document.getElementById("qa-log-mobile");
-    const qaTabButton = document.getElementById("tab-qa");
+    const qaLogDesktop = document.getElementById("qa-log-desktop"); // Desktop sidebar
+    const qaLogFullDesktop = document.getElementById("qa-log-full-desktop"); // Desktop full Q&A view
+    const qaLogMobile = document.getElementById("qa-log-mobile"); // Mobiel full Q&A view
+    const qaTabButton = document.getElementById("tab-qa"); // Mobiele Q&A tab
 
     function updateLogElement(el) {
+      if (!el) return;
       el.innerHTML = "";
       (qa||[]).forEach(r=>{
         const p=document.createElement("p");
@@ -715,22 +783,23 @@
       el.scrollTop=el.scrollHeight;
     }
 
-    if (qaLogDesktop) updateLogElement(qaLogDesktop);
-    if (qaLogFullDesktop) updateLogElement(qaLogFullDesktop);
-    if (qaLogMobile) updateLogElement(qaLogMobile);
+    updateLogElement(qaLogDesktop);
+    updateLogElement(qaLogFullDesktop);
+    updateLogElement(qaLogMobile);
 
-    // Highlight Q&A tab if new content is added
-    if (qaTabButton && (qa && qa.length > 0)) { // Check if there's any QA data
-      // Check if the Q&A tab is not currently active
+    // Highlight Q&A tab if new content is added and it's not the active tab
+    if (qaTabButton && (qa && qa.length > 0)) {
       if (!qaTabButton.classList.contains('active')) {
         qaTabButton.classList.add('new-qa');
       }
     }
   }
 
-  let currentTheme=null, selectedTopics=[];
-  window.uiTopicOptionsForTheme=[];
+  let currentTheme=null;
+  let selectedTopics=[];
+  window.uiTopicOptionsForTheme=[]; // Globale variabele om topics op te slaan
 
+  // Loader functies voor desktop sidebar
   function showSidebarLoader(){
     const sidebar=document.getElementById('sidebar-flip-container');
     if(sidebar && !document.getElementById('sidebar-loader')){
@@ -745,23 +814,23 @@
     if(l) l.remove();
   }
 
+  // Loader functies voor mobiele topics
   function showMobileTopicLoader(){
     const loader = document.getElementById('mobile-topic-loader');
     if(loader) loader.style.display = 'flex';
   }
-
   function hideMobileTopicLoader(){
     const loader = document.getElementById('mobile-topic-loader');
     if(loader) loader.style.display = 'none';
   }
 
-
+  // Render functie voor thema's
   function renderThemes(opts, isMobile = false) {
     console.log('[renderThemes] opties ontvangen (mobile: ' + isMobile + '):', opts);
     const box = isMobile ? document.getElementById("mobile-q-options") : document.getElementById("q-options");
     const tit = isMobile ? document.getElementById("mobile-q-title") : document.getElementById("q-title");
 
-    if (!box || !tit) return; // Prevent errors if elements don't exist
+    if (!box || !tit) return;
 
     box.innerHTML="";
     tit.textContent="Kies een thema (max 6):"; // Backend handhaaft de limiet
@@ -774,9 +843,9 @@
         console.log('[renderThemes] thema-chip geklikt:', o.name);
         if (isMobile) {
           showMobileTopicLoader();
-          switchMobileFace('topics');
+          switchMobileFace('topics'); // Flip naar topics face op mobiel
         } else {
-          showSidebarLoader();
+          showSidebarLoader(); // Toon loader op desktop
         }
         handleChoice(`Thema geselecteerd: ${o.name}`, false, isMobile); // Silent choice
       };
@@ -784,19 +853,19 @@
     });
   }
 
+  // Render functie voor onderwerpen
   function renderTopicChips(options, isMobile = false){
     console.log('[renderTopicChips] opties ontvangen (mobile: ' + isMobile + '):', options);
     const ctn = isMobile ? document.getElementById("mobile-q-topic-options") : document.getElementById("q-topic-options");
-    const confirmBtn = isMobile ? document.getElementById("mobile-confirm-topics") : document.getElementById("confirm-topics");
-
-    if (!ctn || !confirmBtn) return;
+    
+    if (!ctn) return;
 
     ctn.innerHTML="";
     options.forEach(opt=>{
       const chip=document.createElement("span");
       chip.className="topic-chip";
       chip.textContent=opt.name;
-      chip.dataset.desc=opt.description||"";
+      chip.dataset.desc=opt.description||""; // Beschrijving voor tooltip
       chip.onclick=()=>{
         if(chip.classList.contains("selected")){
           chip.classList.remove("selected");
@@ -813,36 +882,35 @@
       };
       ctn.appendChild(chip);
     });
+    updateConfirmButtonState(isMobile); // Zorg dat de knop status correct is bij laden
   }
 
+  // Update de status van de bevestigingsknop voor onderwerpen
   function updateConfirmButtonState(isMobile = false){
     const btn = isMobile ? document.getElementById("mobile-confirm-topics") : document.getElementById("confirm-topics");
     if(btn) btn.disabled = selectedTopics.length === 0;
     console.log('[updateConfirmButtonState] disabled=',btn ? btn.disabled : 'N/A','selectedTopics=',selectedTopics);
   }
 
+  // Desktop sidebar navigatieknoppen
   document.getElementById("back-to-themes").onclick=()=>{
-    console.log('[back-to-themes] flip terug');
+    console.log('[back-to-themes] flip terug naar themes');
     document.getElementById("desktop-flip-container").classList.remove("flipped-to-topics");
+    // Zorg ervoor dat de Q&A flip ook teruggedraaid wordt als die actief was
+    document.getElementById("desktop-flip-container").classList.remove("flipped-to-qa");
   };
   document.getElementById("back-from-qa-desktop").onclick=()=>{
-    console.log('[back-from-qa-desktop] flip terug');
+    console.log('[back-from-qa-desktop] flip terug van Q&A');
     document.getElementById("desktop-flip-container").classList.remove("flipped-to-qa");
-    // Terug naar de themes/topics face afhankelijk van welke actie was
-    if (currentTheme) { // Als er een thema is geselecteerd, ga terug naar topics
-      document.getElementById("desktop-flip-container").classList.add("flipped-to-topics");
-    } else { // Anders terug naar themes
-      document.getElementById("desktop-flip-container").classList.remove("flipped-to-topics");
-      // Zorg ervoor dat de 'front' face de actieve is
-      document.getElementById("desktop-flip-container").classList.remove("flipped-to-qa"); // Just in case
-    }
+    // Na terugkeer van Q&A, ga terug naar de themes view (front face)
+    document.getElementById("desktop-flip-container").classList.remove("flipped-to-topics");
   };
   document.getElementById("view-all-qa").onclick=()=>{
     console.log('[view-all-qa] flip naar Q&A');
     document.getElementById("desktop-flip-container").classList.add("flipped-to-qa");
   };
 
-
+  // Bevestig onderwerpen actie
   async function confirmTopics(isMobile = false){
     console.log('[confirm-topics] bevestig onderwerpen (silent):',selectedTopics);
     for(let t of selectedTopics){
@@ -851,6 +919,7 @@
     }
     await handleChoice(`Ik ben klaar met de onderwerpen voor ${currentTheme}.`, true, isMobile);
     console.log('[confirmTopics] flip terug en markeer thema:',currentTheme);
+    
     if (isMobile) {
       switchMobileFace('chat'); // Terug naar chat op mobiel
     } else {
@@ -861,21 +930,27 @@
     updateConfirmButtonState(isMobile);
   }
   document.getElementById("confirm-topics").onclick=() => confirmTopics(false); // Desktop
-  document.getElementById("mobile-confirm-topics").onclick=() => confirmTopics(true); // Mobile
+  document.getElementById("mobile-confirm-topics").onclick=() => confirmTopics(true); // Mobiel
 
+  // Markeer een thema als geselecteerd en voeg bewerk-knop toe
   function markThemeAsSelected(themeName){
     console.log('[markThemeAsSelected] thema selecteren:',themeName);
-    document.querySelectorAll(".theme-chip").forEach(chip=>{ // Zoek op beide plaatsen
+    // Zoek zowel in desktop- als mobiele thema-opties
+    document.querySelectorAll(".theme-chip").forEach(chip=>{
       if(chip.textContent.trim()===themeName){
         chip.classList.add("selected");
-        if(!chip.querySelector(".edit-bar")){
+        if(!chip.querySelector(".edit-bar")){ // Voorkom dubbele edit-bars
           const eb=document.createElement("span");
           eb.className="edit-bar";
           eb.textContent="✎";
           eb.onclick=e=>{
-            e.stopPropagation();
+            e.stopPropagation(); // Voorkom dat de chip click ook afgaat
             console.log('[edit-bar] thema heropenen:',themeName);
             const isMobile = window.innerWidth <= 900;
+            
+            // Reset geselecteerde onderwerpen voor dit thema
+            selectedTopics = []; 
+            // Forceer de keuze van het thema opnieuw om topics op te halen
             if (isMobile) {
               switchMobileFace('topics');
               showMobileTopicLoader();
@@ -890,104 +965,120 @@
     });
   }
 
+  // Hoofdfunctie voor het verwerken van API-reacties en bijwerken van UI
   async function callAndRender(msg){
     console.log('[callAndRender] verwerking starten voor:',msg);
     const isMobile = window.innerWidth <= 900;
-    const data=await callAgent(msg);
-    if(data.assistant_reply){
-      console.log('[callAndRender] toont assistant_reply');
-      addMsg("bot",data.assistant_reply, isMobile);
-    }
+    try {
+      const data=await callAgent(msg);
 
-    if(data.stage==="choose_theme"&&data.options){
-      console.log('[callAndRender] renderThemes');
-      renderThemes(data.options, isMobile);
-      if (!isMobile) hideSidebarLoader();
-    }
-
-    if(data.stage==="choose_topic"&&data.options&&data.current_theme){
-      console.log('[callAndRender] toon sidebar loader & flip');
-      currentTheme=data.current_theme;
-      window.uiTopicOptionsForTheme=data.options;
-      const backTitleEl = isMobile ? document.getElementById("mobile-back-title") : document.getElementById("back-title");
-      if (backTitleEl) backTitleEl.textContent=`Onderwerpen voor “${currentTheme}”`;
-
-      if (!isMobile) {
-        document.getElementById("desktop-flip-container").classList.add("flipped-to-topics");
+      if(data.assistant_reply){
+        console.log('[callAndRender] toont assistant_reply');
+        addMsg("bot",data.assistant_reply, isMobile);
       }
-      setTimeout(()=>{
-        if (isMobile) {
-          hideMobileTopicLoader();
-          renderTopicChips(window.uiTopicOptionsForTheme, true);
-        } else {
-          hideSidebarLoader();
-          renderTopicChips(window.uiTopicOptionsForTheme);
-        }
-        selectedTopics=[];
-        updateConfirmButtonState(isMobile);
-        console.log('[callAndRender] topics geladen');
-      },600);
-    }
 
-    logQA(data.qa||[]);
+      if(data.stage==="choose_theme" && data.options){
+        console.log('[callAndRender] renderThemes');
+        renderThemes(data.options, isMobile);
+        if (!isMobile) hideSidebarLoader();
+      }
+
+      if(data.stage==="choose_topic" && data.options && data.current_theme){
+        console.log('[callAndRender] toon sidebar loader & flip');
+        currentTheme=data.current_theme;
+        window.uiTopicOptionsForTheme=data.options;
+        const backTitleEl = isMobile ? document.getElementById("mobile-back-title") : document.getElementById("back-title");
+        if (backTitleEl) backTitleEl.textContent=`Onderwerpen voor “${currentTheme}”`;
+
+        if (!isMobile) {
+          document.getElementById("desktop-flip-container").classList.add("flipped-to-topics");
+        }
+        
+        // Geef de flip animatie tijd voordat de content verschijnt
+        setTimeout(()=>{
+          if (isMobile) {
+            hideMobileTopicLoader();
+            renderTopicChips(window.uiTopicOptionsForTheme, true);
+          } else {
+            hideSidebarLoader();
+            renderTopicChips(window.uiTopicOptionsForTheme);
+          }
+          selectedTopics=[]; // Zorg dat bij een nieuwe thema-selectie de onderwerpen leeg zijn
+          updateConfirmButtonState(isMobile);
+          console.log('[callAndRender] topics geladen');
+        },600); // 600ms = CSS transition duration
+      }
+
+      logQA(data.qa || []); // Update de Q&A log
+    } catch (err) {
+      console.error('[callAndRender] Fout bij verwerken API data:', err);
+      if (!isMobile) hideSidebarLoader();
+      else hideMobileTopicLoader();
+      // addMsg("bot", "Er ging iets mis bij het ophalen van informatie.", isMobile); // Al gedaan in callAgent
+    }
   }
 
+  // Algemene handler voor gebruikersinvoer (via typen of klikken op chips)
   async function handleChoice(txt,showBubble=true, isMobile = false){
     console.log('[handleChoice] txt=',txt,'showBubble=',showBubble,'isMobile=',isMobile);
-    if(!txt) return;
+    if(!txt.trim()) return; // Voorkom lege berichten
+
     const inp = isMobile ? document.getElementById("mobile-input") : document.getElementById("input");
     if(showBubble) addMsg("user",txt, isMobile);
-    if (inp) inp.value="";
+    if (inp) inp.value=""; // Leeg het invoerveld
     try{ await callAndRender(txt); }
-    catch(err){ console.error('[handleChoice] error',err); addMsg("bot","⚠️ Fout.", isMobile); }
+    catch(err){ /* Fout afgehandeld in callAgent */ }
   }
 
-  // Desktop input & send
+  // Event listeners voor desktop chat invoer
   document.getElementById("send").onclick=()=>
     handleChoice(document.getElementById("input").value.trim(), true, false);
 
   document.getElementById("input").addEventListener("keydown",e=>{
     if(e.key==="Enter"&&!e.shiftKey){
-      console.log('[input] Enter zonder shift (desktop)');
-      e.preventDefault();
+      e.preventDefault(); // Voorkom nieuwe regel in textarea
       document.getElementById("send").click();
     }
   });
 
-  // Mobile input & send
+  // Event listeners voor mobiele chat invoer
   document.getElementById("mobile-send").onclick=()=>
     handleChoice(document.getElementById("mobile-input").value.trim(), true, true);
 
   document.getElementById("mobile-input").addEventListener("keydown",e=>{
     if(e.key==="Enter"&&!e.shiftKey){
-      console.log('[input] Enter zonder shift (mobile)');
       e.preventDefault();
       document.getElementById("mobile-send").click();
     }
   });
 
-  // Mobile tab switching logic
+  // Mobiele tab navigatie logica
   const mobileFlipContainer = document.getElementById('mobile-flip-container');
   const mobileTabs = document.querySelectorAll('#mobile-tabs button');
 
   function switchMobileFace(faceName) {
     console.log('[switchMobileFace] naar face:', faceName);
-    mobileFlipContainer.className = 'flip-container show-' + faceName;
+    // Verwijder alle show-klassen en voeg de nieuwe toe
+    mobileFlipContainer.classList.remove('show-chat', 'show-themes', 'show-topics', 'show-qa');
+    mobileFlipContainer.classList.add('show-' + faceName);
 
     mobileTabs.forEach(tab => tab.classList.remove('active'));
-    document.getElementById('tab-' + faceName).classList.add('active');
-
-    // Remove new-qa highlight when Q&A tab is active
-    if (faceName === 'qa') {
-      document.getElementById('tab-qa').classList.remove('new-qa');
+    const targetTab = document.getElementById('tab-' + faceName);
+    if (targetTab) {
+      targetTab.classList.add('active');
+      // Verwijder new-qa highlight wanneer Q&A tab actief wordt
+      if (faceName === 'qa') {
+        targetTab.classList.remove('new-qa');
+      }
     }
   }
 
   document.getElementById('tab-chat').onclick = () => switchMobileFace('chat');
   document.getElementById('tab-themes').onclick = () => {
     switchMobileFace('themes');
-    // Zorg dat thema's gerenderd worden als je ernaartoe schakelt
-    handleChoice("toon thema's", false, true); // Stille keuze om thema's op te halen en te tonen
+    // Trigger het ophalen van thema's opnieuw voor de zekerheid
+    // Dit voorkomt lege thema's als de user direct naar de tab gaat
+    handleChoice("toon thema's", false, true); 
   };
   document.getElementById('tab-topics').onclick = () => {
     if (currentTheme) {
@@ -998,19 +1089,21 @@
     } else {
       alert("Kies eerst een thema om onderwerpen te kunnen bekijken.");
       switchMobileFace('themes'); // Stuur gebruiker naar thema's
+      handleChoice("toon thema's", false, true); // En forceer het laden van thema's
     }
   };
   document.getElementById('tab-qa').onclick = () => switchMobileFace('qa');
 
 
-  // Mobile back buttons
+  // Mobiele terug-knoppen
   document.getElementById('mobile-back-to-themes').onclick = () => switchMobileFace('themes');
   document.getElementById('mobile-back-from-qa').onclick = () => switchMobileFace('chat'); // Terug naar chat vanuit Q&A op mobiel
 
-  // Initialize chat
+  // Initialiseer chat en pop-up
   console.log('[init] welkomsbericht');
-  // Desktop only chatbox initially visible
-  addMsg("bot","Welkom bij <strong>Beval met een Plan</strong>! Ik help je stap-voor-stap bij jouw geboorte­plan.", false);
+  // Voeg het initiële welkomstbericht toe aan de juiste chatbox, afhankelijk van de device breedte
+  addMsg("bot","Welkom bij <strong>Beval met een Plan</strong>! Ik help je stap-voor-stap bij jouw geboorte­plan.", window.innerWidth <= 900);
+
 
   setTimeout(()=>TaskAgent.start({
     id:"start1",
@@ -1021,16 +1114,16 @@
       const isMobile = window.innerWidth <= 900;
       if (isMobile) {
         switchMobileFace('themes'); // Flip naar thema's face op mobiel
-        handleChoice("Ik ben klaar om thema’s te kiezen.", false, true); // Stille keuze om thema's op te halen en te tonen
-      } else {
-        handleChoice("Ik ben klaar om thema’s te kiezen.");
       }
+      // De keuze "Ik ben klaar om thema’s te kiezen." stuurt de backend-vraag,
+      // en de response zal de thema's renderen in de actieve (desktop/mobiele) sidebar.
+      handleChoice("Ik ben klaar om thema’s te kiezen.", false, isMobile); 
     },
     onNo:()=>{console.log('[TaskAgent] No gekozen');addMsg("bot","Geen probleem – typ ‘begin’ als je wilt starten.", window.innerWidth <= 900);},
     onOther:()=>{console.log('[TaskAgent] Other gekozen');addMsg("bot","Vertel wat je nu nodig hebt.", window.innerWidth <= 900);}
   }),3000);
 
-  // Initial setup for mobile/desktop layout
+  // Functie om de lay-out aan te passen aan de apparaatbreedte
   function updateLayoutForDevice() {
     const isMobile = window.innerWidth <= 900;
     const desktopSidebar = document.getElementById('sidebar-flip-container');
@@ -1042,33 +1135,23 @@
       desktopSidebar.style.display = 'none';
       mobileFlip.style.display = 'block';
       mobileTabs.style.display = 'flex';
-      // Move chat-col content to mobile-chat-face
-      // This part requires careful DOM manipulation, copying/moving elements
-      // For simplicity, I've duplicated the relevant HTML in the mobile-chat-face
-      // and added 'mobile-' prefixes. In a real app, you might hide/show,
-      // or move elements around, but that adds more JS complexity.
-      // For now, the desktop chat-col will stay, but will be visually hidden by mobile-flip-container's positioning
-      desktopChatCol.style.position = 'absolute'; // Ensure it's hidden by mobile-flip
-      desktopChatCol.style.visibility = 'hidden';
-      desktopChatCol.style.zIndex = -1; // Send it to back
-      switchMobileFace('chat'); // Ensure chat is default on mobile
+      desktopChatCol.style.display = 'none'; // Verberg de desktop chat-kolom volledig
+      // Zorg ervoor dat de mobiele container de actieve is
+      // switchMobileFace('chat'); // Standaard naar chat bij overschakelen naar mobiel
     } else {
       desktopSidebar.style.display = 'flex';
       mobileFlip.style.display = 'none';
       mobileTabs.style.display = 'none';
-      desktopChatCol.style.position = 'static'; // Reset for desktop
-      desktopChatCol.style.visibility = 'visible';
-      desktopChatCol.style.zIndex = 'auto';
+      desktopChatCol.style.display = 'flex'; // Toon de desktop chat-kolom
+      // Reset desktop flip state indien nodig
+      document.getElementById("desktop-flip-container").classList.remove("flipped-to-topics", "flipped-to-qa");
     }
   }
 
-  // Initial call and listener for resize
+  // Initiële layout update en luister naar resize events
   updateLayoutForDevice();
   window.addEventListener('resize', updateLayoutForDevice);
 
-  // Make sure desktop input area is always at the bottom
-  // This CSS ensures it stays in place within its flex container
-  // No JS needed for this specific requirement if flexbox is correctly set up
 </script>
 </body>
 </html>
