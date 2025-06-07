@@ -71,6 +71,114 @@ DEFAULT_TOPICS: Dict[str, List[NamedDescription]] = {
     ]
 }
 
+# ============================================================
+# Tool-implementaties (Eerst de functies, dan de wrappers en BASE_AGENT)
+# ============================================================
+def _set_theme_options(session_id: str, options: List[NamedDescription]) -> str:
+    st = get_session(session_id)
+    st["ui_theme_opts"] = options
+    persist(session_id)
+    return "ok"
+
+def _set_topic_options(session_id: str, theme: str, options: List[NamedDescription]) -> str:
+    st = get_session(session_id)
+    st["ui_topic_opts"] = options
+    st["current_theme"] = theme
+    persist(session_id)
+    return "ok"
+
+def _register_theme(session_id: str, theme: str, description: str = "") -> str:
+    st = get_session(session_id)
+    if len(st["themes"]) >= 6 or theme in [t["name"] for t in st["themes"]]:
+        return "ok"
+    st["themes"].append({"name": theme, "description": description})
+    st["stage"] = "choose_topic"
+    st["ui_topic_opts"] = DEFAULT_TOPICS.get(theme, [])
+    st["current_theme"] = theme
+    persist(session_id)
+    return "ok"
+
+def _register_topic(session_id: str, theme: str, topic: str) -> str:
+    st = get_session(session_id)
+    lst = st["topics"].setdefault(theme, [])
+    if len(lst) >= 4 or topic in lst:
+        return "ok"
+    lst.append(topic)
+    persist(session_id)
+    return "ok"
+
+def _complete_theme(session_id: str) -> str:
+    st = get_session(session_id)
+    if len(st["themes"]) >= 6: # Dit is een simpele trigger, kan complexer
+        st["stage"] = "qa"
+    else:
+        st["stage"] = "choose_theme"
+        
+    st["ui_topic_opts"] = []
+    st["current_theme"] = None
+    persist(session_id)
+    return "ok"
+
+def _log_answer(session_id: str, theme: str, question: str, answer: str) -> str:
+    st = get_session(session_id)
+    for item in st["qa"]:
+        if item["theme"] == theme and item["question"] == question:
+            item["answer"] = answer
+            persist(session_id)
+            return "ok"
+    st["qa"].append({
+        "theme": theme,
+        "question": question,
+        "answer": answer
+    })
+    persist(session_id)
+    return "ok"
+
+def _update_answer(session_id: str, question: str, new_answer: str) -> str:
+    st = get_session(session_id)
+    for qa in st["qa"]:
+        if qa["question"] == question:
+            qa["answer"] = new_answer
+            break
+    persist(session_id)
+    return "ok"
+
+def _get_state(session_id: str) -> str:
+    return json.dumps(get_session(session_id))
+
+# Wrappers voor Agents-SDK
+set_theme_options = function_tool(_set_theme_options)
+set_topic_options = function_tool(_set_topic_options)
+register_theme    = function_tool(_register_theme)
+register_topic    = function_tool(_register_topic)
+complete_theme    = function_tool(_complete_theme)
+log_answer        = function_tool(_log_answer)
+update_answer     = function_tool(_update_answer)
+get_state_tool    = function_tool(_get_state)
+
+# ============================================================
+# Agent-template
+# ============================================================
+BASE_AGENT = Agent(
+    name="Geboorteplan-agent",
+    model="gpt-4o", # Model geüpdatet naar 4o voor betere prestaties, kan terug naar 4.1 als je dat wilt
+    instructions=(
+        "Je helpt ouders hun geboorteplan maken (je bent géén digitale verloskundige).\n\n"
+        "• Gebruik `set_theme_options` (max 6 objecten `{name, description}`) om thema’s te tonen.\n"
+        "• Na `register_theme` stuur je direct `set_topic_options` met ≥4 `{name, description}`.\n"
+        "• UI roept `register_topic` per selectie (max 4) en daarna `complete_theme`.\n"
+        "• Bij 6 thema’s ga je automatisch door naar QA en stel je vragen; sla antwoorden op met `log_answer`.\n"
+        "• Alle antwoorden in het Nederlands. Gebruik bij élke tool het juiste `session_id`."
+        "• Log alle gebruikersinputs en bot-replies (inclusief tool calls) als onderdeel van de history."
+    ),
+    tools=[
+        set_theme_options, set_topic_options,
+        register_theme, register_topic, complete_theme,
+        log_answer, update_answer, get_state_tool
+    ],
+)
+
+
 # ---------- SQLite-helper functions ----------
 def init_db() -> None:
     with sqlite3.connect(DB_FILE) as con:
@@ -121,7 +229,14 @@ def load_state(sid: str) -> Optional[dict]:
             if row_msg[1]: # content
                 msg_dict["content"] = row_msg[1]
             if row_msg[2]: # tool_calls
-                msg_dict["tool_calls"] = json.loads(row_msg[2])
+                # Probeer tool_calls te laden, vang JSONDecodeError op indien ongeldig JSON
+                try:
+                    loaded_tool_calls = json.loads(row_msg[2])
+                    if loaded_tool_calls: # Alleen toevoegen als er daadwerkelijk tool calls zijn
+                        msg_dict["tool_calls"] = loaded_tool_calls
+                except json.JSONDecodeError:
+                    # Log de fout, of negeer gewoon de ongeldige tool_calls data
+                    print(f"Waarschuwing: Ongeldige JSON voor tool_calls in message {row_msg} voor sessie {sid}")
             history.append(msg_dict)
         
         state["history"] = history # Voeg de gereconstrueerde history toe
@@ -180,9 +295,13 @@ def summarize_chunk(chunk: List[dict]) -> str:
     filtered_chunk = []
     for m in chunk:
         if isinstance(m, dict) and 'role' in m:
-            if m['role'] == 'tool_calls': # tool calls hebben geen 'content' in dit formaat
-                continue
+            # Voor summarization willen we geen tool_calls zelf samenvatten, alleen hun output of de gewone content
+            if m['role'] == 'tool' or ('tool_calls' in m and not m.get('content')):
+                continue # Sla tool calls over voor de samenvatting, tenzij ze ook content hebben
             if 'content' in m and isinstance(m['content'], str):
+                filtered_chunk.append(m)
+            # Speciale handling voor tool_response messages die content hebben
+            elif m['role'] == 'tool' and 'content' in m and isinstance(m['content'], str):
                 filtered_chunk.append(m)
     
     if not filtered_chunk: # If no valid messages remain after filtering
@@ -203,107 +322,6 @@ def summarize_chunk(chunk: List[dict]) -> str:
     )
     return r.choices[0].message.content.strip()
 
-# ============================================================
-# Tool-implementaties
-# ============================================================
-# Deze tool-implementaties blijven grotendeels hetzelfde,
-# omdat ze de sessiestate direct muteren, die vervolgens wordt geperst.
-
-def _set_theme_options(session_id: str, options: List[NamedDescription]) -> str:
-    st = get_session(session_id)
-    st["ui_theme_opts"] = options
-    persist(session_id)
-    return "ok"
-
-def _set_topic_options(session_id: str, theme: str, options: List[NamedDescription]) -> str:
-    st = get_session(session_id)
-    st["ui_topic_opts"] = options
-    st["current_theme"] = theme
-    persist(session_id)
-    return "ok"
-
-def _register_theme(session_id: str, theme: str, description: str = "") -> str:
-    st = get_session(session_id)
-    if len(st["themes"]) >= 6 or theme in [t["name"] for t in st["themes"]]:
-        return "ok"
-    st["themes"].append({"name": theme, "description": description})
-    st["stage"] = "choose_topic"
-    st["ui_topic_opts"] = DEFAULT_TOPICS.get(theme, [])
-    st["current_theme"] = theme
-    persist(session_id)
-    return "ok"
-
-def _register_topic(session_id: str, theme: str, topic: str) -> str:
-    st = get_session(session_id)
-    lst = st["topics"].setdefault(theme, [])
-    if len(lst) >= 4 or topic in lst:
-        return "ok"
-    lst.append(topic)
-    persist(session_id)
-    return "ok"
-
-def _complete_theme(session_id: str) -> str:
-    st = get_session(session_id)
-    # Deze logica bepaalt wanneer overgegaan wordt naar QA of terug naar thema selectie
-    # Je kunt hier complexere checks toevoegen, bijv. alle geselecteerde thema's hebben topics
-    
-    # Voor nu, als er al 6 thema's zijn gekozen, of als de gebruiker kiest om door te gaan,
-    # dan naar QA. Anders terug naar themakeuze.
-    # Dit is afhankelijk van de exacte UI flow en intentie.
-    # Laten we aannemen dat complete_theme wordt aangeroepen wanneer de gebruiker klaar is met ONDERWERPEN voor een thema.
-    
-    # Als er al voldoende thema's zijn gekozen (bijv. 6), dan naar de QA fase.
-    # Anders terug naar de themakeuze fase.
-    if len(st["themes"]) >= 6: # Dit is een simpele trigger, kan complexer
-        st["stage"] = "qa"
-    else:
-        st["stage"] = "choose_theme"
-        
-    st["ui_topic_opts"] = []
-    st["current_theme"] = None
-    persist(session_id)
-    return "ok"
-
-def _log_answer(session_id: str, theme: str, question: str, answer: str) -> str:
-    st = get_session(session_id)
-    # Controleer of deze vraag al bestaat binnen dit thema, zo ja, update het antwoord
-    for item in st["qa"]:
-        if item["theme"] == theme and item["question"] == question:
-            item["answer"] = answer
-            persist(session_id)
-            return "ok"
-    # Anders, voeg nieuwe QA toe
-    st["qa"].append({
-        "theme": theme,
-        "question": question,
-        "answer": answer
-    })
-    persist(session_id)
-    return "ok"
-
-def _update_answer(session_id: str, question: str, new_answer: str) -> str:
-    st = get_session(session_id)
-    for qa in st["qa"]:
-        if qa["question"] == question:
-            qa["answer"] = new_answer
-            break
-    persist(session_id)
-    return "ok"
-
-def _get_state(session_id: str) -> str:
-    # Deze tool retourneert de JSON-representatie van de huidige sessiestate.
-    # De history in deze state is de in-memory history.
-    return json.dumps(get_session(session_id))
-
-# Wrappers voor Agents-SDK
-set_theme_options = function_tool(_set_theme_options)
-set_topic_options = function_tool(_set_topic_options)
-register_theme    = function_tool(_register_theme)
-register_topic    = function_tool(_register_topic)
-complete_theme    = function_tool(_complete_theme)
-log_answer        = function_tool(_log_answer)
-update_answer     = function_tool(_update_answer)
-get_state_tool    = function_tool(_get_state)
 
 # ============================================================
 # Streaming-/chat-endpoint (optioneel)
@@ -344,13 +362,9 @@ def agent():
     st   = get_session(sid)
 
     # samenvatten bij lange history
-    # We werken nu met de in-memory history (st["history"])
-    # De summary wordt gebaseerd op deze history en opgeslagen in de session state.
     if len(st["history"]) > 40:
         st["summary"] = (st["summary"] + "\n" +
                          summarize_chunk(st["history"][:-20])).strip()
-        # Behoud alleen de laatste 20 berichten in de in-memory history
-        # Oudere berichten zijn immers al in de DB gelogd en worden samengevat.
         st["history"] = st["history"][-20:] 
     
     # Voeg de nieuwe user message toe aan de in-memory history en log deze direct
@@ -361,8 +375,6 @@ def agent():
     intro  = ([{"role": "system", "content": "Samenvatting:\n" + st["summary"]}]
               if st["summary"] else [])
     
-    # Messages voor de agent zijn de intro + de diepe kopie van de huidige in-memory history
-    # Dit zorgt ervoor dat de agent de volledige context heeft voor de huidige beurt.
     messages_for_agent = intro + deepcopy(st["history"])
 
     agent_inst = Agent(
@@ -371,47 +383,52 @@ def agent():
     )
     res = Runner().run_sync(agent_inst, messages_for_agent)
 
-    # De output van res.to_input_list() bevat de complete conversatie inclusief de tool calls en antwoorden van de agent
-    # We moeten nu de *nieuwe* berichten sinds de laatste user input loggen
-    new_history = res.to_input_list()
+    # Verwerk de output van de agent en log de nieuwe berichten
+    new_history_from_run = res.to_input_list()
     
-    # Identificeer en log alleen de berichten die nieuw zijn sinds de user input
-    # (d.w.z., de berichten van de agent en de tool calls/responses)
-    # Dit kan complex zijn, afhankelijk van hoe `res.to_input_list()` omgaat met de initiële `messages_for_agent`.
-    # Een simpele aanpak: neem alles na de user_message die we zojuist hebben toegevoegd.
-    # Dit vereist wel dat messages_for_agent correct is.
+    # Identificeer en log alleen de berichten die *nieuw* zijn van de agent's zijde
+    # Vergelijk de nieuwe history met de messages die we al aan de agent hebben gevoerd.
+    # We willen niet de 'intro' messages meetellen in de vergelijking van lengte.
+    
+    # We weten dat messages_for_agent begon met `intro` en daarna `st["history"]`.
+    # De nieuwe berichten zijn de output van de agent zelf.
+    # De makkelijkste manier is om `res.events` te inspecteren, of de output van `res.to_input_list()` te parsen.
+    # res.to_input_list() bevat de hele conversatie inclusief de user_message die we al hebben gelogd.
+    
+    # Oplossing: Pak de berichten vanaf de lengte van de 'initiële' history + 1 (voor de user message)
+    # Dit gaat er vanuit dat `res.to_input_list()` de berichten in volgorde teruggeeft.
+    
+    # Log de nieuwe berichten die de agent heeft gegenereerd (tool calls, tool outputs, assistant replies)
+    # We nemen de `history` zoals die was *vóór* deze run, en vergelijken `res.to_input_list()` daarmee.
+    
+    # Stel vast welk deel van de `new_history_from_run` nieuw is.
+    # `new_history_from_run` bevat de complete conversatie die de `Runner` heeft gebruikt/gegenereerd.
+    # `st["history"]` bevat de in-memory geschiedenis *voor* de agent-run (inclusief de user_message die zojuist gelogd is).
+    
+    # Zoek het eerste bericht in `new_history_from_run` dat niet overeenkomt met de `st["history"]` (excl. intro).
+    # Dit is de meest robuuste manier:
+    start_index_of_new_messages = 0
+    # Find the starting point of the agent's new messages in new_history_from_run
+    # by looking for the last message that was already in our in-memory history (user message)
+    for i in range(len(new_history_from_run)):
+        if i < len(st["history"]):
+            # Compare the 'role' and 'content' of messages to find the split point
+            # This handles cases where tools might modify messages slightly
+            if (new_history_from_run[i].get('role') != st["history"][i].get('role') or
+                new_history_from_run[i].get('content') != st["history"][i].get('content')):
+                start_index_of_new_messages = i
+                break
+        else:
+            start_index_of_new_messages = i
+            break
+    
+    # Log de *nieuwe* berichten en voeg ze toe aan de in-memory history
+    for i in range(start_index_of_new_messages, len(new_history_from_run)):
+        agent_generated_message = new_history_from_run[i]
+        st["history"].append(agent_generated_message) # Voeg toe aan in-memory history
+        _log_message(sid, agent_generated_message)    # Log in de DB
 
-    # Om het robuust te maken: vergelijk de lengte van de history voor en na de run.
-    # Log de berichten die in `new_history` zitten en niet in `messages_for_agent` (minus de intro).
-    
-    # Beter: log alle berichten van de agent_run die NIET de initiële user_message zijn.
-    # Loop door res.to_input_list() en log wat nieuw is.
-    
-    # Let op: res.to_input_list() geeft de HELE run terug, inclusief de user input die we al logden.
-    # We moeten dus zorgen dat we alleen de *nieuwe* berichten loggen, die de agent heeft gegenereerd.
-    # Het is veiliger om te itereren over de events/messages die de Runner zelf heeft gegenereerd.
-    
-    # De Runner returns een object met details over de run. De res.final_output is de laatste tekst.
-    # Echter, res.to_input_list() is de eenvoudigste manier om de "chat" te krijgen.
-    # We loggen de user_message al. Nu moeten we de rest van de agent's beurt loggen.
-    
-    # Dit is een heuristiek: we weten dat de laatste message in st["history"] de user_message is.
-    # Alles daarna (in res.to_input_list()) komt van de agent.
-    # We moeten ervoor zorgen dat we geen dubbele user_messages opslaan.
-    
-    # Laten we het zo doen: we nemen de `messages_for_agent` (die al de user_message bevat),
-    # en we updaten `st["history"]` met `res.to_input_list()`.
-    # De berichten die *nieuw* zijn in `res.to_input_list()` vergeleken met `messages_for_agent` zijn de agent's replies.
-    
-    logged_messages_count = len(messages_for_agent) # Aantal berichten dat al bestond of zojuist is toegevoegd (user)
-    
-    # Voeg alle berichten van de agent's antwoord toe aan de in-memory history en log ze.
-    for i in range(logged_messages_count, len(new_history)):
-        agent_message = new_history[i]
-        st["history"].append(agent_message) # Voeg toe aan in-memory history
-        _log_message(sid, agent_message)    # Log in de DB
-
-    persist(sid) # Sla de bijgewerkte sessiestate (zonder history, want die staat in messages tabel) op
+    persist(sid) # Sla de bijgewerkte sessiestate op (zonder history)
 
     return jsonify({
         "assistant_reply": str(res.final_output),
@@ -438,25 +455,4 @@ def export_json(sid: str):
 # ============================================================
 # SPA-fallback: serveer frontend-bestanden uit /static
 # ============================================================
-@app.route("/", defaults={"path": ""})
-@app.route("/<path:path>")
-def serve_frontend(path):
-    full_path = os.path.join(app.static_folder, path)
-    if path and os.path.exists(full_path):
-        return send_from_directory(app.static_folder, path)
-    return send_from_directory(app.static_folder, "index.html")
-
-# ============================================================
-# Remove X-Frame-Options zodat embedding mogelijk is
-# ============================================================
-@app.after_request
-def allow_iframe(response):
-    response.headers.pop("X-Frame-Options", None)
-    return response
-
-# ============================================================
-# Run de app
-# ============================================================
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=10000, debug=True)
-
+@app.ro
