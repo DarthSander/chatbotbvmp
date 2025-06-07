@@ -1,5 +1,5 @@
 # ============================================================
-#  Geboorteplan-agent – volledige Flask-app
+#  Geboorteplan-agent – volledige Flask-app met static hosting
 #  Compatibel met Agents-SDK 0.0.17 (strict-schema)
 # ============================================================
 
@@ -9,58 +9,66 @@ from copy import deepcopy
 from typing import List, Dict, Optional
 from typing_extensions import TypedDict
 
-from flask import Flask, request, Response, jsonify, abort, send_file
+from flask import (
+    Flask, request, Response, jsonify, abort,
+    send_file, send_from_directory
+)
 from flask_cors import CORS
 from openai import OpenAI
 from agents import Agent, Runner, function_tool
 
-# ---------- strikt type voor objecten ----------
+# ---------- strikt type voor thema’s en topics ----------
 class NamedDescription(TypedDict):
     name: str
     description: str
 
 # ---------- basisconfig ----------
 client           = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-ASSISTANT_ID     = os.getenv("ASSISTANT_ID")                # gerelateerd aan je Assistants-dashboard
+ASSISTANT_ID     = os.getenv("ASSISTANT_ID")  # van je Assistants-dashboard
 ALLOWED_ORIGINS = [
-  "https://bevalmeteenplan.nl",
-  "https://www.bevalmeteenplan.nl",
-  "https://chatbotbvmp.onrender.com"
+    "https://bevalmeteenplan.nl",
+    "https://www.bevalmeteenplan.nl",
+    "https://chatbotbvmp.onrender.com"
 ]
-DB_FILE          = "sessions.db"
+DB_FILE = "sessions.db"
 
-app = Flask(__name__)
+# Maak de Flask-app zó dat alles in /static op “/…” wordt geserveerd
+app = Flask(
+    __name__,
+    static_folder="static",   # map met index.html, css/, js/
+    static_url_path=""        # mapt “/foo.js” → “static/foo.js”
+)
 CORS(app, origins=ALLOWED_ORIGINS, allow_headers="*", methods=["GET", "POST", "OPTIONS"])
 
 # ---------- standaardonderwerpen ----------
 DEFAULT_TOPICS: Dict[str, List[NamedDescription]] = {
     "Ondersteuning": [
-        {"name": "Wie wil je bij de bevalling?",           "description": "Welke personen wil je er fysiek bij hebben?"},
-        {"name": "Rol van je partner of ander persoon?",   "description": "Specificeer taken of wensen voor je partner."},
-        {"name": "Wil je een doula / kraamzorg?",          "description": "Extra ondersteuning tijdens en na de bevalling."},
-        {"name": "Wat verwacht je van het personeel?",     "description": "Welke stijl van begeleiding past bij jou?"}
+        {"name": "Wie wil je bij de bevalling?", "description": "Welke personen wil je er fysiek bij hebben?"},
+        {"name": "Rol van je partner of ander persoon?", "description": "Specificeer taken of wensen voor je partner."},
+        {"name": "Wil je een doula / kraamzorg?", "description": "Extra ondersteuning tijdens en na de bevalling."},
+        {"name": "Wat verwacht je van het personeel?", "description": "Welke stijl van begeleiding past bij jou?"}
     ],
     "Bevalling & medisch beleid": [
-        {"name": "Pijnstilling",       "description": "Medicamenteuze en niet-medicamenteuze opties."},
-        {"name": "Interventies",       "description": "Bijv. inknippen, kunstverlossing, infuus."},
-        {"name": "Noodsituaties",      "description": "Wat als het anders loopt dan gepland?"},
-        {"name": "Placenta-keuzes",    "description": "Placenta bewaren, laten staan, of doneren?"}
+        {"name": "Pijnstilling",    "description": "Medicamenteuze en niet-medicamenteuze opties."},
+        {"name": "Interventies",    "description": "Bijv. inknippen, kunstverlossing, infuus."},
+        {"name": "Noodsituaties",   "description": "Wat als het anders loopt dan gepland?"},
+        {"name": "Placenta-keuzes", "description": "Placenta bewaren, laten staan, of doneren?"}
     ],
     "Sfeer en omgeving": [
         {"name": "Muziek & verlichting", "description": "Rustige muziek? Gedimd licht?"},
-        {"name": "Privacy",             "description": "Wie mag binnenkomen en fotograferen?"},
+        {"name": "Privacy",              "description": "Wie mag binnenkomen en fotograferen?"},
         {"name": "Foto’s / video",       "description": "Wil je opnames laten maken?"},
         {"name": "Eigen spulletjes",     "description": "Bijv. eigen kussen, etherische olie."}
     ],
     "Voeding na de geboorte": [
-        {"name": "Borstvoeding",         "description": "Ondersteuning, kolven, rooming-in."},
-        {"name": "Flesvoeding",          "description": "Welke melk? Wie geeft de fles?"},
-        {"name": "Combinatie-voeding",   "description": "Afwisselen borst en fles."},
-        {"name": "Allergieën",           "description": "Rekening houden met familiaire allergieën."}
+        {"name": "Borstvoeding",       "description": "Ondersteuning, kolven, rooming-in."},
+        {"name": "Flesvoeding",        "description": "Welke melk? Wie geeft de fles?"},
+        {"name": "Combinatie-voeding", "description": "Afwisselen borst en fles."},
+        {"name": "Allergieën",         "description": "Rekening houden met familiaire allergieën."}
     ]
 }
 
-# ---------- SQLite ----------
+# ---------- SQLite-helper functions ----------
 def init_db() -> None:
     with sqlite3.connect(DB_FILE) as con:
         con.execute("CREATE TABLE IF NOT EXISTS sessions (id TEXT PRIMARY KEY, state TEXT NOT NULL)")
@@ -79,7 +87,7 @@ def save_state(sid: str, st: dict) -> None:
         )
         con.commit()
 
-# ---------- sessiebeheer ----------
+# ---------- In-memory sessies + persistence ----------
 SESSION: Dict[str, dict] = {}
 def get_session(sid: str) -> dict:
     if sid in SESSION:
@@ -87,12 +95,12 @@ def get_session(sid: str) -> dict:
     if (db := load_state(sid)):
         SESSION[sid] = {**db, "history": []}
         return SESSION[sid]
-    # nieuwe sessie
+    # Nieuwe sessie
     SESSION[sid] = {
         "stage": "choose_theme",
-        "themes": [],                 # [{'name','description'}]
-        "topics": {},                 # {theme: [topic …]}
-        "qa": [],                     # [{'theme','question','answer'}]
+        "themes": [],
+        "topics": {},
+        "qa": [],
         "history": [],
         "summary": "",
         "ui_theme_opts": [],
@@ -104,7 +112,7 @@ def get_session(sid: str) -> dict:
 def persist(sid: str) -> None:
     save_state(sid, SESSION[sid])
 
-# ---------- samenvatten ----------
+# ---------- History-samenvatting (bij >40 messages) ----------
 def summarize_chunk(chunk: List[dict]) -> str:
     if not chunk:
         return ""
@@ -120,9 +128,8 @@ def summarize_chunk(chunk: List[dict]) -> str:
     return r.choices[0].message.content.strip()
 
 # ============================================================
-#  Tool-implementaties (allemaal strikt getype-de parameters)
+#  Tool-implementaties
 # ============================================================
-
 def _set_theme_options(session_id: str, options: List[NamedDescription]) -> str:
     st = get_session(session_id)
     st["ui_theme_opts"] = options
@@ -165,7 +172,11 @@ def _complete_theme(session_id: str) -> str:
     return "ok"
 
 def _log_answer(session_id: str, theme: str, question: str, answer: str) -> str:
-    get_session(session_id)["qa"].append({"theme": theme, "question": question, "answer": answer})
+    get_session(session_id)["qa"].append({
+        "theme": theme,
+        "question": question,
+        "answer": answer
+    })
     persist(session_id)
     return "ok"
 
@@ -179,10 +190,9 @@ def _update_answer(session_id: str, question: str, new_answer: str) -> str:
     return "ok"
 
 def _get_state(session_id: str) -> str:
-    """Voor debug / front-end polling"""
     return json.dumps(get_session(session_id))
 
-# ---------- tool-wrappers ----------
+# Wrappers voor Agents-SDK
 set_theme_options = function_tool(_set_theme_options)
 set_topic_options = function_tool(_set_topic_options)
 register_theme    = function_tool(_register_theme)
@@ -235,7 +245,7 @@ def chat():
                     mimetype="text/plain")
 
 # ============================================================
-#  Synchronous /agent-endpoint (belangrijk voor front-end)
+#  Synchronous /agent-endpoint
 # ============================================================
 @app.post("/agent")
 def agent():
@@ -254,7 +264,8 @@ def agent():
         st["history"] = st["history"][-20:]
         persist(sid)
 
-    intro   = [{"role": "system", "content": "Samenvatting:\n" + st["summary"]}] if st["summary"] else []
+    intro   = ([{"role": "system", "content": "Samenvatting:\n" + st["summary"]}]
+               if st["summary"] else [])
     messages = intro + deepcopy(st["history"]) + [{"role": "user", "content": msg}]
 
     agent_inst = Agent(
@@ -269,13 +280,14 @@ def agent():
     return jsonify({
         "assistant_reply": str(res.final_output),
         "session_id": sid,
-        "options": st["ui_topic_opts"] if st["stage"] == "choose_topic" else st["ui_theme_opts"],
+        "options": st["ui_topic_opts"] if st["stage"] == "choose_topic"
+                   else st["ui_theme_opts"],
         "current_theme": st["current_theme"],
-        # transparante extra-state behalve grote velden
-        **{k: v for k, v in st.items() if k not in ("history", "ui_theme_opts", "ui_topic_opts")}
+        **{k: v for k, v in st.items()
+           if k not in ("history", "ui_theme_opts", "ui_topic_opts")}
     })
 
-# ---------- export (unchanged) ----------
+# ---------- export endpoint ----------
 @app.get("/export/<sid>")
 def export_json(sid: str):
     st = load_state(sid)
@@ -284,14 +296,29 @@ def export_json(sid: str):
     path = f"/tmp/geboorteplan_{sid}.json"
     with open(path, "w", encoding="utf-8") as f:
         json.dump(st, f, ensure_ascii=False, indent=2)
-    return send_file(path, as_attachment=True, download_name=path.split("/")[-1])
+    return send_file(path, as_attachment=True, download_name=os.path.basename(path))
 
+# ============================================================
+#  SPA-fallback: serveer frontend-bestanden uit /static
+# ============================================================
+@app.route("/", defaults={"path": ""})
+@app.route("/<path:path>")
+def serve_frontend(path):
+    full_path = os.path.join(app.static_folder, path)
+    if path and os.path.exists(full_path):
+        return send_from_directory(app.static_folder, path)
+    return send_from_directory(app.static_folder, "index.html")
+
+# ============================================================
+#  Remove X-Frame-Options zodat embedding mogelijk is
+# ============================================================
 @app.after_request
 def allow_iframe(response):
     response.headers.pop("X-Frame-Options", None)
     return response
 
-
-# ---------- main ----------
+# ============================================================
+#  Run de app
+# ============================================================
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=10000, debug=True)
