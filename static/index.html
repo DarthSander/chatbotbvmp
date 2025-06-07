@@ -10,55 +10,37 @@
 
   <style>
     /* ============================================================ */
-    /* =========== 1. DESKTOP STIJLING (ongewijzigd) ============== */
+    /* 1. DESKTOP-STIJLING (ongewijzigd)                            */
     /* ============================================================ */
-
     :root {
-      --rose: #d5848d;
-      --rose-light: #e8a8b0;
-      --sage: #8cbf9d;
-      --sage-light: #cfe6d0;
-      --cream: #fef9f5;
-      --beige: #fdf7f2;
-      --rose-sub: #fbeaec;
-      --text: #2d3436;
-      --text-light: #636e72;
+      --rose: #d5848d; --rose-light: #e8a8b0;
+      --sage: #8cbf9d; --sage-light: #cfe6d0;
+      --cream: #fef9f5; --beige: #fdf7f2; --rose-sub: #fbeaec;
+      --text: #2d3436; --text-light: #636e72;
       --grad-main: linear-gradient(135deg, var(--cream), var(--beige) 50%, var(--rose-sub) 100%);
       --grad-rose: linear-gradient(135deg, var(--rose), var(--rose-light));
       --shadow: 0 6px 22px rgba(0, 0, 0, .1);
     }
     html, body {
-      height: 100%; margin: 0; padding: 0;
-      font-family: Inter, system-ui, sans-serif;
-      background: var(--grad-main);
-      color: var(--text);
-      line-height: 1.55;
+      height:100%; margin:0; padding:0;
+      font-family:Inter,system-ui,sans-serif;
+      background:var(--grad-main); color:var(--text);
+      line-height:1.55;
     }
-
-    /* --- Desktop layout --- */
     #layout {
-      display: flex;
-      gap: 24px;
-      max-width: 1280px;
-      margin: auto;
-      padding: 24px;
-      height: 100%;
-      box-sizing: border-box;
+      display:flex; gap:24px;
+      max-width:1280px; margin:auto; padding:24px;
+      height:100%; box-sizing:border-box;
     }
+    @media(max-width:900px){ #layout{flex-direction:column;} }
 
-    /* --- Chat column --- */
+    /* Chatkolom */
     #chat-col {
-      flex: 3;
-      display: flex;
-      flex-direction: column;
-      gap: 12px;
-      padding: 24px;
-      background: rgba(255,255,255,.6);
-      border-radius: 24px;
-      box-shadow: var(--shadow);
+      flex:3; display:flex; flex-direction:column; gap:12px;
+      padding:24px; background:rgba(255,255,255,.6);
+      border-radius:24px; box-shadow:var(--shadow);
       border:1px solid rgba(255,255,255,.4);
-      box-sizing:border-box;
-      height:100%;
+      box-sizing:border-box; height:100%;
     }
     #chatbox { flex:1; overflow-y:auto; padding:8px; }
     .bubble {
@@ -78,15 +60,14 @@
       display:inline-block; width:6px; height:6px; margin:0 2px;
       background:#888; border-radius:50%; animation:blink 1.2s infinite;
     }
-    .typing span:nth-child(2){ animation-delay:.2s; }
-    .typing span:nth-child(3){ animation-delay:.4s; }
+    .typing span:nth-child(2){animation-delay:.2s;}
+    .typing span:nth-child(3){animation-delay:.4s;}
     @keyframes blink {0%,80%,100%{opacity:.2;}40%{opacity:1;}}
 
     textarea {
-      width:100%; min-height:90px;
-      padding:16px 20px; font-size:16px;
-      border-radius:18px; border:1px solid rgba(0,0,0,.15);
-      box-sizing:border-box;
+      width:100%; min-height:90px; padding:16px 20px;
+      font-size:16px; border-radius:18px;
+      border:1px solid rgba(0,0,0,.15); box-sizing:border-box;
     }
     button#send {
       align-self:flex-end; margin-top:6px;
@@ -95,7 +76,7 @@
       font-size:16px; cursor:pointer;
     }
 
-    /* --- Sidebar (3 panels) --- */
+    /* Sidebar (3 panels) */
     #sidebar-flip-container {
       flex:2; position:relative; height:100%;
     }
@@ -122,30 +103,27 @@
     .sidebar-face.third { transform:rotateY(-360deg); z-index:1; }
 
     .back-button {
-      background:none; border:none; color:var(--rose);
-      font-size:1rem; cursor:pointer; margin-bottom:16px;
-      align-self:flex-start;
+      background:none; border:none;
+      color:var(--rose); font-size:1rem; cursor:pointer;
+      margin-bottom:16px; align-self:flex-start;
     }
 
-    /* Loader-overlay */
     #sidebar-loader {
-      position:absolute; top:0; left:0;
-      width:100%; height:100%;
+      position:absolute; top:0; left:0; width:100%; height:100%;
       background:rgba(255,255,255,0.8);
       display:flex; align-items:center; justify-content:center;
       z-index:4;
     }
     #sidebar-loader .spinner {
       border:4px solid rgba(0,0,0,0.1);
-      border-top-color:var(--rose);
-      border-radius:50%; width:32px; height:32px;
-      animation:spin 1s linear infinite;
+      border-top-color:var(--rose); border-radius:50%;
+      width:32px; height:32px; animation:spin 1s linear infinite;
     }
     @keyframes spin{ to{transform:rotate(360deg);} }
 
-    /* Thema & topics */
     #q-title { margin-bottom:6px; color:var(--text-light); font-weight:600; }
     #q-options { display:flex; flex-wrap:wrap; gap:12px 14px; margin-bottom:12px; }
+
     .theme-chip, .topic-chip {
       padding:8px 16px; border-radius:9999px;
       font-size:14px; cursor:pointer; user-select:none;
@@ -176,15 +154,14 @@
     .topic-chip[data-desc]:hover::after {
       content:attr(data-desc);
       position:absolute; left:50%; transform:translateX(-50%);
-      top:110%; background:var(--rose-light);
-      color:#fff; padding:6px 10px; border-radius:8px;
-      white-space:nowrap; font-size:12px;
-      box-shadow:0 4px 12px rgba(0,0,0,.15); z-index:20;
+      top:110%; background:var(--rose-light); color:#fff;
+      padding:6px 10px; border-radius:8px; white-space:nowrap;
+      font-size:12px; box-shadow:0 4px 12px rgba(0,0,0,.15);
+      z-index:20;
     }
     .topic-chip[data-desc]:hover::before {
       content:""; position:absolute; left:50%; transform:translateX(-50%);
-      top:100%; border:6px solid transparent;
-      border-top-color:var(--rose-light);
+      top:100%; border:6px solid transparent; border-top-color:var(--rose-light);
     }
     #q-topic-options { display:flex; flex-wrap:wrap; gap:8px; }
 
@@ -196,7 +173,6 @@
     }
     .confirm-button:disabled { opacity:.5; cursor:not-allowed; }
 
-    /* Q&A paneel */
     #sidebar-third h5 { margin-top:0; font-size:1rem; font-weight:600; }
     #q-and-a { flex:1; overflow-y:auto; padding:8px; }
     .qa-item { margin-bottom:16px; }
@@ -205,21 +181,19 @@
     .qa-item .answer   { margin-left:8px; }
 
     /* ============================================================ */
-    /* =========== 2. MOBIELE AANPASSINGEN  ======================= */
+    /* 2. MOBIELE AANPASSINGEN                                      */
     /* ============================================================ */
 
-    /* Verstop desktop, toon mobile flip */
-    #mobile-flip { display:none; }
-    #mobile-tabs { display:none; }
+    /* Verberg desktop, toon mobile */
+    #layout { display:flex; }
+    #mobile-flip, #mobile-tabs { display:none; }
 
     .face {
-      position:absolute; top:0; left:0;
-      width:100%; height:100%;
+      position:absolute; top:0; left:0; width:100%; height:100%;
       backface-visibility:hidden; -webkit-backface-visibility:hidden;
       padding:24px; box-sizing:border-box; overflow-y:auto;
-      background:rgba(255,255,255,.6);
-      border-radius:24px; box-shadow:var(--shadow);
-      border:1px solid rgba(255,255,255,.4);
+      background:rgba(255,255,255,.6); border-radius:24px;
+      box-shadow:var(--shadow); border:1px solid rgba(255,255,255,.4);
     }
     .chat-face  { transform:rotateY(  0deg); z-index:4; }
     .theme-face { transform:rotateY(-90deg); z-index:3; }
@@ -235,17 +209,12 @@
     #mobile-flip.show-topics { transform:rotateY(-180deg); }
     #mobile-flip.show-qa     { transform:rotateY(-270deg); }
 
-    /* Tabs onderin */
     @media(max-width:600px){
-      /* hide desktop */
       #layout { display:none; }
-      /* show mobile */
       #mobile-flip { display:block; }
       #mobile-tabs {
-        display:flex;
-        position:fixed; bottom:0; left:0; right:0;
-        height:48px; background:#fff;
-        box-shadow:0 -2px 8px rgba(0,0,0,.1);
+        display:flex; position:fixed; bottom:0; left:0; right:0;
+        height:48px; background:#fff; box-shadow:0 -2px 8px rgba(0,0,0,.1);
         z-index:10;
       }
       #mobile-tabs button {
@@ -260,16 +229,14 @@
 </head>
 <body>
 
-  <!-- DESKTOP -->
+  <!-- DESKTOP LAYOUT -->
   <main id="layout">
-    <!-- chat -->
     <div id="chat-col">
       <div id="chatbox"></div>
       <div id="choices"></div>
       <textarea id="input" placeholder="Typ je bericht…"></textarea>
       <button id="send">Verstuur</button>
     </div>
-    <!-- sidebar -->
     <div id="sidebar-flip-container">
       <div id="sidebar-loader" style="display:none;"><div class="spinner"></div></div>
       <div class="flip-container">
@@ -295,7 +262,7 @@
     </div>
   </main>
 
-  <!-- MOBILE flip -->
+  <!-- MOBILE FLIP -->
   <div id="mobile-flip" class="show-chat">
     <div class="face chat-face">
       <div id="chatbox-mobile"></div>
@@ -320,7 +287,7 @@
     </div>
   </div>
 
-  <!-- MOBIEL TABS -->
+  <!-- MOBILE TABS -->
   <nav id="mobile-tabs">
     <button data-view="chat">Chat</button>
     <button data-view="themes">Thema’s</button>
@@ -331,76 +298,63 @@
   <script>
     console.log('[init] frontend initialiseren');
 
-    // ** KOPIEER CHAT & CHOICES NAAR MOBILE ** 
-    // we plakken eenvoudig de bestaande elementen over
-    document.getElementById('chatbox-mobile').replaceWith(document.getElementById('chatbox'));
-    document.getElementById('choices-mobile').replaceWith(document.getElementById('choices'));
-    document.getElementById('input-mobile').replaceWith(document.getElementById('input'));
-    document.getElementById('send-mobile').replaceWith(document.getElementById('send'));
-
+    // Kloon desktop-chat & choices niet meer nodig: gebruikt separate containers
+    // Setup
     const API = "https://chatbotbvmp.onrender.com/agent";
-    let sessionId = sessionStorage.getItem("agentSession") || null;
-    let currentTheme = null, selectedTopics = [];
-    window.uiTopicOptionsForTheme = [];
+    let sessionId = sessionStorage.getItem("agentSession")||null;
+    let currentTheme=null, selectedTopics=[];
 
-    /* MESSAGE PRODUCERS */
-    function addMsg(role, md) {
-      console.log(`[addMsg] role=${role}`, md);
-      const box = window.innerWidth<=600 ? document.getElementById('chatbox-mobile') : document.getElementById('chatbox');
-      const d = document.createElement("div");
-      d.className = "bubble " + (role==="bot"?"bot":"user");
+    // Helpers
+    function isMobile(){ return window.innerWidth <= 600; }
+    function getEl(idDesktop, idMobile){
+      return isMobile() ? document.getElementById(idMobile) : document.getElementById(idDesktop);
+    }
+
+    function addMsg(role, md){
+      console.log('[addMsg]',role,md);
+      const box = getEl('chatbox','chatbox-mobile');
+      const d = document.createElement('div');
+      d.className = 'bubble ' + (role==='bot'?'bot':'user');
       d.innerHTML = marked.parse(md);
       box.appendChild(d);
       box.scrollTop = box.scrollHeight;
       return d;
     }
     function typingBubble(){
-      console.log('[typingBubble]');
-      return addMsg("bot","<span class='typing'><span></span><span></span><span></span></span>");
+      return addMsg('bot',"<span class='typing'><span></span><span></span><span></span></span>");
     }
 
-    /* API CALL */
     async function callAgent(message){
-      console.log('[callAgent] ',message,sessionId);
-      const wait = typingBubble();
+      console.log('[callAgent]',message,sessionId);
+      const wait=typingBubble();
       let data;
       try{
         const res = await fetch(API,{
-          method:"POST",
-          headers:{"Content-Type":"application/json"},
-          body:JSON.stringify({message,session_id:sessionId})
+          method:'POST',
+          headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({message, session_id: sessionId})
         });
-        const box = window.innerWidth<=600 ? document.getElementById('chatbox-mobile') : document.getElementById('chatbox');
+        const box = getEl('chatbox','chatbox-mobile');
         box.removeChild(wait);
         data = await res.json();
-        console.log('[callAgent] resp',data);
+        console.log('[resp]',data);
         sessionId = data.session_id;
-        sessionStorage.setItem("agentSession",sessionId);
+        sessionStorage.setItem('agentSession',sessionId);
       }catch(err){
-        console.error('[callAgent] error',err);
-        const box = window.innerWidth<=600 ? document.getElementById('chatbox-mobile') : document.getElementById('chatbox');
+        console.error(err);
+        const box = getEl('chatbox','chatbox-mobile');
         box.removeChild(wait);
         throw err;
       }
       return data;
     }
 
-    /* SILENT TOPICS */
-    async function handleChoiceSilent(txt){
-      console.log('[handleChoiceSilent]',txt);
-      try{ await callAgent(txt); }catch(err){console.error(err);}
-    }
-
-    /* LOG QA */
     function logQA(qa){
       console.log('[logQA]',qa);
-      const el = window.innerWidth<=600
-        ? document.getElementById('q-and-a-mobile')
-        : document.getElementById('q-and-a');
-      el.innerHTML="";
+      const el = getEl('q-and-a','q-and-a-mobile');
+      el.innerHTML = '';
       (qa||[]).forEach(item=>{
-        const div=document.createElement("div");
-        div.className="qa-item";
+        const div=document.createElement('div'); div.className='qa-item';
         div.innerHTML=`
           <div class="label">Thema: ${item.theme}</div>
           <div class="label">Vraag: <strong>${item.question}</strong></div>
@@ -410,132 +364,166 @@
       });
     }
 
-    /* DESKTOP LOADER & FLIP */
+    // DESKTOP loader/flip
     function showLoader(){ document.getElementById('sidebar-loader').style.display='flex'; }
     function hideLoader(){ document.getElementById('sidebar-loader').style.display='none'; }
-    const flipContainer = document.querySelector('.flip-container');
-    function showFront() { flipContainer.className='flip-container'; }
-    function showBack()  { flipContainer.className='flip-container show-back'; }
-    function showThird() { flipContainer.className='flip-container show-third'; }
+    const flipC = document.querySelector('.flip-container');
+    function showFront(){ flipC.className='flip-container'; }
+    function showBack(){ flipC.className='flip-container show-back'; }
+    function showThird(){ flipC.className='flip-container show-third'; }
 
-    /* MOBILE FLIP */
-    const mobileFlip = document.getElementById('mobile-flip');
+    // MOBILE flip
+    const mobFlip = document.getElementById('mobile-flip');
     function mobileShow(view){
-      ['chat','themes','topics','qa'].forEach(v=>mobileFlip.classList.remove('show-'+v));
-      mobileFlip.classList.add('show-'+view);
+      ['chat','themes','topics','qa'].forEach(v=>mobFlip.classList.remove('show-'+v));
+      mobFlip.classList.add('show-'+view);
     }
 
-    /* RENDER THEMES */
+    // Render themes
     function renderThemes(opts){
-      console.log('[renderThemes]',opts);
-      const box = window.innerWidth<=600
-        ? document.getElementById('q-options-mobile')
-        : document.getElementById('q-options');
-      const tit = window.innerWidth<=600
-        ? document.getElementById('q-title-mobile')
-        : document.getElementById('q-title');
-      box.innerHTML=""; tit.textContent="Kies een thema (max 6):";
+      console.log('[themes]',opts);
+      const box = getEl('q-options','q-options-mobile');
+      const tit = getEl('q-title','q-title-mobile');
+      box.innerHTML=''; tit.textContent='Kies een thema (max 6):';
       opts.forEach(o=>{
-        const chip=document.createElement("span");
-        chip.className="theme-chip"; chip.textContent=o.name;
+        const chip=document.createElement('span'); chip.className='theme-chip';
+        chip.textContent=o.name;
         chip.onclick=()=>{
           console.log('[theme click]',o.name);
-          if(window.innerWidth<=600) mobileShow('themes'); else showLoader();
+          if(isMobile()) mobileShow('themes'); else showLoader();
           handleChoice(`Thema geselecteerd: ${o.name}`);
         };
         box.appendChild(chip);
       });
     }
 
-    /* RENDER TOPICS */
-    function renderTopicChips(options){
-      console.log('[renderTopicChips]',options);
-      const container = window.innerWidth<=600
-        ? document.getElementById('q-topic-options-mobile')
-        : document.getElementById('q-topic-options');
-      container.innerHTML="";
-      options.forEach(opt=>{
-        const chip=document.createElement("span");
-        chip.className="topic-chip"; chip.textContent=opt.name;
-        chip.dataset.desc=opt.description||"";
+    // Render topics
+    function renderTopicChips(opts){
+      console.log('[topics]',opts);
+      const cont = getEl('q-topic-options','q-topic-options-mobile');
+      cont.innerHTML='';
+      opts.forEach(opt=>{
+        const chip=document.createElement('span'); chip.className='topic-chip';
+        chip.textContent=opt.name; chip.dataset.desc=opt.description||'';
         chip.onclick=()=>{
-          chip.classList.toggle("selected");
-          console.log('[topic toggle]',opt.name,chip.classList.contains("selected"));
-          if(chip.classList.contains("selected")){
+          chip.classList.toggle('selected');
+          console.log('[toggle topic]',opt.name,chip.classList.contains('selected'));
+          if(chip.classList.contains('selected')){
             if(selectedTopics.length<4) selectedTopics.push(opt.name);
-            else chip.classList.remove("selected");
+            else chip.classList.remove('selected');
           } else {
             selectedTopics = selectedTopics.filter(t=>t!==opt.name);
           }
-          const btn = window.innerWidth<=600
-            ? document.getElementById('confirm-topics-mobile')
-            : document.getElementById('confirm-topics');
+          const btn = getEl('confirm-topics','confirm-topics-mobile');
           btn.disabled = selectedTopics.length===0;
         };
-        container.appendChild(chip);
+        cont.appendChild(chip);
       });
     }
 
-    /* BACK BUTTONS */
-    document.getElementById('back-to-themes').onclick=async()=>{
-      console.log('[back-to-themes] desktop');
-      showLoader(); await new Promise(r=>setTimeout(r,300));
+    // Back buttons
+    document.getElementById('back-to-themes').onclick = async()=>{
+      console.log('[back desktop]'); showLoader();
+      await new Promise(r=>setTimeout(r,300));
       hideLoader(); showFront();
     };
-    document.getElementById('back-to-themes-mobile').onclick=()=>{
-      console.log('[back-to-themes-mobile]'); mobileShow('chat');
-    };
-    document.getElementById('back-to-topics').onclick=()=>{
-      console.log('[back-to-topics] desktop'); showBack();
-    };
-    document.getElementById('back-to-topics-mobile').onclick=()=>{
-      console.log('[back-to-topics-mobile]'); mobileShow('themes');
-    };
+    document.getElementById('back-to-themes-mobile').onclick = ()=>mobileShow('chat');
 
-    /* CONFIRM TOPICS */
+    document.getElementById('back-to-topics').onclick = ()=>showBack();
+    document.getElementById('back-to-topics-mobile').onclick = ()=>mobileShow('themes');
+
+    // Confirm topics
     async function confirmTopics(){
-      console.log('[confirmTopics] topics:',selectedTopics);
+      console.log('[confirmTopics]',selectedTopics);
       for(let t of selectedTopics){
-        console.log('[confirmTopics] silent',t);
-        await handleChoiceSilent(`Onderwerp geselecteerd: ${t}`);
+        console.log('[silent send]',t);
+        await callAgent(`Onderwerp geselecteerd: ${t}`);
       }
       await handleChoice(`Ik ben klaar met de onderwerpen voor ${currentTheme}.`);
-      console.log('[confirmTopics] open Q&A'); showThird();
-      if(window.innerWidth<=600){
-        mobileShow('qa');
-        document.getElementById('qa-tab').classList.add('new-qa');
-      }
+      console.log('[open Q&A]');
+      if(isMobile()){ mobileShow('qa'); document.getElementById('qa-tab').classList.add('new-qa'); }
+      else showThird();
     }
-    document.getElementById('confirm-topics').onclick=confirmTopics;
-    document.getElementById('confirm-topics-mobile').onclick=confirmTopics;
+    document.getElementById('confirm-topics').onclick = confirmTopics;
+    document.getElementById('confirm-topics-mobile').onclick = confirmTopics;
 
-    /* MAIN: CALL & RENDER */
+    // Core runner
     async function callAndRender(msg){
-      console.log('[callAndRender] voor',msg);
+      console.log('[run]',msg);
       const data = await callAgent(msg);
       if(data.assistant_reply){
-        console.log('[callAndRender] reply',data.assistant_reply);
-        addMsg("bot",data.assistant_reply);
+        console.log('[reply]',data.assistant_reply);
+        addMsg('bot',data.assistant_reply);
       }
-      if(data.stage==="choose_theme"&&data.options){
+      if(data.stage==='choose_theme' && data.options){
         renderThemes(data.options);
-        if(window.innerWidth>600){ hideLoader(); showFront(); }
-        else { mobileShow('themes'); }
+        if(isMobile()) mobileShow('themes'); else { hideLoader(); showFront(); }
       }
-      if(data.stage==="choose_topic"&&data.options&&data.current_theme){
-        currentTheme=data.current_theme;
+      if(data.stage==='choose_topic' && data.options && data.current_theme){
+        currentTheme = data.current_theme;
         window.uiTopicOptionsForTheme = data.options;
-        if(window.innerWidth>600){
+        if(isMobile()){
+          mobileShow('topics');
+          renderTopicChips(data.options);
+        } else {
           showLoader();
           setTimeout(()=>{
             hideLoader(); showBack();
             renderTopicChips(data.options);
           },600);
-        } else {
-          mobileShow('topics');
-          renderTopicChips(data.options);
         }
       }
       window._qa = data.qa||[];
-      logQA(data.qa||[]);
-  
+      logQA(data.qa);
+    }
+
+    // Handle user input
+    async function handleChoice(txt,showBubble=true){
+      console.log('[choice]',txt,showBubble);
+      if(!txt) return;
+      if(showBubble) addMsg('user',txt);
+      const inp = getEl('input','input-mobile');
+      inp.value='';
+      try{ await callAndRender(txt); }
+      catch(e){ console.error(e); addMsg('bot','⚠️ Fout.'); }
+    }
+
+    // Send buttons
+    document.getElementById('send').onclick = ()=>handleChoice(document.getElementById('input').value.trim());
+    document.getElementById('send-mobile').onclick = ()=>handleChoice(document.getElementById('input-mobile').value.trim());
+
+    // Enter key
+    document.addEventListener('keydown', e=>{
+      if(e.key==='Enter' && !e.shiftKey){
+        if(isMobile()){
+          console.log('[mobile Enter]'); e.preventDefault(); document.getElementById('send-mobile').click();
+        } else {
+          console.log('[desktop Enter]'); e.preventDefault(); document.getElementById('send').click();
+        }
+      }
+    });
+
+    // Mobile tabs
+    if(window.matchMedia('(max-width:600px)').matches){
+      document.getElementById('mobile-tabs').style.display='flex';
+      document.querySelectorAll('#mobile-tabs button').forEach(btn=>{
+        btn.onclick=()=>{
+          const v=btn.dataset.view;
+          console.log('[tab]',v);
+          mobileShow(v);
+          if(v==='qa') btn.classList.remove('new-qa');
+        };
+      });
+    }
+
+    // Welcome & TaskAgent
+    console.log('[init] welkomsbericht');
+    addMsg('bot','Welkom bij <strong>Beval met een Plan</strong>! Ik help je stap-voor-stap bij jouw geboorteplan.');
+    setTimeout(()=>{
+      TaskAgent.start({
+        id:'start1',
+        title:'Aan de slag',
+        description:'Zullen we samen eerst de thema’s kiezen die jij belangrijk vindt?',
+        labels:{yes:'Ja!',no:'Later',other:'Anders'},
+        onYes:()=>handleChoice('Ik ben klaar om thema’s te kiezen.'),
+        onNo:()=>{ con
