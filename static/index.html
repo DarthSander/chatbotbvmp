@@ -1,3 +1,5 @@
+<!-- static/index.html -->
+
 <!doctype html>
 <html lang="nl">
 <head>
@@ -218,7 +220,7 @@
       border-radius: 8px;
       white-space: nowrap;
       font-size: 12px;
-      box-shadow: 0 4px 12px rgba(0, 0, 0, .15);
+      box-shadow: 0 4px 12px rgba(0,0,0,.15);
       z-index: 20;
     }
     .topic-chip[data-desc]:hover::before {
@@ -511,39 +513,12 @@
       c.onclick = () => {
         // Opdracht naar agent: register_theme
         handleChoice(`Thema geselecteerd: ${o.name}`);
-        // Onthoud topic-opties (back-end vult eventueel later aan)
-        window.uiTopicOptionsForTheme = o.options || [];
-        // Flip de sidebar en laad onderwerpen
-        onThemeClick(o.name);
       };
       box.appendChild(c);
     });
   }
 
-  /* Flip naar back-face en laad onderwerpen */
-  function onThemeClick(themeName) {
-    currentTheme = themeName;
-    document.getElementById("back-title").textContent = `Onderwerpen voor “${themeName}”`;
-    document.getElementById("topic-loader").style.display = "flex";
-    document.getElementById("q-topic-options").style.display = "none";
-    document.getElementById("confirm-topics").disabled = true;
-    document.querySelector(".flip-container").classList.add("flipped");
-
-    // Simuleer voortgang: naar 80%
-    setTimeout(() => {
-      document.getElementById("progress-fill").style.width = "80%";
-    }, 200);
-
-    // Zodra de opties beschikbaar zijn, maak chips
-    setTimeout(() => {
-      renderTopicChips(window.uiTopicOptionsForTheme);
-      document.getElementById("topic-loader").style.display = "none";
-      document.getElementById("q-topic-options").style.display = "flex";
-      selectedTopics = [];
-      updateConfirmButtonState();
-      document.getElementById("progress-fill").style.width = "100%";
-    }, 600);
-  }
+  /* Flip-container en rendering van onderwerpen gebeurt nu in callAndRender */
 
   /* Topic-chips renderen (back-side) */
   function renderTopicChips(options) {
@@ -608,7 +583,7 @@
           editBar.textContent = "✎";
           editBar.onclick = (e) => {
             e.stopPropagation();
-            onThemeClick(themeName);
+            handleChoice(`Thema geselecteerd: ${themeName}`);
           };
           chip.appendChild(editBar);
         }
@@ -616,7 +591,7 @@
     });
   }
 
-  /* callAndRender koppelt met back-end-stadia */
+  /* callAndRender koppelt met back-end-stadia en handelt flip/renders één keer af */
   async function callAndRender(msg) {
     const data = await callAgent(msg);
     if (data.assistant_reply) addMsg("bot", data.assistant_reply);
@@ -626,15 +601,28 @@
       renderThemes(data.options);
     }
 
-    // Kies topic-fase: back-end levert data.options
+    // Kies topic-fase
     if (data.stage === "choose_topic" && data.options && data.current_theme) {
       window.uiTopicOptionsForTheme = data.options;
-      onThemeClick(data.current_theme);
-    }
-
-    // Na complete_theme keert terug naar choose_theme
-    if (data.stage === "choose_theme" && data.options) {
-      renderThemes(data.options);
+      currentTheme = data.current_theme;
+      // Flip naar onderwerpen en toon loader
+      document.querySelector(".flip-container").classList.add("flipped");
+      document.getElementById("back-title").textContent = `Onderwerpen voor “${currentTheme}”`;
+      document.getElementById("topic-loader").style.display = "flex";
+      document.getElementById("q-topic-options").style.display = "none";
+      // Simuleer voortgang
+      setTimeout(() => {
+        document.getElementById("progress-fill").style.width = "80%";
+      }, 200);
+      // Render topics na korte timeout
+      setTimeout(() => {
+        renderTopicChips(window.uiTopicOptionsForTheme);
+        document.getElementById("topic-loader").style.display = "none";
+        document.getElementById("q-topic-options").style.display = "flex";
+        selectedTopics = [];
+        updateConfirmButtonState();
+        document.getElementById("progress-fill").style.width = "100%";
+      }, 600);
     }
 
     logQA(data.qa || []);
