@@ -526,4 +526,10 @@
         description:'Zullen we samen eerst de thema’s kiezen die jij belangrijk vindt?',
         labels:{yes:'Ja!',no:'Later',other:'Anders'},
         onYes:()=>handleChoice('Ik ben klaar om thema’s te kiezen.'),
-        onNo:()=>{ con
+        onNo:()=>{ console.log('[TaskAgent] No'); addMsg('bot','Geen probleem – typ “begin” als je wilt starten.'); },
+        onOther:()=>{ console.log('[TaskAgent] Other'); addMsg('bot','Vertel wat je nu nodig hebt.'); }
+      });
+    },3000);
+  </script>
+</body>
+</html>
