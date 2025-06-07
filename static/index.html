@@ -1,0 +1,229 @@
+<!doctype html>
+<html lang="nl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Geboorteplan-agent</title>
+
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+
+<style>
+/* ---------- palet & basis ---------- */
+:root{
+  --rose:#d5848d;--rose-light:#e8a8b0;
+  --sage:#8cbf9d;--sage-light:#cfe6d0;
+  --cream:#fef9f5;--beige:#fdf7f2;--rose-sub:#fbeaec;
+  --text:#2d3436;--text-light:#636e72;
+  --grad-main:linear-gradient(135deg,var(--cream),var(--beige)50%,var(--rose-sub)100%);
+  --grad-rose:linear-gradient(135deg,var(--rose),var(--rose-light));
+  --shadow:0 6px 22px rgba(0,0,0,.1)
+}
+*{box-sizing:border-box;margin:0;padding:0;font-family:Inter,system-ui,sans-serif}
+body{background:var(--grad-main);min-height:100vh;color:var(--text)}
+#layout{display:flex;flex-direction:column;gap:24px;max-width:1280px;margin:auto;padding:24px}
+@media(min-width:900px){#layout{flex-direction:row;gap:32px;padding:32px}}
+
+/* ---------- voortgang ---------- */
+#progress{position:fixed;top:0;left:0;width:100%;height:6px;background:#eee;z-index:9000}
+#bar{height:100%;width:0;background:var(--rose);transition:width .3s}
+
+/* ---------- chat ---------- */
+#chat-col{flex:3;display:flex;flex-direction:column;gap:18px;padding:24px;background:rgba(255,255,255,.6);
+  border-radius:24px;box-shadow:var(--shadow);border:1px solid rgba(255,255,255,.4)}
+#chatbox{flex:1 1 auto;height:65vh;overflow-y:auto;padding:8px}
+.bubble{padding:12px 18px;margin:10px 0;max-width:88%;border-radius:18px;animation:fade .25s}
+.bubble.bot{background:#fff;border:1px solid rgba(0,0,0,.05)}
+.bubble.user{background:var(--grad-rose);color:#fff;margin-left:auto;border-bottom-right-radius:6px}
+@keyframes fade{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
+
+/* typing loader */
+.typing{display:inline-block;width:34px;height:8px}
+.typing span{display:inline-block;width:6px;height:6px;margin:0 2px;background:#999;border-radius:50%;animation:blink 1.2s infinite}
+.typing span:nth-child(2){animation-delay:.2s}.typing span:nth-child(3){animation-delay:.4s}
+@keyframes blink{0%,80%,100%{opacity:.25}40%{opacity:1}}
+
+/* invoer */
+textarea{width:100%;min-height:90px;padding:16px 20px;font-size:16px;border-radius:18px;border:1px solid rgba(0,0,0,.15)}
+button#send{align-self:flex-end;margin-top:6px;padding:12px 24px;border:none;border-radius:18px;background:var(--grad-rose);color:#fff;font-size:16px;cursor:pointer}
+
+/* ---------- kies-chips ---------- */
+#choices{display:flex;flex-wrap:wrap;gap:14px 18px}
+.badge,.theme-chip,.topic-chip{padding:10px 18px;border-radius:9999px;font-size:14px;cursor:pointer;user-select:none;transition:.25s;white-space:nowrap}
+.badge{background:var(--grad-rose);color:#fff}
+.theme-chip{border:1px solid var(--rose);color:var(--rose);background:#fff}
+.theme-chip:hover{background:var(--grad-rose);color:#fff}
+.topic-chip{position:relative;border:1px solid var(--sage);color:var(--sage);background:rgba(140,191,157,.15)}
+.topic-chip.selected{background:linear-gradient(135deg,var(--sage),var(--sage-light));color:#fff;border:0}
+
+/* tooltip bij topic-chip */
+.topic-chip[data-desc]:hover::after{
+  content:attr(data-desc);position:absolute;right:-4px;top:50%;transform:translate(100%,-50%) translateX(8px);
+  background:var(--rose-light);color:#fff;padding:6px 10px;border-radius:8px;font-size:12px;white-space:nowrap;
+  box-shadow:0 4px 12px rgba(0,0,0,.12);opacity:0;animation:tooltip .25s forwards
+}
+@keyframes tooltip{to{opacity:1;transform:translate(100%,-50%)}}
+
+/* ---------- sidebar ---------- */
+#sidebar{flex:2;padding:24px;background:rgba(255,255,255,.6);border-radius:24px;box-shadow:var(--shadow);
+  border:1px solid rgba(255,255,255,.4);max-height:calc(65vh + 48px);overflow:auto}
+#q-title{margin-bottom:10px;font-weight:600;color:var(--text-light)}
+#qa-log .card{padding:12px 16px;margin:10px 0;background:#fff;border:1px solid rgba(0,0,0,.06);border-radius:14px;position:relative}
+.card h6{font-size:.9rem;margin:0 0 6px;color:var(--rose);font-weight:600}
+.edit{position:absolute;right:10px;top:10px;cursor:pointer;font-size:14px;color:var(--text-light)}
+.edit:hover{color:var(--rose)}
+
+/* ---------- onderwerp-kaart ---------- */
+#topicCard{position:fixed;top:20px;left:20px;max-width:340px;width:90%;background:#fff;border-radius:18px;
+  box-shadow:var(--shadow);border:1px solid rgba(0,0,0,.05);padding:22px 20px;display:none;z-index:500}
+#topicCard h3{font-size:1rem;margin-bottom:4px}
+#topicCard p{font-size:.85rem;margin-bottom:14px;color:var(--text-light)}
+#topicOpts{display:flex;flex-wrap:wrap;gap:10px;min-height:40px}
+#topicConfirm{margin-top:16px;width:100%;padding:10px 0;border:none;border-radius:18px;background:var(--grad-rose);color:#fff;font-size:.9rem;cursor:pointer}
+</style>
+</head>
+<body>
+
+<!-- voortgang -->
+<div id="progress"><div id="bar"></div></div>
+
+<main id="layout">
+  <div id="chat-col">
+    <div id="chatbox"></div>
+    <div id="choices"></div>
+    <textarea id="input" placeholder="Typ je bericht…"></textarea>
+    <button id="send">Verstuur</button>
+  </div>
+
+  <aside id="sidebar">
+    <h4 id="q-title"></h4>
+    <div id="q-options"></div>
+    <hr>
+    <h5>Antwoorden</h5>
+    <div id="qa-log"></div>
+  </aside>
+</main>
+
+<div id="topicCard">
+  <h3 id="topicTitle"></h3>
+  <p>Kies maximaal&nbsp;4 onderwerpen</p>
+  <div id="topicOpts"></div>
+  <button id="topicConfirm">Door →</button>
+</div>
+
+<script>
+/* ---------- state ---------- */
+const API="https://chatbotbvmp.onrender.com/agent";
+let sessionId=sessionStorage.getItem("agentSession")||null;
+let currentTheme=null, topicSel=[], cardOpen=false;
+
+/* ---------- DOM ---------- */
+const chatbox=document.getElementById("chatbox"), choices=document.getElementById("choices"),
+      qTitle=document.getElementById("q-title"), qOptions=document.getElementById("q-options"),
+      qaLog=document.getElementById("qa-log"), bar=document.getElementById("bar"),
+      topicCard=document.getElementById("topicCard"), topicTitle=document.getElementById("topicTitle"),
+      topicOpts=document.getElementById("topicOpts"), topicBtn=document.getElementById("topicConfirm");
+
+/* ---------- helpers ---------- */
+function addBubble(role,md){const d=document.createElement("div");d.className=`bubble ${role}`;d.innerHTML=marked.parse(md);chatbox.appendChild(d);chatbox.scrollTop=chatbox.scrollHeight;return d;}
+function typingLoader(){return addBubble("bot","<span class='typing'><span></span><span></span><span></span></span>");}
+function setProgress(step){bar.style.width=step+"%";}
+
+/* ---------- API ---------- */
+async function callAgent(msg){
+  const wait=typingLoader();
+  const r=await fetch(API,{method:"POST",headers:{"Content-Type":"application/json"},
+               body:JSON.stringify({message:msg,session_id:sessionId})});
+  chatbox.removeChild(wait);
+  const data=await r.json();sessionId=data.session_id;sessionStorage.setItem("agentSession",sessionId);
+  return data;
+}
+
+/* ---------- thema's ---------- */
+function showThemes(list){
+  qTitle.textContent="Kies een thema (max 6):";
+  qOptions.innerHTML="";
+  list.forEach(t=>{
+    const chip=document.createElement("span");
+    chip.className="theme-chip";chip.textContent=t.name;
+    chip.onclick=()=>{openCard(t.name,[]);submit(`Ik kies het thema ${t.name}.`,false);};
+    qOptions.appendChild(chip);
+  });
+  setProgress(33);
+}
+
+/* ---------- onderwerp-kaart ---------- */
+function openCard(theme, options, preSelect=[]){
+  currentTheme=theme;topicSel=[...preSelect];topicTitle.textContent=`Onderwerpen voor “${theme}”`;
+  topicOpts.innerHTML="";
+  if(!options.length){
+    topicOpts.innerHTML="<div class='typing'><span></span><span></span><span></span></div>";
+  }else{
+    options.forEach(o=>{
+      const chip=document.createElement("span");
+      chip.className="topic-chip";chip.textContent=o.name;chip.dataset.desc=o.description||"";
+      if(topicSel.includes(o.name)) chip.classList.add("selected");
+      chip.onclick=()=>toggleTopic(chip,o.name);
+      topicOpts.appendChild(chip);
+    });
+  }
+  topicCard.style.display="block";cardOpen=true;setProgress(66);
+}
+function toggleTopic(chip,name){
+  chip.classList.toggle("selected");
+  topicSel=chip.classList.contains("selected")?[...new Set([...topicSel,name])]:topicSel.filter(t=>t!==name);
+}
+topicBtn.onclick=async()=>{
+  topicCard.style.display="none";cardOpen=false;setProgress(66);
+  const msg=topicSel.length?`In het thema ${currentTheme} kies ik de onderwerpen ${topicSel.join(", ")}.`:`Geen extra onderwerpen binnen ${currentTheme}.`;
+  addBubble("user",msg);
+  await handleAgent(msg);
+  await handleAgent("Ik ben klaar met dit thema.");
+};
+
+/* ---------- QA-log / kaarten ---------- */
+function addCard(theme,subjects){
+  const card=document.createElement("div");card.className="card";
+  card.innerHTML=`<h6>${theme}</h6><p style="margin:0;font-size:.85rem">${subjects.join(", ")}</p><span class="edit">✏️</span>`;
+  card.querySelector(".edit").onclick=()=>openCard(theme,window.lastOptions[theme]||[],subjects);
+  qaLog.appendChild(card);
+}
+function updateCards(state){
+  qaLog.innerHTML="";
+  (state.themes||[]).forEach(t=>{
+    const subj=state.topics?.[t.name]||[];
+    if(subj.length) addCard(t.name,subj);
+  });
+}
+
+/* ---------- agent orchestrator ---------- */
+window.lastOptions={};
+async function handleAgent(text){
+  const data=await callAgent(text);
+  if(data.assistant_reply) addBubble("bot",data.assistant_reply);
+  if(data.stage==="choose_theme"&&data.options) showThemes(data.options);
+  if(data.stage==="choose_topic"&&data.current_theme){window.lastOptions[data.current_theme.name]=data.options||[];
+    if(!cardOpen) openCard(data.current_theme.name,data.options||[],data.topics?.[data.current_theme.name]||[]);}
+  updateCards(data);if(data.stage==="qa") setProgress(100);
+}
+function submit(text,bubble=true){if(bubble) addBubble("user",text);document.getElementById("input").value="";handleAgent(text);}
+
+/* ---------- send-btn ---------- */
+document.getElementById("send").onclick=()=>{const v=document.getElementById("input").value.trim();if(v)submit(v)};
+document.getElementById("input").addEventListener("keydown",e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();document.getElementById("send").click();}});
+
+/* ---------- welkom + popup ---------- */
+addBubble("bot","Welkom bij <strong>Beval met een Plan</strong>! Ik help je stap-voor-stap bij jouw geboorteplan.");
+setProgress(0);
+setTimeout(()=>TaskAgent.start({
+  id:"start",
+  title:"Aan de slag",
+  description:"Zullen we eerst de thema’s kiezen die jij belangrijk vindt?",
+  labels:{yes:"Ja!",no:"Later",other:"Anders"},
+  onYes:()=>submit("Ik ben klaar om thema’s te kiezen."),
+  onNo: ()=>addBubble("bot","Geen probleem – typ ‘begin’ als je wilt starten."),
+  onOther:()=>addBubble("bot","Vertel wat je nu nodig hebt.")
+}),3000);
+</script>
+</body>
+</html>
