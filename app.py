@@ -161,7 +161,7 @@ def _register_theme(session_id: str, theme: str, description: str = "") -> str:
     if len(st["themes"]) >= 6 or theme in [t["name"] for t in st["themes"]]:
         return "ok"
     st["themes"].append({"name": theme, "description": description})
-    st["stage"] = "choose_topic"
+    st["stage"] = "choose_topic" # Na het registreren van een thema, ga je naar topic selectie voor dat thema
     st["ui_topic_opts"] = DEFAULT_TOPICS.get(theme, [])
     st["current_theme"] = theme
     persist(session_id)
@@ -178,9 +178,36 @@ def _register_topic(session_id: str, theme: str, topic: str) -> str:
 
 def _complete_theme(session_id: str) -> str:
     st = get_session(session_id)
-    st["stage"] = "qa" if len(st["themes"]) >= 6 and all(t["name"] in st["topics"] for t in st["themes"]) else "choose_theme"
-    st["ui_topic_opts"] = []
-    st["current_theme"] = None
+
+    # Controleer of alle geselecteerde thema's (st["themes"])
+    # ook daadwerkelijk onderwerpen hebben in st["topics"]
+    all_selected_themes_have_topics = True
+    if len(st["themes"]) == 0: # Als er geen thema's zijn gekozen, kunnen we niet door
+        all_selected_themes_have_topics = False
+    else:
+        for theme_obj in st["themes"]:
+            theme_name = theme_obj["name"]
+            # Controleer of het thema in st["topics"] staat EN of de lijst van topics niet leeg is
+            if theme_name not in st["topics"] or not st["topics"][theme_name]:
+                all_selected_themes_have_topics = False
+                break
+    
+    # We gaan naar de QA-fase ALLEEN als:
+    # 1. Er minimaal 1 thema is geselecteerd.
+    # 2. EN voor ALLE geselecteerde thema's ook onderwerpen zijn gekozen (de topic-lijst is niet leeg).
+    # Als dit niet het geval is, blijven we in de "choose_theme" fase
+    # (dit kan ook "choose_topic" zijn, afhankelijk van de UI flow).
+    if all_selected_themes_have_topics:
+        st["stage"] = "qa"
+    else:
+        # Als nog niet alle geselecteerde thema's onderwerpen hebben,
+        # of als er nog geen 6 thema's zijn, blijf dan in de themakeuze/onderwerpkeuze fase.
+        # Afhankelijk van de UI-flow, kan dit "choose_theme" of "choose_topic" zijn.
+        # Laten we teruggaan naar choose_theme om de gebruiker meer thema's te laten kiezen of andere te editen.
+        st["stage"] = "choose_theme" 
+        
+    st["ui_topic_opts"] = [] # Reset UI-opties voor onderwerpen
+    st["current_theme"] = None # Reset het huidige thema als de fase is voltooid
     persist(session_id)
     return "ok"
 
@@ -229,10 +256,11 @@ BASE_AGENT = Agent(
     model="gpt-4o", # Model geüpdatet naar 4o voor betere prestaties, kan terug naar 4.1 als je dat wilt
     instructions=(
         "Je helpt ouders hun geboorteplan maken (je bent géén digitale verloskundige).\n\n"
-        "• Gebruik `set_theme_options` (max 6 objecten `{name, description}`) om thema’s te tonen.\n"
-        "• Na `register_theme` stuur je direct `set_topic_options` met ≥4 `{name, description}`.\n"
-        "• UI roept `register_topic` per selectie (max 4) en daarna `complete_theme`.\n"
-        "• Bij 6 thema’s ga je automatisch door naar QA en stel je vragen; sla antwoorden op met `log_answer`.\n"
+        "**Workflow:**\n"
+        "1. Eerst worden **maximaal 6 thema's** geselecteerd via `set_theme_options` en `register_theme`.\n"
+        "2. Voor **elk gekozen thema** worden daarna **onderwerpen** geselecteerd via `set_topic_options` en `register_topic`.\n"
+        "3. Pas wanneer **alle geselecteerde thema's** onderwerpen hebben, ga je over naar de QA-fase. De UI stuurt dan `complete_theme`.\n"
+        "4. In de QA-fase stel je vragen over de gekozen thema's en onderwerpen en sla je antwoorden op met `log_answer`.\n"
         "• Alle antwoorden in het Nederlands. Gebruik bij élke tool het juiste `session_id`."
         "• Log alle gebruikersinputs en bot-replies (inclusief tool calls) als onderdeel van de history."
     ),
