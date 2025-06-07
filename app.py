@@ -8,9 +8,8 @@
 from __future__ import annotations
 import os, json, uuid, sqlite3
 from copy import deepcopy
-from typing import List, Dict, Optional, Any
+from typing import List, Dict, Optional
 from typing_extensions import TypedDict
-import datetime # Importeer datetime voor timestamps
 
 from flask import (
     Flask, request, Response, jsonify, abort,
@@ -71,8 +70,78 @@ DEFAULT_TOPICS: Dict[str, List[NamedDescription]] = {
     ]
 }
 
+# ---------- SQLite-helper functions ----------
+def init_db() -> None:
+    with sqlite3.connect(DB_FILE) as con:
+        con.execute("CREATE TABLE IF NOT EXISTS sessions (id TEXT PRIMARY KEY, state TEXT NOT NULL)")
+init_db()
+
+def load_state(sid: str) -> Optional[dict]:
+    with sqlite3.connect(DB_FILE) as con:
+        row = con.execute("SELECT state FROM sessions WHERE id=?", (sid,)).fetchone()
+        # De history wordt nu geladen als onderdeel van de JSON
+        return json.loads(row[0]) if row else None
+
+def save_state(sid: str, st: dict) -> None:
+    with sqlite3.connect(DB_FILE) as con:
+        # Nu slaan we de volledige state op, inclusief history
+        con.execute(
+            "REPLACE INTO sessions (id, state) VALUES (?, ?)",
+            (sid, json.dumps(st))
+        )
+        con.commit()
+
+# ---------- In-memory sessies + persistence ----------
+SESSION: Dict[str, dict] = {}
+def get_session(sid: str) -> dict:
+    if sid in SESSION:
+        return SESSION[sid]
+    if (db := load_state(sid)):
+        # Laad de history als deze aanwezig is, anders een lege lijst
+        # Deze `db` bevat nu de history als deze eerder is opgeslagen
+        loaded_history = db.get("history", []) 
+        SESSION[sid] = {**db, "history": loaded_history}
+        return SESSION[sid]
+    # Nieuwe sessie
+    SESSION[sid] = {
+        "stage": "choose_theme",
+        "themes": [],
+        "topics": {},
+        "qa": [],
+        "history": [], # Initiële lege history voor nieuwe sessies
+        "summary": "",
+        "ui_theme_opts": [],
+        "ui_topic_opts": [],
+        "current_theme": None
+    }
+    return SESSION[sid]
+
+def persist(sid: str) -> None:
+    save_state(sid, SESSION[sid])
+
+# ---------- History-samenvatting (bij >40 messages) ----------
+def summarize_chunk(chunk: List[dict]) -> str:
+    if not chunk:
+        return ""
+    # Filter non-string content or messages without 'role'/'content' for robustness
+    filtered_chunk = [m for m in chunk if isinstance(m, dict) and 'role' in m and 'content' in m and isinstance(m['content'], str)]
+    
+    if not filtered_chunk: # If no valid messages remain after filtering
+        return ""
+
+    txt = "\n".join(f"{m['role']}: {m['content']}" for m in filtered_chunk)
+    r = client.chat.completions.create(
+        model="gpt-3.5-turbo",
+        messages=[
+            {"role": "system", "content": "Vat samen in max 300 tokens. Houd het beknopt en focus op belangrijke beslissingen en feiten."},
+            {"role": "user",   "content": txt}
+        ],
+        max_tokens=300
+    )
+    return r.choices[0].message.content.strip()
+
 # ============================================================
-# Tool-implementaties (Eerst de functies, dan de wrappers en BASE_AGENT)
+# Tool-implementaties
 # ============================================================
 def _set_theme_options(session_id: str, options: List[NamedDescription]) -> str:
     st = get_session(session_id)
@@ -109,11 +178,7 @@ def _register_topic(session_id: str, theme: str, topic: str) -> str:
 
 def _complete_theme(session_id: str) -> str:
     st = get_session(session_id)
-    if len(st["themes"]) >= 6: # Dit is een simpele trigger, kan complexer
-        st["stage"] = "qa"
-    else:
-        st["stage"] = "choose_theme"
-        
+    st["stage"] = "qa" if len(st["themes"]) >= 6 and all(t["name"] in st["topics"] for t in st["themes"]) else "choose_theme"
     st["ui_topic_opts"] = []
     st["current_theme"] = None
     persist(session_id)
@@ -178,158 +243,9 @@ BASE_AGENT = Agent(
     ],
 )
 
-
-# ---------- SQLite-helper functions ----------
-def init_db() -> None:
-    with sqlite3.connect(DB_FILE) as con:
-        con.execute("CREATE TABLE IF NOT EXISTS sessions (id TEXT PRIMARY KEY, state TEXT NOT NULL)")
-        # Nieuwe tabel voor individuele berichten
-        con.execute("""
-            CREATE TABLE IF NOT EXISTS messages (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                session_id TEXT NOT NULL,
-                role TEXT NOT NULL,
-                content TEXT,
-                tool_calls TEXT, -- Opslaan als JSON string
-                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (session_id) REFERENCES sessions (id)
-            )
-        """)
-    print("Database tabellen gecontroleerd/aangemaakt.")
-init_db()
-
-def _log_message(session_id: str, message: Dict[str, Any]) -> None:
-    """Slaat een individueel bericht op in de 'messages' tabel."""
-    with sqlite3.connect(DB_FILE) as con:
-        tool_calls_json = json.dumps(message.get("tool_calls")) if message.get("tool_calls") else None
-        con.execute(
-            "INSERT INTO messages (session_id, role, content, tool_calls) VALUES (?, ?, ?, ?)",
-            (session_id, message["role"], message.get("content"), tool_calls_json)
-        )
-        con.commit()
-
-def load_state(sid: str) -> Optional[dict]:
-    """Laadt de sessiestate en reconstrueert de history uit de messages tabel."""
-    with sqlite3.connect(DB_FILE) as con:
-        # Laad de basis sessiestate
-        row_session = con.execute("SELECT state FROM sessions WHERE id=?", (sid,)).fetchone()
-        if not row_session:
-            return None
-        
-        state = json.loads(row_session[0])
-
-        # Laad de berichten voor deze sessie
-        cursor = con.execute(
-            "SELECT role, content, tool_calls FROM messages WHERE session_id=? ORDER BY timestamp ASC",
-            (sid,)
-        )
-        history = []
-        for row_msg in cursor.fetchall():
-            msg_dict: Dict[str, Any] = {"role": row_msg[0]}
-            if row_msg[1]: # content
-                msg_dict["content"] = row_msg[1]
-            if row_msg[2]: # tool_calls
-                # Probeer tool_calls te laden, vang JSONDecodeError op indien ongeldig JSON
-                try:
-                    loaded_tool_calls = json.loads(row_msg[2])
-                    if loaded_tool_calls: # Alleen toevoegen als er daadwerkelijk tool calls zijn
-                        msg_dict["tool_calls"] = loaded_tool_calls
-                except json.JSONDecodeError:
-                    # Log de fout, of negeer gewoon de ongeldige tool_calls data
-                    print(f"Waarschuwing: Ongeldige JSON voor tool_calls in message {row_msg} voor sessie {sid}")
-            history.append(msg_dict)
-        
-        state["history"] = history # Voeg de gereconstrueerde history toe
-        return state
-
-def save_state(sid: str, st: dict) -> None:
-    """Slaat de sessiestate (zonder history) op in de sessions tabel."""
-    with sqlite3.connect(DB_FILE) as con:
-        # Maak een kopie en verwijder history, want die slaan we apart op
-        state_to_save = {k: v for k, v in st.items() if k != "history"}
-        con.execute(
-            "REPLACE INTO sessions (id, state) VALUES (?, ?)",
-            (sid, json.dumps(state_to_save))
-        )
-        con.commit()
-
-# ---------- In-memory sessies + persistence ----------
-SESSION: Dict[str, dict] = {}
-def get_session(sid: str) -> dict:
-    if sid in SESSION:
-        return SESSION[sid]
-    
-    # Probeer te laden uit DB
-    if (db_state := load_state(sid)):
-        SESSION[sid] = db_state
-        return SESSION[sid]
-    
-    # Nieuwe sessie als niet gevonden in DB
-    SESSION[sid] = {
-        "stage": "choose_theme",
-        "themes": [],
-        "topics": {},
-        "qa": [],
-        "history": [], # Initiële lege history voor nieuwe sessies
-        "summary": "",
-        "ui_theme_opts": [],
-        "ui_topic_opts": [],
-        "current_theme": None
-    }
-    # Initialiseer ook in de DB als een nieuwe sessie
-    save_state(sid, SESSION[sid]) 
-    return SESSION[sid]
-
-def persist(sid: str) -> None:
-    # `save_state` zorgt er nu voor dat history NIET wordt opgeslagen in de state kolom
-    # en dat individuele berichten al gelogd zijn via _log_message
-    save_state(sid, SESSION[sid])
-
-# ---------- History-samenvatting (bij >40 messages) ----------
-def summarize_chunk(chunk: List[dict]) -> str:
-    if not chunk:
-        return ""
-    
-    # Filter non-string content or messages without 'role'/'content' for robustness
-    # Also exclude tool_calls if they don't have a content string for summarization
-    filtered_chunk = []
-    for m in chunk:
-        if isinstance(m, dict) and 'role' in m:
-            # Voor summarization willen we geen tool_calls zelf samenvatten, alleen hun output of de gewone content
-            if m['role'] == 'tool' or ('tool_calls' in m and not m.get('content')):
-                continue # Sla tool calls over voor de samenvatting, tenzij ze ook content hebben
-            if 'content' in m and isinstance(m['content'], str):
-                filtered_chunk.append(m)
-            # Speciale handling voor tool_response messages die content hebben
-            elif m['role'] == 'tool' and 'content' in m and isinstance(m['content'], str):
-                filtered_chunk.append(m)
-    
-    if not filtered_chunk: # If no valid messages remain after filtering
-        return ""
-
-    txt = "\n".join(f"{m['role']}: {m['content']}" for m in filtered_chunk)
-    
-    # Voeg een timestamp toe om de context te geven voor de samenvatting
-    timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    
-    r = client.chat.completions.create(
-        model="gpt-3.5-turbo",
-        messages=[
-            {"role": "system", "content": f"Vat de volgende chatgeschiedenis samen in maximaal 300 tokens. Houd het beknopt en focus op belangrijke beslissingen en feiten. Huidige tijd: {timestamp}"},
-            {"role": "user",   "content": txt}
-        ],
-        max_tokens=300
-    )
-    return r.choices[0].message.content.strip()
-
-
 # ============================================================
 # Streaming-/chat-endpoint (optioneel)
 # ============================================================
-# Dit endpoint gebruikt OpenAI Assistants API threads, die hun eigen geschiedenis bijhouden.
-# De history die hier wordt opgeslagen in je DB is gescheiden van de thread history.
-# Als je ook de streaming endpoint wilt loggen in je DB, moet je hier vergelijkbare logica toevoegen.
-# Voor nu focus ik op het /agent endpoint, omdat die je eigen Runner gebruikt.
 def stream_run(tid: str):
     with client.beta.threads.runs.stream(thread_id=tid, assistant_id=ASSISTANT_ID) as ev:
         for e in ev:
@@ -365,70 +281,21 @@ def agent():
     if len(st["history"]) > 40:
         st["summary"] = (st["summary"] + "\n" +
                          summarize_chunk(st["history"][:-20])).strip()
-        st["history"] = st["history"][-20:] 
-    
-    # Voeg de nieuwe user message toe aan de in-memory history en log deze direct
-    user_message = {"role": "user", "content": msg}
-    st["history"].append(user_message)
-    _log_message(sid, user_message) # Log gebruikerbericht in de DB
+        st["history"] = st["history"][-20:] # Houd alleen de laatste 20 berichten in history
 
     intro  = ([{"role": "system", "content": "Samenvatting:\n" + st["summary"]}]
               if st["summary"] else [])
-    
-    messages_for_agent = intro + deepcopy(st["history"])
+    messages = intro + deepcopy(st["history"]) + [{"role": "user", "content": msg}]
 
     agent_inst = Agent(
         **{**BASE_AGENT.__dict__,
            "instructions": BASE_AGENT.instructions + f"\n\nGebruik session_id=\"{sid}\"."}
     )
-    res = Runner().run_sync(agent_inst, messages_for_agent)
+    res = Runner().run_sync(agent_inst, messages)
 
-    # Verwerk de output van de agent en log de nieuwe berichten
-    new_history_from_run = res.to_input_list()
-    
-    # Identificeer en log alleen de berichten die *nieuw* zijn van de agent's zijde
-    # Vergelijk de nieuwe history met de messages die we al aan de agent hebben gevoerd.
-    # We willen niet de 'intro' messages meetellen in de vergelijking van lengte.
-    
-    # We weten dat messages_for_agent begon met `intro` en daarna `st["history"]`.
-    # De nieuwe berichten zijn de output van de agent zelf.
-    # De makkelijkste manier is om `res.events` te inspecteren, of de output van `res.to_input_list()` te parsen.
-    # res.to_input_list() bevat de hele conversatie inclusief de user_message die we al hebben gelogd.
-    
-    # Oplossing: Pak de berichten vanaf de lengte van de 'initiële' history + 1 (voor de user message)
-    # Dit gaat er vanuit dat `res.to_input_list()` de berichten in volgorde teruggeeft.
-    
-    # Log de nieuwe berichten die de agent heeft gegenereerd (tool calls, tool outputs, assistant replies)
-    # We nemen de `history` zoals die was *vóór* deze run, en vergelijken `res.to_input_list()` daarmee.
-    
-    # Stel vast welk deel van de `new_history_from_run` nieuw is.
-    # `new_history_from_run` bevat de complete conversatie die de `Runner` heeft gebruikt/gegenereerd.
-    # `st["history"]` bevat de in-memory geschiedenis *voor* de agent-run (inclusief de user_message die zojuist gelogd is).
-    
-    # Zoek het eerste bericht in `new_history_from_run` dat niet overeenkomt met de `st["history"]` (excl. intro).
-    # Dit is de meest robuuste manier:
-    start_index_of_new_messages = 0
-    # Find the starting point of the agent's new messages in new_history_from_run
-    # by looking for the last message that was already in our in-memory history (user message)
-    for i in range(len(new_history_from_run)):
-        if i < len(st["history"]):
-            # Compare the 'role' and 'content' of messages to find the split point
-            # This handles cases where tools might modify messages slightly
-            if (new_history_from_run[i].get('role') != st["history"][i].get('role') or
-                new_history_from_run[i].get('content') != st["history"][i].get('content')):
-                start_index_of_new_messages = i
-                break
-        else:
-            start_index_of_new_messages = i
-            break
-    
-    # Log de *nieuwe* berichten en voeg ze toe aan de in-memory history
-    for i in range(start_index_of_new_messages, len(new_history_from_run)):
-        agent_generated_message = new_history_from_run[i]
-        st["history"].append(agent_generated_message) # Voeg toe aan in-memory history
-        _log_message(sid, agent_generated_message)    # Log in de DB
-
-    persist(sid) # Sla de bijgewerkte sessiestate op (zonder history)
+    # De output van res.to_input_list() bevat de complete conversatie inclusief de tool calls en antwoorden van de agent
+    st["history"] = res.to_input_list()
+    persist(sid)
 
     return jsonify({
         "assistant_reply": str(res.final_output),
@@ -437,14 +304,13 @@ def agent():
                    else st["ui_theme_opts"],
         "current_theme": st["current_theme"],
         **{k: v for k, v in st.items()
-           if k not in ("history", "ui_theme_opts", "ui_topic_opts")} # history wordt nu apart afgehandeld
+           if k not in ("ui_theme_opts", "ui_topic_opts")} # history wordt nu wel meegenomen
     })
 
 # ---------- export endpoint ----------
 @app.get("/export/<sid>")
 def export_json(sid: str):
-    # Bij export willen we de volledige state, inclusief de gereconstrueerde history
-    st = load_state(sid) 
+    st = load_state(sid)
     if not st:
         abort(404)
     path = f"/tmp/geboorteplan_{sid}.json"
@@ -455,4 +321,25 @@ def export_json(sid: str):
 # ============================================================
 # SPA-fallback: serveer frontend-bestanden uit /static
 # ============================================================
-@app.ro
+@app.route("/", defaults={"path": ""})
+@app.route("/<path:path>")
+def serve_frontend(path):
+    full_path = os.path.join(app.static_folder, path)
+    if path and os.path.exists(full_path):
+        return send_from_directory(app.static_folder, path)
+    return send_from_directory(app.static_folder, "index.html")
+
+# ============================================================
+# Remove X-Frame-Options zodat embedding mogelijk is
+# ============================================================
+@app.after_request
+def allow_iframe(response):
+    response.headers.pop("X-Frame-Options", None)
+    return response
+
+# ============================================================
+# Run de app
+# ============================================================
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=10000, debug=True)
+
