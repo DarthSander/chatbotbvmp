@@ -4,7 +4,7 @@
 # Geboorteplan-agent – VOLLEDIG BIJGEWERKTE FLASK-APP
 # Versie met geïntegreerde verbeteringen voor robuustheid en betere AI-interactie
 # Compatibel met Agents-SDK 0.0.17 (strict-schema)
-# Aangepast naar gpt-4.1-turbo model
+# Aangepast naar gpt-4.1
 # ============================================================
 
 from __future__ import annotations
@@ -101,6 +101,8 @@ def get_session(sid: str) -> dict:
     if (db := load_state(sid)):
         loaded_history = db.get("history", []) 
         SESSION[sid] = {**db, "history": loaded_history}
+        # Zorg ervoor dat de nieuwe sleutel ook bestaat voor oudere sessies
+        SESSION[sid].setdefault("generated_topic_options", {})
         return SESSION[sid]
     # Nieuwe sessie
     SESSION[sid] = {
@@ -112,7 +114,8 @@ def get_session(sid: str) -> dict:
         "summary": "",
         "ui_theme_opts": [],
         "ui_topic_opts": [],
-        "current_theme": None
+        "current_theme": None,
+        "generated_topic_options": {}  # <-- AANGEPAST/TOEGEVOEGD
     }
     return SESSION[sid]
 
@@ -172,6 +175,7 @@ def _set_topic_options(session_id: str, theme: str, options: List[NamedDescripti
     """
     Toont een lijst met onderwerpkeuzes (topics) binnen een specifiek thema aan de gebruiker.
     Gebruik deze functie nadat een gebruiker een thema heeft gekozen met 'register_theme'.
+    Deze functie slaat de getoonde opties op voor consistentie.
     
     :param session_id: De unieke ID van de gebruikerssessie.
     :param theme: De naam van het bovenliggende thema.
@@ -180,6 +184,12 @@ def _set_topic_options(session_id: str, theme: str, options: List[NamedDescripti
     """
     try:
         st = get_session(session_id)
+        # --- BEGIN AANPASSING ---
+        # Sla de gegenereerde opties op voor dit thema, als dat nog niet is gebeurd.
+        # setdefault zorgt ervoor dat we een bestaande lijst niet overschrijven.
+        st.setdefault("generated_topic_options", {}).setdefault(theme, options)
+        # --- EINDE AANPASSING ---
+
         st["ui_topic_opts"] = options
         st["current_theme"] = theme
         persist(session_id)
@@ -363,7 +373,10 @@ BASE_AGENT = Agent(
 
         "**VASTE WERKFLOW:**\n"
         "1. **Thema's Kiezen:** Start met het tonen van de standaard thema's via `set_theme_options`. De gebruiker kan maximaal 6 thema's kiezen. Gebruik `register_theme` voor elke keuze.\n"
-        "2. **Onderwerpen Kiezen:** Direct na `register_theme` presenteer je de onderwerpen voor dat thema met `set_topic_options`. De gebruiker kiest onderwerpen, die je vastlegt met `register_topic`.\n"
+        "2. **Onderwerpen Kiezen:** Direct na `register_theme` presenteer je de onderwerpen voor dat thema. **BELANGRIJK:** Voordat je nieuwe onderwerpen bedenkt, controleer met `get_state_tool` of er al onderwerpen zijn opgeslagen in de sessiestatus onder `generated_topic_options` voor het huidige thema. \n"
+        "   - **ALS ER al opties zijn:** Roep `set_topic_options` aan met de *exacte* lijst uit `generated_topic_options[thema_naam]`.\n"
+        "   - **ALS ER GEEN opties zijn:** Bedenk dan een relevante lijst met onderwerpen (max. 4-5) en roep `set_topic_options` aan. Deze zullen dan automatisch worden opgeslagen voor later.\n"
+        "   - De gebruiker kiest onderwerpen, die je vastlegt met `register_topic`.\n"
         "3. **Afronding Keuzefase:** De gebruiker zal via de interface een knop 'Klaar met kiezen' hebben. Dit stuurt jou de boodschap: 'user_finished_topic_selection'. WANNEER je deze exacte boodschap ontvangt, roep je de functie `complete_theme` aan om naar de volgende fase te gaan.\n"
         "4. **Q&A Fase:** Nadat `complete_theme` succesvol was, begin je met het stellen van open vragen over de gekozen thema's en onderwerpen. Sla de antwoorden op met `log_answer`.\n"
         "5. **Alle antwoorden in het Nederlands.** Gebruik bij élke tool het juiste `session_id`."
@@ -423,57 +436,4 @@ def agent():
     # Door MODEL_CHOICE en BASE_AGENT aan te passen, wordt hier ook gpt-4.1-turbo gebruikt.
     agent_inst = Agent(
         **{**BASE_AGENT.__dict__,
-           "instructions": BASE_AGENT.instructions + f"\n\nGebruik session_id=\"{sid}\"."}
-    )
-    res = Runner().run_sync(agent_inst, messages)
-
-    st["history"] = res.to_input_list()
-    persist(sid)
-
-    return jsonify({
-        "assistant_reply": str(res.final_output),
-        "session_id": sid,
-        "options": st["ui_topic_opts"] if st["stage"] == "choose_topic"
-                   else st["ui_theme_opts"],
-        "current_theme": st["current_theme"],
-        **{k: v for k, v in st.items()
-           if k not in ("ui_theme_opts", "ui_topic_opts")}
-    })
-
-# ---------- export endpoint ----------
-@app.get("/export/<sid>")
-def export_json(sid: str):
-    st = load_state(sid)
-    if not st:
-        abort(404)
-    # Gebruik een tijdelijke map die doorgaans bestaat op de meeste systemen
-    temp_dir = os.environ.get("TMPDIR", "/tmp")
-    path = os.path.join(temp_dir, f"geboorteplan_{sid}.json")
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(st, f, ensure_ascii=False, indent=2)
-    return send_file(path, as_attachment=True, download_name=os.path.basename(path))
-
-# ============================================================
-# SPA-fallback: serveer frontend-bestanden uit /static
-# ============================================================
-@app.route("/", defaults={"path": ""})
-@app.route("/<path:path>")
-def serve_frontend(path):
-    full_path = os.path.join(app.static_folder, path)
-    if path and os.path.exists(full_path):
-        return send_from_directory(app.static_folder, path)
-    return send_from_directory(app.static_folder, "index.html")
-
-# ============================================================
-# Remove X-Frame-Options zodat embedding mogelijk is
-# ============================================================
-@app.after_request
-def allow_iframe(response):
-    response.headers.pop("X-Frame-Options", None)
-    return response
-
-# ============================================================
-# Run de app
-# ============================================================
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=10000, debug=True)
+           "instructions": BASE_AGENT.instructions + f"\n\nGebr
