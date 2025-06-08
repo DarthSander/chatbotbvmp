@@ -115,7 +115,7 @@ def get_session(sid: str) -> dict:
         "ui_theme_opts": [],
         "ui_topic_opts": [],
         "current_theme": None,
-        "generated_topic_options": {}  # <-- AANGEPAST/TOEGEVOEGD
+        "generated_topic_options": {}
     }
     return SESSION[sid]
 
@@ -133,7 +133,6 @@ def summarize_chunk(chunk: List[dict]) -> str:
 
     txt = "\n".join(f"{m['role']}: {m['content']}" for m in filtered_chunk)
     
-    # Verbeterde prompt voor samenvatting
     summary_prompt = (
         "Vat dit deel van het gesprek over een geboorteplan samen in maximaal 300 tokens. "
         "Focus op de specifieke keuzes, wensen en beslissingen die door de gebruiker zijn genoemd. "
@@ -141,7 +140,7 @@ def summarize_chunk(chunk: List[dict]) -> str:
     )
 
     r = client.chat.completions.create(
-        model=MODEL_CHOICE, # Gebruik van het gekozen model (gpt-4.1-turbo)
+        model=MODEL_CHOICE,
         messages=[
             {"role": "system", "content": summary_prompt},
             {"role": "user",   "content": txt}
@@ -184,12 +183,8 @@ def _set_topic_options(session_id: str, theme: str, options: List[NamedDescripti
     """
     try:
         st = get_session(session_id)
-        # --- BEGIN AANPASSING ---
-        # Sla de gegenereerde opties op voor dit thema, als dat nog niet is gebeurd.
-        # setdefault zorgt ervoor dat we een bestaande lijst niet overschrijven.
         st.setdefault("generated_topic_options", {}).setdefault(theme, options)
-        # --- EINDE AANPASSING ---
-
+        
         st["ui_topic_opts"] = options
         st["current_theme"] = theme
         persist(session_id)
@@ -269,7 +264,6 @@ def _complete_theme(session_id: str) -> str:
         if all_selected_themes_have_topics:
             st["stage"] = "qa"
         else:
-            # Als de check faalt, blijf in de keuzefase. De agent moet dit communiceren.
             st["stage"] = "choose_theme" 
             
         st["ui_topic_opts"] = []
@@ -357,7 +351,7 @@ get_state_tool    = function_tool(_get_state)
 # ============================================================
 BASE_AGENT = Agent(
     name="Geboorteplan-agent",
-    model=MODEL_CHOICE, # Model geüpdatet naar gpt-4.1-turbo
+    model=MODEL_CHOICE,
     instructions=(
         "Je bent een vriendelijke, ondersteunende en neutrale coach die (aanstaande) ouders helpt hun geboorteplan te maken. "
         "Je toon is warm, bemoedigend en duidelijk. Gebruik 'je' en 'jullie' om de gebruiker aan te spreken.\n\n"
@@ -432,8 +426,27 @@ def agent():
               if st["summary"] else [])
     messages = intro + deepcopy(st["history"]) + [{"role": "user", "content": msg}]
 
-    # De agent-instantie wordt hier gemaakt. Het model wordt overgenomen van BASE_AGENT.
-    # Door MODEL_CHOICE en BASE_AGENT aan te passen, wordt hier ook gpt-4.1-turbo gebruikt.
     agent_inst = Agent(
         **{**BASE_AGENT.__dict__,
-           "instructions": BASE_AGENT.instructions + f"\n\nGebr
+           # --- BEGIN CORRECTIE ---
+           "instructions": BASE_AGENT.instructions + f'\n\nGebruik session_id="{sid}".'}
+           # --- EINDE CORRECTIE ---
+    )
+    res = Runner().run_sync(agent_inst, messages)
+
+    st["history"] = res.to_input_list()
+    persist(sid)
+
+    return jsonify({
+        "assistant_reply": str(res.final_output),
+        "session_id": sid,
+        "options": st["ui_topic_opts"] if st["stage"] == "choose_topic"
+                   else st["ui_theme_opts"],
+        "current_theme": st["current_theme"],
+        **{k: v for k, v in st.items()
+           if k not in ("ui_theme_opts", "ui_topic_opts")}
+    })
+
+# ---------- export endpoint ----------
+@app.get("/export/<sid>")
+def e
