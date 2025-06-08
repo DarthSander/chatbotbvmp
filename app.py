@@ -35,8 +35,8 @@ ALLOWED_ORIGINS = [
     "https://chatbotbvmp.onrender.com"
 ]
 DB_FILE = "sessions.db"
-# Model geüpdatet naar gpt-4.1-turbo zoals gevraagd
-MODEL_CHOICE = "gpt-4.1-turbo" 
+# Model geüpdatet naar gpt-4.1 zoals gevraagd
+MODEL_CHOICE = "gpt-4.1"
 
 # Maak de Flask-app zó dat alles in /static op “/…” wordt geserveerd
 app = Flask(
