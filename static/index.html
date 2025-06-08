@@ -102,10 +102,9 @@
             to   { opacity: 1; transform: translateY(0); }
         }
         
-        /* AANPASSING: Stijl voor de nieuwe 'nadenk'-bubble */
         .mae-thinking {
             position: relative;
-            overflow: hidden; /* Noodzakelijk voor het glans-effect */
+            overflow: hidden;
             color: var(--text-light);
             font-style: italic;
         }
@@ -378,7 +377,6 @@
             color: var(--rose-light);
         }
         
-        /* AANPASSING: Loader voor desktop sidebar */
         #sidebar-loader {
             position: absolute;
             top: 0; left: 0;
@@ -391,7 +389,7 @@
             border-radius: 24px;
             transition: opacity 0.3s ease;
         }
-        #sidebar-loader .spinner {
+        #sidebar-loader .spinner, #mobile-loader .spinner {
             border: 4px solid rgba(0,0,0,0.1);
             border-top-color: var(--rose);
             border-radius: 50%;
@@ -445,7 +443,6 @@
                 height: 100%;
             }
             
-            /* AANPASSING: Mobiele loader */
             #mobile-loader {
                 position: fixed;
                 top: 0; left: 0;
@@ -459,15 +456,14 @@
                 transition: opacity 0.3s ease;
             }
 
-            /* AANPASSING: Tabs bovenaan en sticky */
             #mobile-tabs {
                 display: flex !important;
                 width: 100%;
                 height: 60px;
                 background: #fff;
-                box-shadow: 0 2px 10px rgba(0,0,0,0.05); /* Schaduw naar onderen */
-                position: sticky; /* Sticky positie */
-                top: 0; /* Plak aan de bovenkant */
+                box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+                position: sticky;
+                top: 0;
                 left: 0;
                 z-index: 1000;
                 align-items: center;
@@ -476,7 +472,6 @@
 
             #mobile-flip-container {
                 width: 100%;
-                /* AANPASSING: Bereken hoogte minus de tab-balk */
                 height: calc(100% - 60px);
                 perspective: 1000px;
                 position: relative;
@@ -596,4 +591,10 @@
                 <hr>
                 <h5>Antwoorden</h5>
                 <div id="qa-log-desktop"></div>
-                <button id="view-all-qa" class="confirm-button" style=
+                <button id="view-all-qa" class="confirm-button" style="margin-top:20px;">Bekijk alle Vragen & Antwoorden →</button>
+            </aside>
+
+            <aside class="sidebar-face topics" id="sidebar-topics">
+                <button id="back-to-themes" class="back-button">← Terug naar thema's</button>
+                <h4 id="back-title"></h4>
+                <div id="topic-loader" class="loader-container" style="display: none;">
