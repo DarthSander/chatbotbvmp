@@ -29,7 +29,7 @@
             margin: 0;
             padding: 0;
             font-family: Inter, system-ui, sans-serif;
-            background: var(--grad-main); /* Hier direct toepassen */
+            background: var(--grad-main);
             color: var(--text);
             line-height: 1.55;
         }
@@ -46,7 +46,7 @@
         @media (max-width: 900px) {
             #layout {
                 flex-direction: column;
-                padding: 0 !important; /* Hier toegevoegd */
+                padding: 0 !important;
                 overflow: hidden;
                 height: 100%;
             }
@@ -69,7 +69,7 @@
 
         @media (max-width: 900px) {
             #chat-col {
-                display: none !important; /* Hier toegevoegd */
+                display: none !important;
             }
         }
 
@@ -88,11 +88,11 @@
             word-wrap: break-word;
         }
         .bubble.bot {
-            background: #fff !important; /* Hier toegevoegd */
+            background: #fff !important;
             border: 1px solid rgba(0, 0, 0, .05);
         }
         .bubble.user {
-            background: var(--grad-rose) !important; /* Hier toegevoegd */
+            background: var(--grad-rose) !important;
             color: #fff;
             margin-left: auto;
             border-bottom-right-radius: 6px;
@@ -101,27 +101,29 @@
             from { opacity: 0; transform: translateY(6px); }
             to   { opacity: 1; transform: translateY(0); }
         }
-        .typing {
-            display: inline-block;
-            width: 32px;
-            height: 8px;
+        
+        /* AANPASSING: Stijl voor de nieuwe 'nadenk'-bubble */
+        .mae-thinking {
+            position: relative;
+            overflow: hidden; /* Noodzakelijk voor het glans-effect */
+            color: var(--text-light);
+            font-style: italic;
         }
-        .typing span {
-            display: inline-block;
-            width: 6px;
-            height: 6px;
-            margin: 0 2px;
-            background: #888;
-            border-radius: 50%;
-            animation: blink 1.2s infinite;
+        .mae-thinking::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.6), transparent);
+            animation: shimmer 2.5s infinite;
         }
-        .typing span:nth-child(2) { animation-delay: .2s; }
-        .typing span:nth-child(3) { animation-delay: .4s; }
-        @keyframes blink {
-            0%,80%,100% { opacity: .2; }
-            40%         { opacity: 1;   }
+        @keyframes shimmer {
+            0% { transform: translateX(0); }
+            100% { transform: translateX(200%); }
         }
-
+        
         #input-area, #mobile-input-area {
             display: flex;
             flex-direction: column;
@@ -266,7 +268,7 @@
         }
         @media (max-width: 900px) {
             #sidebar-flip-container {
-                display: none !important; /* Hier toegevoegd */
+                display: none !important;
             }
         }
 
@@ -375,7 +377,8 @@
         .back-button:hover {
             color: var(--rose-light);
         }
-
+        
+        /* AANPASSING: Loader voor desktop sidebar */
         #sidebar-loader {
             position: absolute;
             top: 0; left: 0;
@@ -386,6 +389,7 @@
             justify-content: center;
             z-index: 10;
             border-radius: 24px;
+            transition: opacity 0.3s ease;
         }
         #sidebar-loader .spinner {
             border: 4px solid rgba(0,0,0,0.1);
@@ -440,15 +444,45 @@
                 padding: 0 !important;
                 height: 100%;
             }
+            
+            /* AANPASSING: Mobiele loader */
+            #mobile-loader {
+                position: fixed;
+                top: 0; left: 0;
+                width: 100%;
+                height: 100%;
+                background: rgba(255, 255, 255, 0.85);
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                z-index: 9999;
+                transition: opacity 0.3s ease;
+            }
+
+            /* AANPASSING: Tabs bovenaan en sticky */
+            #mobile-tabs {
+                display: flex !important;
+                width: 100%;
+                height: 60px;
+                background: #fff;
+                box-shadow: 0 2px 10px rgba(0,0,0,0.05); /* Schaduw naar onderen */
+                position: sticky; /* Sticky positie */
+                top: 0; /* Plak aan de bovenkant */
+                left: 0;
+                z-index: 1000;
+                align-items: center;
+                justify-content: space-around;
+            }
 
             #mobile-flip-container {
                 width: 100%;
+                /* AANPASSING: Bereken hoogte minus de tab-balk */
                 height: calc(100% - 60px);
                 perspective: 1000px;
                 position: relative;
                 box-sizing: border-box;
                 overflow: hidden;
-                display: block !important; /* Hier toegevoegd */
+                display: block !important;
             }
 
             .mobile-face {
@@ -458,7 +492,7 @@
                 top: 0; left: 0;
                 backface-visibility: hidden;
                 -webkit-backface-visibility: hidden;
-                background: var(--grad-main) !important; /* Hier toegevoegd */
+                background: var(--grad-main) !important;
                 border-radius: 0;
                 box-shadow: none;
                 border: none;
@@ -495,19 +529,7 @@
             #mobile-flip-container.show-qa #mobile-themes-face,
             #mobile-flip-container.show-qa #mobile-topics-face { transform: rotateY(-180deg); z-index: 1; }
             #mobile-flip-container.show-qa #mobile-qa-face { transform: rotateY(0deg); z-index: 2; }
-
-            #mobile-tabs {
-                display: flex !important; /* Hier toegevoegd */
-                width: 100%;
-                height: 60px;
-                background: #fff;
-                box-shadow: 0 -2px 10px rgba(0,0,0,0.05);
-                position: fixed;
-                bottom: 0; left: 0;
-                z-index: 1000;
-                align-items: center;
-                justify-content: space-around;
-            }
+            
             #mobile-tabs button {
                 flex: 1;
                 border: none;
@@ -547,6 +569,13 @@
 </head>
 <body>
 
+<div id="mobile-tabs">
+    <button id="tab-chat" class="active">Chat</button>
+    <button id="tab-themes">Thema's</button>
+    <button id="tab-topics">Onderwerpen</button>
+    <button id="tab-qa">Q&A</button>
+</div>
+
 <main id="layout">
     <div id="chat-col">
         <div id="chatbox"></div>
@@ -558,6 +587,8 @@
     </div>
 
     <div id="sidebar-flip-container">
+        <div id="sidebar-loader" style="display: none;"><div class="spinner"></div></div>
+
         <div class="flip-container" id="desktop-flip-container">
             <aside class="sidebar-face front" id="sidebar-front">
                 <h4 id="q-title"></h4>
@@ -565,569 +596,4 @@
                 <hr>
                 <h5>Antwoorden</h5>
                 <div id="qa-log-desktop"></div>
-                <button id="view-all-qa" class="confirm-button" style="margin-top:20px;">Bekijk alle Vragen & Antwoorden →</button>
-            </aside>
-
-            <aside class="sidebar-face topics" id="sidebar-topics">
-                <button id="back-to-themes" class="back-button">← Terug naar thema's</button>
-                <h4 id="back-title"></h4>
-                <div id="topic-loader" class="loader-container" style="display: none;">
-                    <div class="loader"></div>
-                    <div class="progress-bar">
-                        <div class="progress-fill" id="progress-fill"></div>
-                    </div>
-                </div>
-                <div id="q-topic-options"></div>
-                <button id="confirm-topics" class="confirm-button" disabled>Bevestig onderwerpen →</button>
-            </aside>
-
-            <aside class="sidebar-face qa" id="sidebar-qa-desktop">
-                <button id="back-from-qa-desktop" class="back-button">← Terug</button>
-                <h4>Jouw Vragen & Antwoorden</h4>
-                <div id="qa-log-full-desktop"></div>
-            </aside>
-        </div>
-    </div>
-
-    <div id="mobile-flip-container">
-        <div class="mobile-face" id="mobile-chat-face">
-            <div id="mobile-chatbox"></div>
-            <div id="mobile-choices"></div>
-            <div id="mobile-input-area">
-                <textarea id="mobile-input" placeholder="Typ je bericht…"></textarea>
-                <button id="mobile-send">Verstuur</button>
-            </div>
-        </div>
-
-        <div class="mobile-face" id="mobile-themes-face">
-            <h4 id="mobile-q-title"></h4>
-            <div id="mobile-q-options"></div>
-        </div>
-
-        <div class="mobile-face" id="mobile-topics-face">
-            <button id="mobile-back-to-themes" class="back-button">← Terug naar thema's</button>
-            <h4 id="mobile-back-title"></h4>
-            <div id="mobile-topic-loader" class="loader-container" style="display: none;">
-                <div class="loader"></div>
-                <div class="progress-bar">
-                    <div class="progress-fill" id="mobile-progress-fill"></div>
-                </div>
-            </div>
-            <div id="mobile-q-topic-options"></div>
-            <button id="mobile-confirm-topics" class="confirm-button" disabled>Bevestig onderwerpen →</button>
-        </div>
-
-        <div class="mobile-face" id="mobile-qa-face">
-            <button id="mobile-back-from-qa" class="back-button">← Terug</button>
-            <h4>Jouw Vragen & Antwoorden</h4>
-            <div id="qa-log-mobile"></div>
-        </div>
-    </div>
-</main>
-
-<div id="mobile-tabs">
-    <button id="tab-chat" class="active">Chat</button>
-    <button id="tab-themes">Thema's</button>
-    <button id="tab-topics">Onderwerpen</button>
-    <button id="tab-qa">Q&A</button>
-</div>
-
-<script>
-    console.log('[init] Geboorteplan-agent frontend initialiseren');
-
-    /* TaskAgent (pop-up voor initiële actie) */
-    (() => {
-        const done = new Set();
-        window.TaskAgent = {
-            start(o) {
-                if (done.has(o.id)) return;
-                console.log('[TaskAgent] pop-up tonen:', o);
-                const ov = document.createElement("div");
-                Object.assign(ov.style, {
-                    position: "fixed", inset: 0,
-                    display: "flex", background: "rgba(0,0,0,.55)",
-                    alignItems: "center", justifyContent: "center",
-                    zIndex: 9999
-                });
-                const card = document.createElement("div");
-                card.style.cssText =
-                    "background:#fff;padding:26px;border-radius:18px;max-width:440px;width:90%;text-align:center;box-shadow:0 8px 40px rgba(0,0,0,.15)";
-                card.innerHTML = `<h2 style="font-size:1.25rem;margin:0 0 10px">${o.title}</h2><p style="font-size:.95rem;margin:0 0 18px">${o.description}</p>`;
-                const wrap = document.createElement("div");
-                wrap.style.display = "flex"; wrap.style.gap = "10px";
-                ["yes","no","other"].forEach(k => {
-                    const b = document.createElement("button");
-                    b.textContent = o.labels[k];
-                    b.style.cssText = "flex:1 1 100px;padding:10px 0;border:none;border-radius:10px;background:#667eea;color:#fff;cursor:pointer;transition:background 0.2s ease";
-                    b.onmouseover = () => b.style.backgroundColor = "#5a67d8";
-                    b.onmouseout = () => b.style.backgroundColor = "#667eea";
-                    b.onclick = () => {
-                        console.log(`[TaskAgent] knop ${k} gekozen`);
-                        ov.remove();
-                        o[{yes:"onYes",no:"onNo",other:"onOther"}[k]]();
-                    };
-                    wrap.appendChild(b);
-                });
-                card.appendChild(wrap);
-                ov.appendChild(card);
-                document.body.appendChild(ov);
-                done.add(o.id);
-            }
-        };
-    })();
-
-    const API = "https://chatbotbvmp.onrender.com/agent";
-    let sessionId = sessionStorage.getItem("agentSession") || null;
-    console.log('[init] sessionId from storage:', sessionId);
-
-    const chatbox = document.getElementById("chatbox");
-    const mobileChatbox = document.getElementById("mobile-chatbox");
-
-    function addMsg(role, md, isMobile = false) {
-        console.log(`[addMsg] role=${role} (mobile: ${isMobile})`, md);
-        const d = document.createElement("div");
-        d.className = "bubble " + (role==="bot"?"bot":"user");
-        d.innerHTML = marked.parse(md);
-
-        const targetChatbox = isMobile ? mobileChatbox : chatbox;
-        if (!targetChatbox) {
-            console.error(`[addMsg] Fout: Chatbox element ${isMobile ? 'mobileChatbox' : 'chatbox'} niet gevonden.`);
-            return null; // Return null if element not found
-        }
-        targetChatbox.appendChild(d);
-        targetChatbox.scrollTop = targetChatbox.scrollHeight;
-        return d;
-    }
-
-    function typingBubble(isMobile = false) {
-        console.log('[typingBubble] toon typing indicator (mobile: ' + isMobile + ')');
-        return addMsg("bot","<span class='typing'><span></span><span></span><span></span></span>", isMobile);
-    }
-
-    async function callAgent(message) {
-        console.log('[callAgent] verzend naar API:', {message, sessionId});
-        const isMobile = window.innerWidth <= 900;
-        const wait = typingBubble(isMobile);
-
-        try {
-            const r = await fetch(API, {
-                method: "POST",
-                headers: {"Content-Type":"application/json"},
-                body: JSON.stringify({message, session_id: sessionId})
-            });
-            
-            const targetChatbox = isMobile ? mobileChatbox : chatbox;
-            if (wait && targetChatbox && targetChatbox.contains(wait)) {
-                targetChatbox.removeChild(wait);
-            }
-            
-            const data = await r.json();
-            console.log('[callAgent] API response:', data);
-            sessionId = data.session_id;
-            sessionStorage.setItem("agentSession", sessionId);
-            return data;
-        } catch(err) {
-            console.error('[callAgent] error', err);
-            const targetChatbox = isMobile ? mobileChatbox : chatbox;
-            if (wait && targetChatbox && targetChatbox.contains(wait)) {
-                targetChatbox.removeChild(wait);
-            }
-            addMsg("bot","⚠️ Er is een fout opgetreden. Probeer het later opnieuw.", isMobile);
-            throw err;
-        }
-    }
-
-    async function handleChoiceSilent(txt) {
-        console.log('[handleChoiceSilent] txt=', txt);
-        try { await callAgent(txt); }
-        catch(err){ console.error('[handleChoiceSilent] error', err); }
-    }
-
-    function logQA(qa) {
-        console.log('[logQA] bijwerken met', qa);
-        const qaLogDesktop = document.getElementById("qa-log-desktop");
-        const qaLogFullDesktop = document.getElementById("qa-log-full-desktop");
-        const qaLogMobile = document.getElementById("qa-log-mobile");
-        const qaTabButton = document.getElementById("tab-qa");
-
-        function updateLogElement(el) {
-            if (!el) {
-                console.error(`[logQA] Fout: QA log element ${el.id} niet gevonden.`);
-                return;
-            }
-            el.innerHTML = "";
-            (qa||[]).forEach(r=>{
-                const p=document.createElement("p");
-                p.innerHTML=`<strong>Thema: ${r.theme}</strong><br><em>Vraag: ${r.question}</em><br>Antwoord: ${r.answer}`;
-                el.appendChild(p);
-            });
-            el.scrollTop=el.scrollHeight;
-        }
-
-        updateLogElement(qaLogDesktop);
-        updateLogElement(qaLogFullDesktop);
-        updateLogElement(qaLogMobile);
-
-        if (qaTabButton && (qa && qa.length > 0)) {
-            if (!qaTabButton.classList.contains('active')) {
-                qaTabButton.classList.add('new-qa');
-            }
-        }
-    }
-
-    let currentTheme=null;
-    let selectedTopics=[];
-    window.uiTopicOptionsForTheme=[];
-
-    function showSidebarLoader(){
-        const sidebar=document.getElementById('sidebar-flip-container');
-        if(sidebar && !document.getElementById('sidebar-loader')){
-            const l=document.createElement('div');
-            l.id='sidebar-loader';
-            l.innerHTML=`<div class="spinner"></div>`;
-            sidebar.appendChild(l);
-        }
-    }
-    function hideSidebarLoader(){
-        const l=document.getElementById('sidebar-loader');
-        if(l) l.remove();
-    }
-
-    function showMobileTopicLoader(){
-        const loader = document.getElementById('mobile-topic-loader');
-        if(loader) loader.style.display = 'flex';
-    }
-    function hideMobileTopicLoader(){
-        const loader = document.getElementById('mobile-topic-loader');
-        if(loader) loader.style.display = 'none';
-    }
-
-    function renderThemes(opts, isMobile = false) {
-        console.log('[renderThemes] opties ontvangen (mobile: ' + isMobile + '):', opts);
-        const box = isMobile ? document.getElementById("mobile-q-options") : document.getElementById("q-options");
-        const tit = isMobile ? document.getElementById("mobile-q-title") : document.getElementById("q-title");
-
-        if (!box) { console.error(`[renderThemes] Fout: Thema-opties container ${isMobile ? 'mobile-q-options' : 'q-options'} niet gevonden.`); return; }
-        if (!tit) { console.error(`[renderThemes] Fout: Thema-titel element ${isMobile ? 'mobile-q-title' : 'q-title'} niet gevonden.`); return; }
-
-        box.innerHTML="";
-        tit.textContent="Kies een thema (max 6):";
-
-        opts.forEach(o=>{
-            const c=document.createElement("span");
-            c.className="theme-chip";
-            c.textContent=o.name;
-            c.onclick=()=>{
-                console.log('[renderThemes] thema-chip geklikt:', o.name);
-                if (isMobile) {
-                    showMobileTopicLoader();
-                    switchMobileFace('topics');
-                } else {
-                    showSidebarLoader();
-                }
-                handleChoice(`Thema geselecteerd: ${o.name}`, false, isMobile);
-            };
-            box.appendChild(c);
-        });
-    }
-
-    function renderTopicChips(options, isMobile = false){
-        console.log('[renderTopicChips] opties ontvangen (mobile: ' + isMobile + '):', options);
-        const ctn = isMobile ? document.getElementById("mobile-q-topic-options") : document.getElementById("q-topic-options");
-        
-        if (!ctn) { console.error(`[renderTopicChips] Fout: Topic-opties container ${isMobile ? 'mobile-q-topic-options' : 'q-topic-options'} niet gevonden.`); return; }
-
-        ctn.innerHTML="";
-        options.forEach(opt=>{
-            const chip=document.createElement("span");
-            chip.className="topic-chip";
-            chip.textContent=opt.name;
-            chip.dataset.desc=opt.description||"";
-            chip.onclick=()=>{
-                if(chip.classList.contains("selected")){
-                    chip.classList.remove("selected");
-                    selectedTopics=selectedTopics.filter(t=>t!==opt.name);
-                } else {
-                    if(selectedTopics.length < 4) {
-                        chip.classList.add("selected");
-                        selectedTopics.push(opt.name);
-                    } else {
-                        alert("Je kunt maximaal 4 onderwerpen per thema kiezen.");
-                    }
-                }
-                updateConfirmButtonState(isMobile);
-            };
-            ctn.appendChild(chip);
-        });
-        updateConfirmButtonState(isMobile);
-    }
-
-    function updateConfirmButtonState(isMobile = false){
-        const btn = isMobile ? document.getElementById("mobile-confirm-topics") : document.getElementById("confirm-topics");
-        if(btn) btn.disabled = selectedTopics.length === 0;
-        console.log('[updateConfirmButtonState] disabled=',btn ? btn.disabled : 'N/A','selectedTopics=',selectedTopics);
-    }
-
-    document.getElementById("back-to-themes").onclick=()=>{
-        console.log('[back-to-themes] flip terug naar themes');
-        document.getElementById("desktop-flip-container").classList.remove("flipped-to-topics");
-        document.getElementById("desktop-flip-container").classList.remove("flipped-to-qa");
-    };
-    document.getElementById("back-from-qa-desktop").onclick=()=>{
-        console.log('[back-from-qa-desktop] flip terug van Q&A');
-        document.getElementById("desktop-flip-container").classList.remove("flipped-to-qa");
-        document.getElementById("desktop-flip-container").classList.remove("flipped-to-topics");
-    };
-    document.getElementById("view-all-qa").onclick=()=>{
-        console.log('[view-all-qa] flip naar Q&A');
-        document.getElementById("desktop-flip-container").classList.add("flipped-to-qa");
-    };
-
-    async function confirmTopics(isMobile = false){
-        console.log('[confirm-topics] bevestig onderwerpen (silent):',selectedTopics);
-        for(let t of selectedTopics){
-            console.log('[confirmTopics] verzend topic:',t);
-            await handleChoiceSilent(`Onderwerp geselecteerd: ${t}`);
-        }
-        await handleChoice(`Ik ben klaar met de onderwerpen voor ${currentTheme}.`, true, isMobile);
-        console.log('[confirmTopics] flip terug en markeer thema:',currentTheme);
-        
-        if (isMobile) {
-            switchMobileFace('chat');
-        } else {
-            document.getElementById("desktop-flip-container").classList.remove("flipped-to-topics");
-        }
-        markThemeAsSelected(currentTheme);
-        selectedTopics = [];
-        updateConfirmButtonState(isMobile);
-    }
-    document.getElementById("confirm-topics").onclick=() => confirmTopics(false);
-    document.getElementById("mobile-confirm-topics").onclick=() => confirmTopics(true);
-
-    function markThemeAsSelected(themeName){
-        console.log('[markThemeAsSelected] thema selecteren:',themeName);
-        document.querySelectorAll(".theme-chip").forEach(chip=>{
-            if(chip.textContent.trim()===themeName){
-                chip.classList.add("selected");
-                if(!chip.querySelector(".edit-bar")){
-                    const eb=document.createElement("span");
-                    eb.className="edit-bar";
-                    eb.textContent="✎";
-                    eb.onclick=e=>{
-                        e.stopPropagation();
-                        console.log('[edit-bar] thema heropenen:',themeName);
-                        const isMobile = window.innerWidth <= 900;
-                        
-                        selectedTopics = []; 
-                        if (isMobile) {
-                            switchMobileFace('topics');
-                            showMobileTopicLoader();
-                        } else {
-                            showSidebarLoader();
-                        }
-                        handleChoice(`Thema geselecteerd: ${themeName}`, false, isMobile);
-                    };
-                    chip.appendChild(eb);
-                }
-            }
-        });
-    }
-
-    async function callAndRender(msg){
-        console.log('[callAndRender] verwerking starten voor:',msg);
-        const isMobile = window.innerWidth <= 900;
-        try {
-            const data=await callAgent(msg);
-
-            if(data.assistant_reply){
-                console.log('[callAndRender] toont assistant_reply');
-                addMsg("bot",data.assistant_reply, isMobile);
-            }
-
-            if(data.stage==="choose_theme" && data.options){
-                console.log('[callAndRender] renderThemes');
-                renderThemes(data.options, isMobile);
-                if (!isMobile) hideSidebarLoader();
-            }
-
-            if(data.stage==="choose_topic" && data.options && data.current_theme){
-                console.log('[callAndRender] toon sidebar loader & flip');
-                currentTheme=data.current_theme;
-                window.uiTopicOptionsForTheme=data.options;
-                const backTitleEl = isMobile ? document.getElementById("mobile-back-title") : document.getElementById("back-title");
-                if (backTitleEl) backTitleEl.textContent=`Onderwerpen voor “${currentTheme}”`;
-                else console.error(`[callAndRender] Fout: back-title element ${isMobile ? 'mobile-back-title' : 'back-title'} niet gevonden.`);
-
-                if (!isMobile) {
-                    const desktopFlipContainer = document.getElementById("desktop-flip-container");
-                    if (desktopFlipContainer) {
-                        desktopFlipContainer.classList.add("flipped-to-topics");
-                    } else {
-                        console.error("[callAndRender] Fout: desktop-flip-container niet gevonden.");
-                    }
-                }
-                
-                setTimeout(()=>{
-                    if (isMobile) {
-                        hideMobileTopicLoader();
-                        renderTopicChips(window.uiTopicOptionsForTheme, true);
-                    } else {
-                        hideSidebarLoader();
-                        renderTopicChips(window.uiTopicOptionsForTheme);
-                    }
-                    selectedTopics=[];
-                    updateConfirmButtonState(isMobile);
-                    console.log('[callAndRender] topics geladen');
-                },600);
-            }
-
-            logQA(data.qa || []);
-        } catch (err) {
-            console.error('[callAndRender] Fout bij verwerken API data:', err);
-            if (!isMobile) hideSidebarLoader();
-            else hideMobileTopicLoader();
-        }
-    }
-
-    async function handleChoice(txt,showBubble=true, isMobile = false){
-        console.log('[handleChoice] txt=',txt,'showBubble=',showBubble,'isMobile=',isMobile);
-        if(!txt.trim()) return;
-
-        const inp = isMobile ? document.getElementById("mobile-input") : document.getElementById("input");
-        if(showBubble) addMsg("user",txt, isMobile);
-        if (inp) inp.value="";
-        try{ await callAndRender(txt); }
-        catch(err){ /* Fout afgehandeld in callAgent */ }
-    }
-
-    document.getElementById("send").onclick=()=> {
-        const inputElement = document.getElementById("input");
-        if (inputElement) handleChoice(inputElement.value.trim(), true, false);
-        else console.error("[send click] Input element 'input' niet gevonden.");
-    };
-
-    document.getElementById("input").addEventListener("keydown",e=>{
-        if(e.key==="Enter"&&!e.shiftKey){
-            e.preventDefault();
-            document.getElementById("send").click();
-        }
-    });
-
-    document.getElementById("mobile-send").onclick=()=> {
-        const mobileInputElement = document.getElementById("mobile-input");
-        if (mobileInputElement) handleChoice(mobileInputElement.value.trim(), true, true);
-        else console.error("[mobile-send click] Input element 'mobile-input' niet gevonden.");
-    };
-
-    document.getElementById("mobile-input").addEventListener("keydown",e=>{
-        if(e.key==="Enter"&&!e.shiftKey){
-            e.preventDefault();
-            document.getElementById("mobile-send").click();
-        }
-    });
-
-    const mobileFlipContainer = document.getElementById('mobile-flip-container');
-    const mobileTabs = document.querySelectorAll('#mobile-tabs button');
-    if (!mobileFlipContainer) console.error("Element 'mobile-flip-container' niet gevonden.");
-    if (mobileTabs.length === 0) console.error("Geen mobiele tab buttons gevonden.");
-
-    function switchMobileFace(faceName) {
-        console.log('[switchMobileFace] naar face:', faceName);
-        if (!mobileFlipContainer) {
-            console.error("[switchMobileFace] mobileFlipContainer is null. Kan niet flippen.");
-            return;
-        }
-
-        mobileFlipContainer.classList.remove('show-chat', 'show-themes', 'show-topics', 'show-qa');
-        mobileFlipContainer.classList.add('show-' + faceName);
-
-        mobileTabs.forEach(tab => tab.classList.remove('active'));
-        const targetTab = document.getElementById('tab-' + faceName);
-        if (targetTab) {
-            targetTab.classList.add('active');
-            if (faceName === 'qa') {
-                targetTab.classList.remove('new-qa');
-            }
-        } else {
-            console.error(`[switchMobileFace] Target tab element 'tab-${faceName}' niet gevonden.`);
-        }
-    }
-
-    document.getElementById('tab-chat').onclick = () => switchMobileFace('chat');
-    document.getElementById('tab-themes').onclick = () => {
-        switchMobileFace('themes');
-        handleChoice("toon thema's", false, true);
-    };
-    document.getElementById('tab-topics').onclick = () => {
-        if (currentTheme) {
-            switchMobileFace('topics');
-            renderTopicChips(window.uiTopicOptionsForTheme, true);
-            updateConfirmButtonState(true);
-        } else {
-            alert("Kies eerst een thema om onderwerpen te kunnen bekijken.");
-            switchMobileFace('themes');
-            handleChoice("toon thema's", false, true);
-        }
-    };
-    document.getElementById('tab-qa').onclick = () => switchMobileFace('qa');
-
-    document.getElementById('mobile-back-to-themes').onclick = () => switchMobileFace('themes');
-    document.getElementById('mobile-back-from-qa').onclick = () => switchMobileFace('chat');
-
-    console.log('[init] welkomsbericht');
-    addMsg("bot","Welkom bij <strong>Beval met een Plan</strong>! Ik help je stap-voor-stap bij jouw geboorte­plan.", window.innerWidth <= 900);
-
-    setTimeout(()=>TaskAgent.start({
-        id:"start1",
-        title:"Aan de slag",
-        description:"Zullen we samen eerst de thema’s kiezen die jij belangrijk vindt?",
-        labels:{yes:"Ja!",no:"Later",other:"Anders"},
-        onYes:() => {
-            const isMobile = window.innerWidth <= 900;
-            if (isMobile) {
-                switchMobileFace('themes');
-            }
-            handleChoice("Ik ben klaar om thema’s te kiezen.", false, isMobile); 
-        },
-        onNo:()=>{console.log('[TaskAgent] No gekozen');addMsg("bot","Geen probleem – typ ‘begin’ als je wilt starten.", window.innerWidth <= 900);},
-        onOther:()=>{console.log('[TaskAgent] Other gekozen');addMsg("bot","Vertel wat je nu nodig hebt.", window.innerWidth <= 900);}
-    }),3000);
-
-    function updateLayoutForDevice() {
-        const isMobile = window.innerWidth <= 900;
-        const desktopSidebar = document.getElementById('sidebar-flip-container');
-        const mobileFlip = document.getElementById('mobile-flip-container');
-        const mobileTabs = document.getElementById('mobile-tabs');
-        const desktopChatCol = document.getElementById('chat-col');
-
-        if (!desktopSidebar) console.error("Element 'sidebar-flip-container' niet gevonden.");
-        if (!mobileFlip) console.error("Element 'mobile-flip-container' niet gevonden.");
-        if (!mobileTabs) console.error("Element 'mobile-tabs' niet gevonden.");
-        if (!desktopChatCol) console.error("Element 'chat-col' niet gevonden.");
-
-
-        if (isMobile) {
-            if (desktopSidebar) desktopSidebar.style.display = 'none';
-            if (mobileFlip) mobileFlip.style.display = 'block';
-            if (mobileTabs) mobileTabs.style.display = 'flex';
-            if (desktopChatCol) desktopChatCol.style.display = 'none';
-        } else {
-            if (desktopSidebar) desktopSidebar.style.display = 'flex';
-            if (mobileFlip) mobileFlip.style.display = 'none';
-            if (mobileTabs) mobileTabs.style.display = 'none';
-            if (desktopChatCol) desktopChatCol.style.display = 'flex';
-            const desktopFlipContainer = document.getElementById("desktop-flip-container");
-            if (desktopFlipContainer) {
-                desktopFlipContainer.classList.remove("flipped-to-topics", "flipped-to-qa");
-            } else {
-                console.error("Element 'desktop-flip-container' niet gevonden.");
-            }
-        }
-    }
-
-    updateLayoutForDevice();
-    window.addEventListener('resize', updateLayoutForDevice);
-
-</script>
-</body>
-</html>
+                <button id="view-all-qa" class="confirm-button" style=
