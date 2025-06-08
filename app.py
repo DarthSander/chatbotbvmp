@@ -428,9 +428,7 @@ def agent():
 
     agent_inst = Agent(
         **{**BASE_AGENT.__dict__,
-           # --- BEGIN CORRECTIE ---
            "instructions": BASE_AGENT.instructions + f'\n\nGebruik session_id="{sid}".'}
-           # --- EINDE CORRECTIE ---
     )
     res = Runner().run_sync(agent_inst, messages)
 
@@ -449,4 +447,7 @@ def agent():
 
 # ---------- export endpoint ----------
 @app.get("/export/<sid>")
-def e
+def export_json(sid: str):
+    st = load_state(sid)
+    if not st:
+        abor
