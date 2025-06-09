@@ -29,8 +29,7 @@ ASSISTANT_ID    = os.getenv("ASSISTANT_ID")
 ALLOWED_ORIGINS = [
     "https://bevalmeteenplan.nl",
     "https://www.bevalmeteenplan.nl",
-    "https://chatbotbvmp.onrender.com",
-    "https://www.sandervandemark.nl"
+    "https://chatbotbvmp.onrender.com"
 ]
 DB_FILE         = "sessions.db"
 MODEL_CHOICE    = "gpt-4.1"
