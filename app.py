@@ -1,12 +1,11 @@
-# app.py
-
-# ============================================================
-# Geboorteplan-agent – VOLLEDIGE EN GECORRIGEERDE FLASK-APP
-# Versie met herstelde /iframe route en alle voorgaande fixes
-# ============================================================
+# app.py – Geboorteplan-agent – Volledige en Geoptimaliseerde Flask-app
 
 from __future__ import annotations
-import os, json, uuid, sqlite3
+import os
+import json
+import uuid
+import sqlite3
+import time
 from copy import deepcopy
 from typing import List, Dict, Optional
 from typing_extensions import TypedDict
@@ -25,23 +24,23 @@ class NamedDescription(TypedDict):
     description: str
 
 # ---------- basisconfig ----------
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-ASSISTANT_ID = os.getenv("ASSISTANT_ID")
+client          = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+ASSISTANT_ID    = os.getenv("ASSISTANT_ID")
 ALLOWED_ORIGINS = [
     "https://bevalmeteenplan.nl",
     "https://www.bevalmeteenplan.nl",
     "https://chatbotbvmp.onrender.com",
-    "https://www.sandervandemark.nl" # Overgenomen uit oude GitHub versie
+    "https://www.sandervandemark.nl"
 ]
-DB_FILE = "sessions.db"
-MODEL_CHOICE = "gpt-4.1"
+DB_FILE         = "sessions.db"
+MODEL_CHOICE    = "gpt-4.1"
 
-# Maak de Flask-app
+# ---------- Flask-app setup ----------
 app = Flask(
     __name__,
-    static_folder="static",        # map met index.html, css/, js/
-    template_folder="templates",   # map met iframe_page.html
-    static_url_path=""             # mapt “/foo.js” → “static/foo.js”
+    static_folder="static",
+    template_folder="templates",
+    static_url_path=""
 )
 CORS(app, origins=ALLOWED_ORIGINS, allow_headers="*", methods=["GET", "POST", "OPTIONS"])
 
@@ -76,7 +75,12 @@ DEFAULT_TOPICS: Dict[str, List[NamedDescription]] = {
 # ---------- SQLite-helper functions ----------
 def init_db() -> None:
     with sqlite3.connect(DB_FILE) as con:
-        con.execute("CREATE TABLE IF NOT EXISTS sessions (id TEXT PRIMARY KEY, state TEXT NOT NULL)")
+        con.execute("""
+            CREATE TABLE IF NOT EXISTS sessions (
+                id TEXT PRIMARY KEY,
+                state TEXT NOT NULL
+            )
+        """)
 init_db()
 
 def load_state(sid: str) -> Optional[dict]:
@@ -94,16 +98,24 @@ def save_state(sid: str, st: dict) -> None:
 
 # ---------- In-memory sessies + persistence ----------
 SESSION: Dict[str, dict] = {}
+
 def get_session(sid: str) -> dict:
     if sid in SESSION:
+        SESSION[sid].setdefault("id", sid)
         return SESSION[sid]
+
     if (db := load_state(sid)):
-        loaded_history = db.get("history", []) 
-        SESSION[sid] = {**db, "history": loaded_history}
-        SESSION[sid].setdefault("generated_topic_options", {})
-        return SESSION[sid]
+        st = db
+        st.setdefault("history", [])
+        st.setdefault("generated_topic_options", {})
+        st.setdefault("last_interaction_timestamp", time.time())
+        st["id"] = sid
+        SESSION[sid] = st
+        return st
+
     # Nieuwe sessie
-    SESSION[sid] = {
+    st = {
+        "id": sid,
         "stage": "choose_theme",
         "themes": [],
         "topics": {},
@@ -113,9 +125,11 @@ def get_session(sid: str) -> dict:
         "ui_theme_opts": [],
         "ui_topic_opts": [],
         "current_theme": None,
-        "generated_topic_options": {}
+        "generated_topic_options": {},
+        "last_interaction_timestamp": time.time()
     }
-    return SESSION[sid]
+    SESSION[sid] = st
+    return st
 
 def persist(sid: str) -> None:
     save_state(sid, SESSION[sid])
@@ -124,216 +138,153 @@ def persist(sid: str) -> None:
 def summarize_chunk(chunk: List[dict]) -> str:
     if not chunk:
         return ""
-    filtered_chunk = [m for m in chunk if isinstance(m, dict) and 'role' in m and 'content' in m and isinstance(m['content'], str)]
-    
-    if not filtered_chunk:
-        return ""
-
-    txt = "\n".join(f"{m['role']}: {m['content']}" for m in filtered_chunk)
-    
-    summary_prompt = (
+    filtered = [m for m in chunk if isinstance(m, dict) and m.get('content')]
+    text = "\n".join(f"{m['role']}: {m['content']}" for m in filtered)
+    prompt = (
         "Vat dit deel van het gesprek over een geboorteplan samen in maximaal 300 tokens. "
-        "Focus op de specifieke keuzes, wensen en beslissingen die door de gebruiker zijn genoemd. "
-        "Noteer ook eventuele twijfels of openstaande vragen. De samenvatting wordt gebruikt als context voor het vervolg van het gesprek."
+        "Focus op de keuzes, wensen en open vragen."
     )
-
     r = client.chat.completions.create(
         model=MODEL_CHOICE,
         messages=[
-            {"role": "system", "content": summary_prompt},
-            {"role": "user",   "content": txt}
+            {"role": "system", "content": prompt},
+            {"role": "user",   "content": text}
         ],
         max_tokens=300
     )
     return r.choices[0].message.content.strip()
 
 # ============================================================
-# Tool-implementaties met DOCSTRINGS en FOUTAFHANDELING
+# Tool-wrappers
 # ============================================================
-def _set_theme_options(session_id: str, options: List[NamedDescription]) -> str:
-    """
-    Toont een lijst met themakeuzes aan de gebruiker in de UI.
-    """
-    try:
-        st = get_session(session_id)
-        st["ui_theme_opts"] = options
-        persist(session_id)
-        return "ok"
-    except Exception as e:
-        print(f"Error in _set_theme_options for session {session_id}: {e}")
-        return f"Kon themakeuzes niet instellen vanwege een technische fout: {e}"
+def _set_theme_options(session_id: str, options: List[str]) -> str:
+    st = get_session(session_id)
+    st["ui_theme_opts"] = options
+    persist(session_id)
+    return "ok"
 
 def _set_topic_options(session_id: str, theme: str, options: List[NamedDescription]) -> str:
-    """
-    Toont een lijst met onderwerpkeuzes (topics) binnen een specifiek thema.
-    """
-    try:
-        st = get_session(session_id)
-        st.setdefault("generated_topic_options", {}).setdefault(theme, options)
-        
-        st["ui_topic_opts"] = options
-        st["current_theme"] = theme
-        persist(session_id)
-        return "ok"
-    except Exception as e:
-        print(f"Error in _set_topic_options for session {session_id}: {e}")
-        return f"Kon onderwerpkeuzes niet instellen vanwege een technische fout: {e}"
+    st = get_session(session_id)
+    st.setdefault("generated_topic_options", {})[theme] = options
+    st["ui_topic_opts"] = options
+    st["current_theme"] = theme
+    persist(session_id)
+    return "ok"
 
 def _register_theme(session_id: str, theme: str, description: str = "") -> str:
-    """
-    Registreert een gekozen thema voor het geboorteplan.
-    """
-    try:
-        st = get_session(session_id)
-        if len(st["themes"]) >= 6 or theme in [t["name"] for t in st["themes"]]:
-            return "ok"
+    st = get_session(session_id)
+    if len(st["themes"]) < 6 and theme not in [t["name"] for t in st["themes"]]:
         st["themes"].append({"name": theme, "description": description})
         st["stage"] = "choose_topic"
         st["ui_topic_opts"] = DEFAULT_TOPICS.get(theme, [])
         st["current_theme"] = theme
         persist(session_id)
-        return "ok"
-    except Exception as e:
-        print(f"Error in _register_theme for session {session_id}: {e}")
-        return f"Kon thema niet registreren vanwege een technische fout: {e}"
+    return "ok"
 
 def _register_topic(session_id: str, theme: str, topic: str) -> str:
-    """
-    Registreert een gekozen onderwerp (topic) binnen een thema.
-    """
-    try:
-        st = get_session(session_id)
-        lst = st["topics"].setdefault(theme, [])
-        if len(lst) >= 4 or topic in lst:
-            return "ok"
+    st = get_session(session_id)
+    lst = st["topics"].setdefault(theme, [])
+    if len(lst) < 4 and topic not in lst:
         lst.append(topic)
         persist(session_id)
-        return "ok"
-    except Exception as e:
-        print(f"Error in _register_topic for session {session_id}: {e}")
-        return f"Kon onderwerp niet registreren vanwege een technische fout: {e}"
+    return "ok"
 
 def _complete_theme(session_id: str) -> str:
-    """
-    Rondt de fase van thema- en onderwerpkeuze af en start de Q&A-fase.
-    """
-    try:
-        st = get_session(session_id)
-        all_selected_themes_have_topics = True
-        if not st["themes"]:
-            all_selected_themes_have_topics = False
-        else:
-            for theme_obj in st["themes"]:
-                theme_name = theme_obj["name"]
-                if theme_name not in st["topics"] or not st["topics"][theme_name]:
-                    all_selected_themes_have_topics = False
-                    break
-        
-        if all_selected_themes_have_topics:
-            st["stage"] = "qa"
-        else:
-            st["stage"] = "choose_theme" 
-            
-        st["ui_topic_opts"] = []
-        st["current_theme"] = None
-        persist(session_id)
-        return "ok"
-    except Exception as e:
-        print(f"Error in _complete_theme for session {session_id}: {e}")
-        return f"Kon themaselectie niet afronden vanwege een technische fout: {e}"
+    st = get_session(session_id)
+    all_ok = all(
+        t["name"] in st["topics"] and st["topics"][t["name"]]
+        for t in st["themes"]
+    )
+    st["stage"] = "qa" if all_ok else "choose_theme"
+    st["ui_topic_opts"] = []
+    st["current_theme"] = None
+    persist(session_id)
+    return "ok"
 
 def _log_answer(session_id: str, theme: str, question: str, answer: str) -> str:
-    """
-    Slaat een antwoord van de gebruiker op een specifieke vraag op in de sessie.
-    """
-    try:
-        st = get_session(session_id)
-        for item in st["qa"]:
-            if item["theme"] == theme and item["question"] == question:
-                item["answer"] = answer
-                persist(session_id)
-                return "ok"
+    st = get_session(session_id)
+    found = False
+    for qa in st["qa"]:
+        if qa["theme"] == theme and qa["question"] == question:
+            qa["answer"] = answer
+            found = True
+            break
+    if not found:
         st["qa"].append({"theme": theme, "question": question, "answer": answer})
-        persist(session_id)
-        return "ok"
-    except Exception as e:
-        print(f"Error in _log_answer for session {session_id}: {e}")
-        return f"Kon antwoord niet opslaan vanwege een technische fout: {e}"
-
-def _update_answer(session_id: str, question: str, new_answer: str) -> str:
-    """
-    Werkt een eerder gegeven antwoord op een vraag bij.
-    """
-    try:
-        st = get_session(session_id)
-        for qa in st["qa"]:
-            if qa["question"] == question:
-                qa["answer"] = new_answer
-                break
-        persist(session_id)
-        return "ok"
-    except Exception as e:
-        print(f"Error in _update_answer for session {session_id}: {e}")
-        return f"Kon antwoord niet bijwerken vanwege een technische fout: {e}"
+    persist(session_id)
+    return "ok"
 
 def _get_state(session_id: str) -> str:
-    """
-    Haalt de volledige huidige staat van de sessie op.
-    """
-    try:
-        return json.dumps(get_session(session_id))
-    except Exception as e:
-        print(f"Error in _get_state for session {session_id}: {e}")
-        return f"Kon sessiestatus niet ophalen vanwege een technische fout: {e}"
+    return json.dumps(get_session(session_id))
 
-# Wrappers voor Agents-SDK
 set_theme_options = function_tool(_set_theme_options)
 set_topic_options = function_tool(_set_topic_options)
 register_theme    = function_tool(_register_theme)
 register_topic    = function_tool(_register_topic)
 complete_theme    = function_tool(_complete_theme)
 log_answer        = function_tool(_log_answer)
-update_answer     = function_tool(_update_answer)
 get_state_tool    = function_tool(_get_state)
 
 # ============================================================
-# Agent-template met BIJGEWERKTE INSTRUCTIES
+# Phase Handlers (Behavior-Tree Nodes)
 # ============================================================
-BASE_AGENT = Agent(
-    name="Geboorteplan-agent",
-    model=MODEL_CHOICE,
-    instructions=(
-        "Je bent een vriendelijke, ondersteunende en neutrale coach die (aanstaande) ouders helpt hun geboorteplan te maken. "
-        "Je toon is warm, bemoedigend en duidelijk. Gebruik 'je' en 'jullie' om de gebruiker aan te spreken.\n\n"
-        
-        "**BELANGRIJKE VEILIGHEIDSREGELS:**\n"
-        "- Je bent GEEN digitale verloskundige. Geef NOOIT medisch advies.\n"
-        "- Als een gebruiker een medische vraag stelt (bv. 'is een ruggenprik gevaarlijk?'), antwoord dan ALTIJD dat je hier geen advies over mag geven en verwijs de gebruiker door naar hun verloskundige of gynaecoloog.\n"
-        "- Jouw rol is uitsluitend het inventariseren en documenteren van de wensen van de gebruiker.\n\n"
+def handle_theme_selection(st: dict, msg: str) -> Optional[str]:
+    if st["stage"] != "choose_theme":
+        return None
+    if not st["ui_theme_opts"]:
+        set_theme_options(st["id"], list(DEFAULT_TOPICS.keys()))
+        return None
+    if msg in DEFAULT_TOPICS:
+        register_theme(st["id"], msg, DEFAULT_TOPICS[msg][0]["description"])
+        return f"Oké, thema '{msg}' is toegevoegd. Kies nu onderwerpen."
+    return None
 
-        "**ALGEMENE REGELS:**\n"
-        "- Bij twijfel over de huidige status (welk thema, welke fase), gebruik EERST de `get_state_tool` om de context te controleren.\n"
-        "- Geef na een keuze van de gebruiker een korte, bevestigende samenvatting. Bijv: 'Oké, thema 'Sfeer' is toegevoegd. Laten we nu de onderwerpen bekijken.'\n\n"
+def handle_topic_selection(st: dict, msg: str) -> Optional[str]:
+    if st["stage"] != "choose_topic":
+        return None
+    theme = st["current_theme"]
+    if not st["ui_topic_opts"]:
+        existing = st["generated_topic_options"].get(theme)
+        if existing:
+            set_topic_options(st["id"], theme, existing)
+        else:
+            set_topic_options(st["id"], theme, DEFAULT_TOPICS[theme])
+        return None
+    names = [t["name"] for t in st["ui_topic_opts"]]
+    if msg in names:
+        register_topic(st["id"], theme, msg)
+        return f"Onderwerp '{msg}' toegevoegd aan thema '{theme}'."
+    return None
 
-        "**VASTE WERKFLOW:**\n"
-        "1. **Thema's Kiezen:** Start met het tonen van de standaard thema's via `set_theme_options`. De gebruiker kan maximaal 6 thema's kiezen. Gebruik `register_theme` voor elke keuze.\n"
-        "2. **Onderwerpen Kiezen:** Direct na `register_theme` presenteer je de onderwerpen voor dat thema. **BELANGRIJK:** Voordat je nieuwe onderwerpen bedenkt, controleer met `get_state_tool` of er al onderwerpen zijn opgeslagen in de sessiestatus onder `generated_topic_options` voor het huidige thema. \n"
-        "   - **ALS ER al opties zijn:** Roep `set_topic_options` aan met de *exacte* lijst uit `generated_topic_options[thema_naam]`.\n"
-        "   - **ALS ER GEEN opties zijn:** Bedenk dan een relevante lijst met onderwerpen (max. 4-5) en roep `set_topic_options` aan. Deze zullen dan automatisch worden opgeslagen voor later.\n"
-        "   - De gebruiker kiest onderwerpen, die je vastlegt met `register_topic`.\n"
-        "3. **Afronding Keuzefase:** De gebruiker zal via de interface een knop 'Klaar met kiezen' hebben. Dit stuurt jou de boodschap: 'user_finished_topic_selection'. WANNEER je deze exacte boodschap ontvangt, roep je de functie `complete_theme` aan om naar de volgende fase te gaan.\n"
-        "4. **Q&A Fase:** Nadat `complete_theme` succesvol was, begin je met het stellen van open vragen over de gekozen thema's en onderwerpen. Sla de antwoorden op met `log_answer`.\n"
-        "5. **Alle antwoorden in het Nederlands.** Gebruik bij élke tool het juiste `session_id`."
-    ),
-    tools=[
-        set_theme_options, set_topic_options,
-        register_theme, register_topic, complete_theme,
-        log_answer, update_answer, get_state_tool
-    ],
-)
+def handle_complete_selection(st: dict, msg: str) -> Optional[str]:
+    if msg.strip() == "user_finished_topic_selection":
+        complete_theme(st["id"])
+        return "Klaar met kiezen! We gaan nu verder met de vragenfase."
+    return None
+
+def handle_qa(st: dict, msg: str) -> Optional[str]:
+    if st["stage"] != "qa":
+        return None
+    last = st["history"][-1]["content"] if st["history"] else ""
+    if last.startswith("Vraag:"):
+        theme = st["themes"][-1]["name"]
+        log_answer(st["id"], theme, last, msg)
+        return "Antwoord opgeslagen. Hier komt de volgende vraag…"
+    # genereer volgende vraag (simpele placeholder)
+    next_q = f"Vraag: wat is jouw wens voor {st['themes'][0]['name']}?"
+    return next_q
+
+def handle_proactive_help(st: dict, msg: str) -> Optional[str]:
+    if time.time() - st.get("last_interaction_timestamp", 0) > 300:
+        st["last_interaction_timestamp"] = time.time()
+        return "Ik zie dat je even stilzit, kan ik ergens mee helpen?"
+    return None
+
+def handle_fallback(st: dict, msg: str) -> str:
+    return "Hoe kan ik je verder helpen?"
 
 # ============================================================
-# Streaming-/chat-endpoint (optioneel)
+# Streaming-/chat-endpoint
 # ============================================================
 def stream_run(tid: str):
     with client.beta.threads.runs.stream(thread_id=tid, assistant_id=ASSISTANT_ID) as ev:
@@ -343,50 +294,57 @@ def stream_run(tid: str):
 
 @app.post("/chat")
 def chat():
-    if (o := request.headers.get("Origin")) and o not in ALLOWED_ORIGINS:
+    origin = request.headers.get("Origin")
+    if origin and origin not in ALLOWED_ORIGINS:
         abort(403)
-    d   = request.get_json(force=True)
-    msg = d.get("message", "")
-    tid = d.get("thread_id") or client.beta.threads.create().id
+    data = request.get_json(force=True)
+    msg = data.get("message", "")
+    tid = data.get("thread_id") or client.beta.threads.create().id
     client.beta.threads.messages.create(thread_id=tid, role="user", content=msg)
-    return Response(stream_run(tid),
-                    headers={"X-Thread-ID": tid},
-                    mimetype="text/plain")
+    return Response(stream_run(tid), headers={"X-Thread-ID": tid}, mimetype="text/plain")
 
 # ============================================================
 # Synchronous /agent-endpoint
 # ============================================================
 @app.post("/agent")
 def agent():
-    if (o := request.headers.get("Origin")) and o not in ALLOWED_ORIGINS:
+    origin = request.headers.get("Origin")
+    if origin and origin not in ALLOWED_ORIGINS:
         abort(403)
 
     body = request.get_json(force=True)
     msg  = body.get("message", "")
     sid  = body.get("session_id") or str(uuid.uuid4())
     st   = get_session(sid)
+    st["last_interaction_timestamp"] = time.time()
 
-    # samenvatten bij lange history
+    # ─── Summarize Decorator ───────────────────────────────
     if len(st["history"]) > 40:
-        st["summary"] = (st["summary"] + "\n" +
-                         summarize_chunk(st["history"][:-20])).strip()
+        st["summary"] += "\n" + summarize_chunk(st["history"][:-20])
         st["history"] = st["history"][-20:]
+        persist(sid)
 
-    intro  = ([{"role": "system", "content": "Samenvatting van vorig gesprek:\n" + st["summary"]}]
-              if st["summary"] else [])
-    messages = intro + deepcopy(st["history"]) + [{"role": "user", "content": msg}]
+    # ─── Behavior-Tree Execution ───────────────────────────
+    reply: Optional[str] = None
+    for handler in (
+        handle_theme_selection,
+        handle_topic_selection,
+        handle_complete_selection,
+        handle_qa,
+        handle_proactive_help
+    ):
+        reply = handler(st, msg)
+        if reply is not None:
+            break
+    if reply is None:
+        reply = handle_fallback(st, msg)
 
-    agent_inst = Agent(
-        **{**BASE_AGENT.__dict__,
-           "instructions": BASE_AGENT.instructions + f'\n\nGebruik session_id="{sid}".'}
-    )
-    res = Runner().run_sync(agent_inst, messages)
-
-    st["history"] = res.to_input_list()
+    # ─── Update history & persist ──────────────────────────
+    st["history"].append({"role": "assistant", "content": reply})
     persist(sid)
 
     return jsonify({
-        "assistant_reply": str(res.final_output),
+        "assistant_reply": reply,
         "session_id": sid,
         "options": st["ui_topic_opts"] if st["stage"] == "choose_topic"
                    else st["ui_theme_opts"],
@@ -395,44 +353,42 @@ def agent():
            if k not in ("ui_theme_opts", "ui_topic_opts")}
     })
 
-# ---------- export endpoint ----------
+# ============================================================
+# Export endpoint
+# ============================================================
 @app.get("/export/<sid>")
 def export_json(sid: str):
     st = load_state(sid)
     if not st:
         abort(404)
-    temp_dir = os.environ.get("TMPDIR", "/tmp")
-    path = os.path.join(temp_dir, f"geboorteplan_{sid}.json")
+    path = os.path.join(os.environ.get("TMPDIR", "/tmp"), f"geboorteplan_{sid}.json")
     with open(path, "w", encoding="utf-8") as f:
         json.dump(st, f, ensure_ascii=False, indent=2)
     return send_file(path, as_attachment=True, download_name=os.path.basename(path))
-    
+
 # ============================================================
-# HERSTELDE IFRAME ROUTE
+# Iframe route
 # ============================================================
 @app.route('/iframe')
 def iframe_page():
-    # Geef de Render backend URL door aan het template, net als in de oude code
     backend_url = os.getenv("RENDER_EXTERNAL_URL", "http://127.0.0.1:10000")
     return render_template('iframe_page.html', backend_url=backend_url)
 
 # ============================================================
-# SPA-fallback: serveer frontend-bestanden uit /static
+# SPA-fallback
 # ============================================================
 @app.route("/", defaults={"path": ""})
 @app.route("/<path:path>")
 def serve_frontend(path):
-    # Voorkom dat deze route de /iframe route overschrijft
     if path == "iframe":
         return iframe_page()
-    
     full_path = os.path.join(app.static_folder, path)
     if path and os.path.exists(full_path):
         return send_from_directory(app.static_folder, path)
     return send_from_directory(app.static_folder, "index.html")
 
 # ============================================================
-# Remove X-Frame-Options zodat embedding mogelijk is
+# Allow embedding
 # ============================================================
 @app.after_request
 def allow_iframe(response):
@@ -440,7 +396,7 @@ def allow_iframe(response):
     return response
 
 # ============================================================
-# Run de app
+# Run the app
 # ============================================================
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=10000, debug=True)
