@@ -96,7 +96,6 @@ def load_state(sid: str) -> Optional[dict]:
 
 def save_state(sid: str, st: dict) -> None:
     with sqlite3.connect(DB_FILE) as con:
-        # Maak een kopie om de originele dict niet te wijzigen
         st_to_save = st.copy()
         user_profile = st_to_save.pop("user_profile", None)
         
@@ -123,20 +122,11 @@ def get_session(sid: str) -> dict:
         SESSION[sid] = st
         return st
 
-    # Nieuwe sessie
     st = {
-        "id": sid,
-        "stage": "choose_theme",
-        "themes": [],
-        "topics": {},
-        "qa": [],
-        "history": [],
-        "summary": "",
-        "ui_theme_opts": [],
-        "ui_topic_opts": [],
-        "current_theme": None,
-        "generated_topic_options": {},
-        "user_profile": None, # Nieuw veld
+        "id": sid, "stage": "choose_theme", "themes": [], "topics": {},
+        "qa": [], "history": [], "summary": "", "ui_theme_opts": [],
+        "ui_topic_opts": [], "current_theme": None,
+        "generated_topic_options": {}, "user_profile": None,
         "last_interaction_timestamp": time.time()
     }
     SESSION[sid] = st
@@ -158,10 +148,7 @@ def summarize_chunk(chunk: List[dict]) -> str:
     )
     r = client.chat.completions.create(
         model=MODEL_CHOICE,
-        messages=[
-            {"role": "system", "content": prompt},
-            {"role": "user",   "content": text}
-        ],
+        messages=[{"role": "system", "content": prompt}, {"role": "user", "content": text}],
         max_tokens=300
     )
     return r.choices[0].message.content.strip()
@@ -203,10 +190,7 @@ def _register_topic(session_id: str, theme: str, topic: str) -> str:
 
 def _complete_theme(session_id: str) -> str:
     st = get_session(session_id)
-    all_ok = all(
-        t["name"] in st["topics"] and st["topics"][t["name"]]
-        for t in st["themes"]
-    )
+    all_ok = all(t["name"] in st["topics"] and st["topics"][t["name"]] for t in st["themes"])
     st["stage"] = "qa" if all_ok else "choose_theme"
     st["ui_topic_opts"] = []
     st["current_theme"] = None
@@ -231,30 +215,22 @@ def _get_state(session_id: str) -> str:
 
 @function_tool
 def detect_sentiment(session_id: str, message: str) -> str:
-    """
-    Analyseer 'message' op sentiment ('positive', 'neutral' of 'negative').
-    """
-    if not message.strip():
-        return "neutral"
+    """Analyseer 'message' op sentiment ('positive', 'neutral' of 'negative')."""
+    if not message.strip(): return "neutral"
     prompt = (
         "Beoordeel de toon van het volgende bericht als 'positive', 'neutral' of 'negative'. Antwoord alleen met het woord.\n"
         f"Bericht: '{message}'"
     )
     try:
         resp = client.chat.completions.create(
-            model=MODEL_CHOICE,
-            messages=[{"role":"system", "content": prompt}],
-            max_tokens=3, # Ruimte voor de woorden
-            temperature=0
+            model=MODEL_CHOICE, messages=[{"role":"system", "content": prompt}], max_tokens=3, temperature=0
         )
         sentiment = resp.choices[0].message.content.strip().lower()
-        if sentiment in ['positive', 'neutral', 'negative']:
-            return sentiment
+        if sentiment in ['positive', 'neutral', 'negative']: return sentiment
     except Exception as e:
         print(f"Error in sentiment detection: {e}")
-    return "neutral" # Fallback
+    return "neutral"
 
-# Tool objecten
 set_theme_options = function_tool(_set_theme_options)
 set_topic_options = function_tool(_set_topic_options)
 register_theme    = function_tool(_register_theme)
@@ -262,25 +238,19 @@ register_topic    = function_tool(_register_topic)
 complete_theme    = function_tool(_complete_theme)
 log_answer        = function_tool(_log_answer)
 get_state_tool    = function_tool(_get_state)
-# De @function_tool decorator heeft 'detect_sentiment' al gewrapt. Hier hernoemen we het voor de duidelijkheid.
 detect_sentiment_tool = detect_sentiment 
 
 # ============================================================
 # Nieuwe Nodes: Herstel, Validatie en Profiel Update
 # ============================================================
-
 def handle_session_recovery(sid: str) -> dict:
     """Herstelt een sessie als deze corrupt is."""
     st = get_session(sid)
-    # Simuleer een controle op corruptie (bv. ontbrekend essentieel veld)
     if not st.get("stage"):
-        # Herstel: reset naar basisinstellingen
         st = {
-            "id": sid, "stage": "choose_theme", "themes": [], "topics": {},
-            "qa": [], "history": [], "summary": "", "ui_theme_opts": [],
-            "ui_topic_opts": [], "current_theme": None,
-            "generated_topic_options": {}, "user_profile": None,
-            "last_interaction_timestamp": time.time()
+            "id": sid, "stage": "choose_theme", "themes": [], "topics": {}, "qa": [], "history": [],
+            "summary": "", "ui_theme_opts": [], "ui_topic_opts": [], "current_theme": None,
+            "generated_topic_options": {}, "user_profile": None, "last_interaction_timestamp": time.time()
         }
         SESSION[sid] = st
         persist(sid)
@@ -289,12 +259,10 @@ def handle_session_recovery(sid: str) -> dict:
 def handle_error(st: dict, msg: str) -> Optional[str]:
     """Detecteert een fout of corrupt bericht en geeft een foutmelding."""
     try:
-        if not msg.strip() and len(msg) > 0: # Check op alleen whitespace
-            raise ValueError("Leeg bericht gedetecteerd")
+        if not msg.strip() and len(msg) > 0: raise ValueError("Leeg bericht gedetecteerd")
         return None
     except Exception as e:
         print(f"Error handled: {e}")
-        # Verwijder het corrupte bericht uit de geschiedenis indien nodig
         st["history"] = [entry for entry in st["history"] if entry.get("content") != msg]
         persist(st["id"])
         return "Sorry, er ging iets mis. Kun je je vraag herhalen?"
@@ -303,17 +271,13 @@ def validate_answer(st: dict, msg: str) -> Optional[str]:
     """Valideert of het antwoord in de Q&A fase niet leeg is."""
     is_qa_stage = st.get("stage") == "qa"
     last_q_asked = st.get("history") and st["history"][-1]["content"].startswith("Vraag:")
-    
     if is_qa_stage and last_q_asked and not msg.strip():
         return "Ik heb je antwoord niet goed begrepen, kun je het anders verwoorden?"
     return None
 
 def update_user_model(st: dict) -> None:
     """Werkt het gebruikersprofiel bij met thema- en topickeuzes."""
-    user_profile = {
-        "themes": st.get("themes", []),
-        "topics": st.get("topics", {})
-    }
+    user_profile = {"themes": st.get("themes", []), "topics": st.get("topics", {})}
     st["user_profile"] = user_profile
     persist(st["id"])
     print(f"User model updated for session {st['id']}")
@@ -322,26 +286,23 @@ def update_user_model(st: dict) -> None:
 # Phase Handlers (Behavior-Tree Nodes)
 # ============================================================
 def handle_theme_selection(st: dict, msg: str) -> Optional[str]:
-    if st["stage"] != "choose_theme":
-        return None
+    if st["stage"] != "choose_theme": return None
     if not st["ui_theme_opts"]:
         _set_theme_options(st["id"], list(DEFAULT_TOPICS.keys()))
         return "Laten we beginnen met het kiezen van de thema's voor jouw geboorteplan. Welke onderwerpen spreken je aan?"
     if msg in DEFAULT_TOPICS:
-        _register_theme(st["id"], msg, "") # Desc is niet meer nodig hier
+        _register_theme(st["id"], msg, "")
         return f"Oké, thema '{msg}' is toegevoegd. Je kunt nu onderwerpen voor dit thema kiezen, of een volgend thema selecteren."
     return None
 
 def handle_topic_selection(st: dict, msg: str) -> Optional[str]:
-    if st["stage"] != "choose_topic":
-        return None
+    if st["stage"] != "choose_topic": return None
     theme = st["current_theme"]
     if not st["ui_topic_opts"]:
         existing = st["generated_topic_options"].get(theme)
         options = existing if existing else DEFAULT_TOPICS.get(theme, [])
         _set_topic_options(st["id"], theme, options)
         return f"Kies nu de onderwerpen die je wilt bespreken voor het thema '{theme}'."
-    
     names = [t["name"] for t in st.get("ui_topic_opts", [])]
     if msg in names:
         _register_topic(st["id"], theme, msg)
@@ -351,51 +312,34 @@ def handle_topic_selection(st: dict, msg: str) -> Optional[str]:
 def handle_complete_selection(st: dict, msg: str) -> Optional[str]:
     if "klaar" in msg.lower() or "verder" in msg.lower() or "volgende" in msg.lower():
         if st["stage"] == "choose_topic":
-             # Terug naar thema keuze
             st["stage"] = "choose_theme"
             st["ui_topic_opts"] = []
             st["current_theme"] = None
             persist(st["id"])
             return "Oké, we gaan terug naar de thema's. Kies een nieuw thema, of zeg dat je klaar bent met kiezen om naar de vragen te gaan."
         elif st["stage"] == "choose_theme":
-            # Afronden van alle keuzes
-             _complete_theme(st["id"])
-             if st["stage"] == "qa":
+            _complete_theme(st["id"])
+            if st["stage"] == "qa":
                 return "Top! Alle keuzes zijn gemaakt. We gaan nu dieper in op de onderwerpen met een paar vragen."
-             else:
+            else:
                 return "Je moet voor elk gekozen thema minstens één onderwerp selecteren. Kies een thema om onderwerpen toe te voegen."
     return None
 
 def handle_qa(st: dict, msg: str) -> Optional[str]:
-    if st["stage"] != "qa":
-        return None
-    
-    # Antwoord op vorige vraag loggen
+    if st["stage"] != "qa": return None
     if st["history"] and st["history"][-1]["role"] == "assistant" and st["history"][-1]["content"].startswith("Vraag:"):
-        question_text = st["history"][-1]["content"]
-        # Vind de context (thema, topic) van de vraag
-        # Voor nu, simpele aanname: link aan laatste onderwerp.
-        # Een robuuster systeem zou de vraag-context opslaan.
         current_qa_topic = st.get("current_qa_topic", {})
         _log_answer(st["id"], current_qa_topic.get("theme"), current_qa_topic.get("question"), msg)
-
-    # Vind de volgende onbeantwoorde vraag
     answered_qs = {(qa["theme"], qa["question"]) for qa in st.get("qa", [])}
     next_question_found = None
     for theme_info in st["themes"]:
         theme_name = theme_info["name"]
         for topic_name in st["topics"].get(theme_name, []):
-            # Zoek het topic object voor de beschrijving
             topic_obj = next((t for t in DEFAULT_TOPICS.get(theme_name, []) if t["name"] == topic_name), None)
             if topic_obj and (theme_name, topic_obj["description"]) not in answered_qs:
-                next_question_found = {
-                    "theme": theme_name,
-                    "question": topic_obj["description"] # Gebruik de beschrijving als vraag
-                }
+                next_question_found = {"theme": theme_name, "question": topic_obj["description"]}
                 break
-        if next_question_found:
-            break
-
+        if next_question_found: break
     if next_question_found:
         st["current_qa_topic"] = next_question_found
         persist(st["id"])
@@ -406,13 +350,12 @@ def handle_qa(st: dict, msg: str) -> Optional[str]:
         return "Je hebt alle vragen beantwoord! Je kunt je geboorteplan nu exporteren."
 
 def handle_proactive_help(st: dict, msg: str) -> Optional[str]:
-    if time.time() - st.get("last_interaction_timestamp", 0) > 300: # 5 minuten
+    if time.time() - st.get("last_interaction_timestamp", 0) > 300:
         st["last_interaction_timestamp"] = time.time()
         return "Ik zie dat je even stilzit, kan ik ergens mee helpen?"
     return None
 
 def handle_fallback(st: dict, msg: str) -> str:
-    # Een simpele fallback die de state niet wijzigt.
     return "Ik begrijp je verzoek niet helemaal in deze context. Kun je het anders proberen? Je kunt bijvoorbeeld een thema kiezen, of 'klaar' zeggen."
 
 # ============================================================
@@ -427,8 +370,7 @@ def stream_run(tid: str):
 @app.post("/chat")
 def chat():
     origin = request.headers.get("Origin")
-    if origin and origin not in ALLOWED_ORIGINS:
-        abort(403)
+    if origin and origin not in ALLOWED_ORIGINS: abort(403)
     data = request.get_json(force=True)
     msg = data.get("message", "")
     tid = data.get("thread_id") or client.beta.threads.create().id
@@ -436,54 +378,116 @@ def chat():
     return Response(stream_run(tid), headers={"X-Thread-ID": tid}, mimetype="text/plain")
 
 # ============================================================
-# Synchronous /agent-endpoint (volledig vernieuwd)
+# Synchronous /agent-endpoint (gecorrigeerd voor Python-versie)
 # ============================================================
+def _create_json_response(st: dict, assistant_reply: str):
+    """
+    Maakt een JSON-response op een manier die compatibel is met oudere Python-versies.
+    """
+    # Basis response data
+    response_data = {
+        "assistant_reply": assistant_reply,
+        "session_id": st["id"],
+        "options": st.get("ui_topic_opts") if st.get("stage") == "choose_topic" else st.get("ui_theme_opts"),
+        "current_theme": st.get("current_theme"),
+    }
+    # Filter de sessie state en voeg deze toe
+    filtered_state = {
+        k: v for k, v in st.items() if k not in ("ui_theme_opts", "ui_topic_opts")
+    }
+    response_data.update(filtered_state)
+    return jsonify(response_data)
+
+
 @app.post("/agent")
 def agent():
     origin = request.headers.get("Origin")
-    if origin and origin not in ALLOWED_ORIGINS:
-        abort(403)
+    if origin and origin not in ALLOWED_ORIGINS: abort(403)
 
     body = request.get_json(force=True)
     msg  = body.get("message", "")
     sid  = body.get("session_id") or str(uuid.uuid4())
 
-    # 1. Sessierecovery controleren
     st = handle_session_recovery(sid)
     st["last_interaction_timestamp"] = time.time()
     st["history"].append({"role": "user", "content": msg})
 
-    # Samenvatting bij lange geschiedenis
     if len(st["history"]) > 40:
         st["summary"] += "\n" + summarize_chunk(st["history"][:-20])
         st["history"] = st["history"][-20:]
 
-    # 2. Sentiment pre-check
     sentiment = detect_sentiment_tool(st["id"], msg)
     if sentiment == "negative":
         reply = "Ik merk dat dit misschien een gevoelig of frustrerend punt voor je is. Laten we hier even bij stilstaan. Kan ik iets voor je verduidelijken of op een andere manier helpen?"
         st["history"].append({"role": "assistant", "content": reply})
         persist(sid)
-        return jsonify({
-            "assistant_reply": reply, "session_id": sid,
-            **{k: v for k, v in st.items() if k not in ("ui_theme_opts", "ui_topic_opts")}
-        })
+        return _create_json_response(st, reply)
 
-    # 3. Error-handling check
     error_response = handle_error(st, msg)
     if error_response:
         st["history"].append({"role": "assistant", "content": error_response})
-        persist(sid) # Persist is al in handle_error, maar voor de zekerheid
-        return jsonify({
-            "assistant_reply": error_response, "session_id": sid,
-            **{k: v for k, v in st.items() if k not in ("ui_theme_opts", "ui_topic_opts")}
-        })
+        persist(sid)
+        return _create_json_response(st, error_response)
 
-    # 4. Validatie van Q&A antwoord
     validation_response = validate_answer(st, msg)
     if validation_response:
         st["history"].append({"role": "assistant", "content": validation_response})
         persist(sid)
-        return jsonify({
-            "assistant_reply": validation_response, "session_id": sid,
-            **{k: v for k, v in st.items() if k not in (
+        return _create_json_response(st, validation_response)
+
+    reply: Optional[str] = None
+    for handler in (
+        handle_theme_selection, handle_topic_selection,
+        handle_complete_selection, handle_qa, handle_proactive_help
+    ):
+        reply = handler(st, msg)
+        if reply is not None: break
+    if reply is None: reply = handle_fallback(st, msg)
+
+    if st["stage"] == "completed" and st.get("user_profile") is None:
+        update_user_model(st)
+
+    st["history"].append({"role": "assistant", "content": reply})
+    persist(sid)
+
+    return _create_json_response(st, reply)
+
+# ============================================================
+# Export endpoint (onveranderd)
+# ============================================================
+@app.get("/export/<sid>")
+def export_json(sid: str):
+    st = load_state(sid)
+    if not st: abort(404)
+    path = os.path.join(os.environ.get("TMPDIR", "/tmp"), f"geboorteplan_{sid}.json")
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(st, f, ensure_ascii=False, indent=2)
+    return send_file(path, as_attachment=True, download_name=os.path.basename(path))
+
+# ============================================================
+# Iframe en Frontend Routes (onveranderd)
+# ============================================================
+@app.route('/iframe')
+def iframe_page():
+    backend_url = os.getenv("RENDER_EXTERNAL_URL", "http://127.0.0.1:10000")
+    return render_template('iframe_page.html', backend_url=backend_url)
+
+@app.route("/", defaults={"path": ""})
+@app.route("/<path:path>")
+def serve_frontend(path):
+    if path == "iframe": return iframe_page()
+    full_path = os.path.join(app.static_folder, path)
+    if path and os.path.exists(full_path):
+        return send_from_directory(app.static_folder, path)
+    return send_from_directory(app.static_folder, "index.html")
+
+@app.after_request
+def allow_iframe(response):
+    response.headers.pop("X-Frame-Options", None)
+    return response
+
+# ============================================================
+# Run the app
+# ============================================================
+if __name__ == "__main__":
+    app.run(host=os.getenv("HOST", "0.0.0.0"), port=int(os.getenv("PORT", 10000)), debug=False)
