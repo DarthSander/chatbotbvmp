@@ -1,4 +1,4 @@
-# app.py – Geboorteplan-agent – Volledige, definitief gecorrigeerde en complete versie
+# app.py – Geboorteplan-agent – Volledige versie met uitgebreide debugging
 
 from __future__ import annotations
 import os
@@ -68,8 +68,6 @@ DEFAULT_TOPICS: Dict[str, List[NamedDescription]] = {
 
 # ---------- SQLite-helper functions ----------
 def init_db() -> None:
-    # BELANGRIJK: Als je deze app draait met een oude 'sessions.db', verwijder die file dan eerst.
-    # Deze functie maakt een nieuwe db aan, maar past een bestaande NIET aan.
     with sqlite3.connect(DB_FILE) as con:
         con.execute("CREATE TABLE IF NOT EXISTS sessions (id TEXT PRIMARY KEY, state TEXT NOT NULL, user_profile TEXT)")
 init_db()
@@ -78,11 +76,13 @@ def load_state(sid: str) -> Optional[dict]:
     with sqlite3.connect(DB_FILE) as con:
         row = con.execute("SELECT state, user_profile FROM sessions WHERE id=?", (sid,)).fetchone()
         if not row:
+            print(f"[DEBUG-DB] Geen sessie gevonden in DB voor sid: {sid}")
             return None
         state_json, user_profile_json = row
         st = json.loads(state_json)
         if user_profile_json:
             st["user_profile"] = json.loads(user_profile_json)
+        print(f"[DEBUG-DB] Sessie geladen uit DB voor sid: {sid}")
         return st
 
 def save_state(sid: str, st: dict) -> None:
@@ -91,12 +91,14 @@ def save_state(sid: str, st: dict) -> None:
         user_profile = st_to_save.pop("user_profile", None)
         con.execute("REPLACE INTO sessions (id, state, user_profile) VALUES (?, ?, ?)", (sid, json.dumps(st_to_save), json.dumps(user_profile)))
         con.commit()
+        print(f"[DEBUG-DB] Sessie opgeslagen in DB voor sid: {sid}")
 
 # ---------- In-memory sessies + persistence ----------
 SESSION: Dict[str, dict] = {}
 
 def get_session(sid: str) -> dict:
     if sid in SESSION:
+        print(f"[DEBUG-SESSION] Sessie gevonden in-memory voor sid: {sid}")
         return SESSION[sid]
     
     db_state = load_state(sid)
@@ -108,7 +110,7 @@ def get_session(sid: str) -> dict:
         SESSION[sid] = st
         return st
 
-    # Nieuwe sessie
+    print(f"[DEBUG-SESSION] Nieuwe sessie wordt aangemaakt voor sid: {sid}")
     st = {
         "id": sid, "stage": "choose_theme", "themes": [], "topics": {}, "qa": [], "history": [],
         "summary": "", "ui_theme_opts": [], "ui_topic_opts": [], "current_theme": None,
@@ -123,8 +125,7 @@ def persist(sid: str) -> None:
 
 # ---------- History-samenvatting ----------
 def summarize_chunk(chunk: List[dict]) -> str:
-    if not chunk:
-        return ""
+    if not chunk: return ""
     filtered = [m for m in chunk if isinstance(m, dict) and m.get('content')]
     text = "\n".join(f"{m['role']}: {m['content']}" for m in filtered)
     prompt = "Vat dit deel van het gesprek over een geboorteplan samen in maximaal 300 tokens. Focus op de keuzes, wensen en open vragen."
@@ -137,6 +138,7 @@ def summarize_chunk(chunk: List[dict]) -> str:
 def _set_theme_options(session_id: str, options: List[str]) -> str:
     st = get_session(session_id)
     st["ui_theme_opts"] = options
+    print(f"[DEBUG-TOOL] _set_theme_options: Opties ingesteld op {options} voor sessie {session_id}")
     persist(session_id)
     return "ok"
 
@@ -156,6 +158,7 @@ def _register_theme(session_id: str, theme: str, description: str = "") -> str:
         st["ui_topic_opts"] = DEFAULT_TOPICS.get(theme, [])
         st["current_theme"] = theme
         persist(session_id)
+        print(f"[DEBUG-TOOL] _register_theme: Thema '{theme}' geregistreerd.")
     return "ok"
 
 def _register_topic(session_id: str, theme: str, topic: str) -> str:
@@ -191,39 +194,22 @@ def _log_answer(session_id: str, theme: str, question: str, answer: str) -> str:
 def _get_state(session_id: str) -> str:
     return json.dumps(get_session(session_id))
 
-# CORRECTIE: De @function_tool decorator is hier weggehaald.
 def detect_sentiment(session_id: str, message: str) -> str:
-    """
-    Analyseer 'message' op sentiment. Crasht niet bij een API-fout, maar geeft 'neutral' terug.
-    """
-    if not message.strip():
-        return "neutral"
-
+    if not message.strip(): return "neutral"
     prompt = f"Beoordeel de toon van het volgende bericht als 'positive', 'neutral' of 'negative'. Antwoord alleen met het woord.\nBericht: '{message}'"
-    
     try:
         if not client.api_key:
-            print("Waarschuwing: OPENAI_API_KEY niet gevonden. Sentiment-detectie overgeslagen.")
+            print("[DEBUG-API] Waarschuwing: OPENAI_API_KEY niet gevonden.")
             return "neutral"
-
-        resp = client.chat.completions.create(
-            model=MODEL_CHOICE,
-            messages=[{"role":"system", "content": prompt}],
-            max_tokens=5,
-            temperature=0
-        )
+        resp = client.chat.completions.create(model=MODEL_CHOICE, messages=[{"role":"system", "content": prompt}], max_tokens=5, temperature=0)
         sentiment = resp.choices[0].message.content.strip().lower()
-        
         if sentiment in ['positive', 'neutral', 'negative']:
             return sentiment
-        else:
-            return "neutral"
-            
+        return "neutral"
     except Exception as e:
-        print(f"Fout tijdens sentiment-detectie: {e}. Keer terug naar 'neutral'.")
+        print(f"[DEBUG-API] Fout tijdens sentiment-detectie: {e}.")
         return "neutral"
 
-# --- Hier worden de functies omgezet naar 'Tools' ---
 set_theme_options = function_tool(_set_theme_options)
 set_topic_options = function_tool(_set_topic_options)
 register_theme    = function_tool(_register_theme)
@@ -231,24 +217,20 @@ register_topic    = function_tool(_register_topic)
 complete_theme    = function_tool(_complete_theme)
 log_answer        = function_tool(_log_answer)
 get_state_tool    = function_tool(_get_state)
-# CORRECTIE: De tool wordt hier apart aangemaakt.
 detect_sentiment_tool = function_tool(detect_sentiment)
 
 # ============================================================
 # Nieuwe Functies (Recovery, Error Handling, etc.)
 # ============================================================
 def handle_session_recovery(sid: str) -> dict:
-    """Zorgt ervoor dat we een geldige sessie hebben. De logica zit nu correct in get_session."""
     return get_session(sid)
 
 def handle_error(st: dict, msg: str) -> Optional[str]:
-    """Controleert op ongeldige input (bv. alleen spaties)."""
     if not msg.strip() and len(msg) > 0:
         return "Sorry, er ging iets mis. Kun je je vraag herhalen?"
     return None
 
 def validate_answer(st: dict, msg: str) -> Optional[str]:
-    """Valideert of een antwoord in de Q&A fase niet leeg is."""
     is_qa_stage = st.get("stage") == "qa"
     last_q_asked = st.get("history") and st["history"][-1]["content"].startswith("Vraag:")
     if is_qa_stage and last_q_asked and not msg.strip():
@@ -256,10 +238,8 @@ def validate_answer(st: dict, msg: str) -> Optional[str]:
     return None
 
 def update_user_model(st: dict) -> None:
-    """Werkt het gebruikersprofiel bij met thema- en topickeuzes."""
     st["user_profile"] = {"themes": st.get("themes", []), "topics": st.get("topics", {})}
     persist(st["id"])
-    print(f"User model updated for session {st['id']}")
 
 # ============================================================
 # Phase Handlers (Gedragslogica van de agent)
@@ -267,20 +247,24 @@ def update_user_model(st: dict) -> None:
 def handle_theme_selection(st: dict, msg: str) -> Optional[str]:
     if st["stage"] != "choose_theme":
         return None
-    # Bij de start van een nieuwe sessie of als de opties leeg zijn
+    print("[DEBUG] >> In handle_theme_selection")
     if not st.get("ui_theme_opts"):
+        print("[DEBUG] >> 'ui_theme_opts' is leeg. Thema's worden nu ingesteld.")
         _set_theme_options(st["id"], list(DEFAULT_TOPICS.keys()))
-        # Stuur geen bericht terug; de UI toont nu de opties. De agent reageert pas op de *volgende* input.
+        print(f"[DEBUG] >> 'ui_theme_opts' is nu gevuld met: {st.get('ui_theme_opts')}")
         return "Laten we beginnen met het kiezen van de thema's voor jouw geboorteplan. Welke onderwerpen spreken je aan?"
-
-    if msg in DEFAULT_TOPICS:
-        _register_theme(st["id"], msg, "")
-        return f"Oké, thema '{msg}' is toegevoegd. Je kunt nu onderwerpen voor dit thema kiezen, of een volgend thema selecteren."
+    
+    gekozen_thema = next((thema for thema in DEFAULT_TOPICS if thema in msg), None)
+    if gekozen_thema:
+        print(f"[DEBUG] >> Gekozen thema gedetecteerd: '{gekozen_thema}'")
+        _register_theme(st["id"], gekozen_thema, "")
+        return f"Oké, thema '{gekozen_thema}' is toegevoegd. Je kunt nu onderwerpen voor dit thema kiezen, of een volgend thema selecteren."
+    
+    print("[DEBUG] >> Geen actie ondernomen in handle_theme_selection.")
     return None
 
 def handle_topic_selection(st: dict, msg: str) -> Optional[str]:
-    if st["stage"] != "choose_topic":
-        return None
+    if st["stage"] != "choose_topic": return None
     theme = st.get("current_theme")
     if not theme:
         st["stage"] = "choose_theme"
@@ -308,20 +292,18 @@ def handle_complete_selection(st: dict, msg: str) -> Optional[str]:
         elif st["stage"] == "choose_theme":
             _complete_theme(st["id"])
             if st["stage"] == "qa":
-                return handle_qa(st, "")  # Start de eerste vraag direct
+                return handle_qa(st, "")
             else:
                 return "Je moet voor elk gekozen thema minstens één onderwerp selecteren. Kies een thema om onderwerpen toe te voegen."
     return None
 
 def handle_qa(st: dict, msg: str) -> Optional[str]:
-    if st["stage"] != "qa":
-        return None
-    
+    if st["stage"] != "qa": return None
     if msg.strip() and st["history"] and st["history"][-1]["role"] == "assistant" and st["history"][-1]["content"].startswith("Vraag:"):
         current_qa_topic = st.get("current_qa_topic", {})
         if current_qa_topic:
             _log_answer(st["id"], current_qa_topic.get("theme"), current_qa_topic.get("question"), msg)
-
+    
     answered_qs = {(qa["theme"], qa["question"]) for qa in st.get("qa", [])}
     next_question_found = None
     for theme_info in st.get("themes", []):
@@ -331,9 +313,8 @@ def handle_qa(st: dict, msg: str) -> Optional[str]:
             if topic_obj and (theme_name, topic_obj["description"]) not in answered_qs:
                 next_question_found = {"theme": theme_name, "question": topic_obj["description"]}
                 break
-        if next_question_found:
-            break
-
+        if next_question_found: break
+    
     if next_question_found:
         st["current_qa_topic"] = next_question_found
         persist(st["id"])
@@ -345,38 +326,18 @@ def handle_qa(st: dict, msg: str) -> Optional[str]:
         return "Je hebt alle vragen beantwoord! Je kunt je geboorteplan nu exporteren."
 
 def handle_proactive_help(st: dict, msg: str) -> Optional[str]:
-    if time.time() - st.get("last_interaction_timestamp", 0) > 300: # 5 minuten
+    if time.time() - st.get("last_interaction_timestamp", 0) > 300:
         st["last_interaction_timestamp"] = time.time()
         return "Ik zie dat je even stilzit. Kan ik ergens mee helpen?"
     return None
 
 def handle_fallback(st: dict, msg: str) -> str:
-    return "Ik begrijp je verzoek niet helemaal in deze context. Kun je het anders proberen? Je kunt bijvoorbeeld een thema kiezen, of 'klaar' zeggen als je een selectie wilt afronden."
+    return "Ik begrijp je verzoek niet helemaal in deze context. Kun je het anders proberen?"
 
 # ============================================================
-# Streaming-/chat-endpoint (optioneel, voor andere interfaces)
-# ============================================================
-@app.post("/chat")
-def chat():
-    origin = request.headers.get("Origin")
-    if origin and origin not in ALLOWED_ORIGINS:
-        abort(403)
-    data = request.get_json(force=True)
-    msg = data.get("message", "")
-    tid = data.get("thread_id") or client.beta.threads.create().id
-    client.beta.threads.messages.create(thread_id=tid, role="user", content=msg)
-    def stream_run(tid: str):
-        with client.beta.threads.runs.stream(thread_id=tid, assistant_id=ASSISTANT_ID) as ev:
-            for e in ev:
-                if e.event == "thread.message.delta" and e.data.delta.content:
-                    yield e.data.delta.content[0].text.value
-    return Response(stream_run(tid), headers={"X-Thread-ID": tid}, mimetype="text/plain")
-
-# ============================================================
-# Synchronous /agent-endpoint (Hoofdlogica)
+# Synchronous /agent-endpoint (Hoofdlogica met Debugging)
 # ============================================================
 def _create_json_response(st: dict, assistant_reply: str):
-    """Maakt een JSON-response op een manier die compatibel is met alle Python-versies."""
     response_data = {
         "assistant_reply": assistant_reply,
         "session_id": st["id"],
@@ -385,28 +346,36 @@ def _create_json_response(st: dict, assistant_reply: str):
     }
     filtered_state = {k: v for k, v in st.items() if k not in ("ui_theme_opts", "ui_topic_opts")}
     response_data.update(filtered_state)
+    print("[DEBUG-RESPONSE] JSON RESPONSE WORDT VERSTUURD:")
+    print(json.dumps(response_data, indent=2, ensure_ascii=False))
+    print("="*50 + "\n")
     return jsonify(response_data)
 
 @app.post("/agent")
 def agent():
     origin = request.headers.get("Origin")
-    if origin and origin not in ALLOWED_ORIGINS:
-        abort(403)
+    if origin and origin not in ALLOWED_ORIGINS: abort(403)
     body = request.get_json(force=True)
     msg = body.get("message", "")
     sid = body.get("session_id") or str(uuid.uuid4())
     
+    print("\n" + "="*50)
+    print(f"[DEBUG] === INKOMEND VERZOEK ===")
+    print(f"[DEBUG] Sessie ID: {sid}")
+    print(f"[DEBUG] Boodschap: '{msg}'")
+
     st = handle_session_recovery(sid)
     st["last_interaction_timestamp"] = time.time()
     st["history"].append({"role": "user", "content": msg})
+    print(f"[DEBUG] Stage vóór verwerking: '{st.get('stage')}'")
 
     if len(st["history"]) > 40:
         st["summary"] += "\n" + summarize_chunk(st["history"][:-20])
         st["history"] = st["history"][-20:]
-
+    
     sentiment = detect_sentiment(st["id"], msg)
     if sentiment == "negative":
-        reply = "Ik merk dat dit misschien een gevoelig of frustrerend punt voor je is. Laten we hier even bij stilstaan. Kan ik iets voor je verduidelijken of op een andere manier helpen?"
+        reply = "Ik merk dat dit misschien een gevoelig of frustrerend punt voor je is. Kan ik iets voor je verduidelijken of op een andere manier helpen?"
         st["history"].append({"role": "assistant", "content": reply})
         persist(sid)
         return _create_json_response(st, reply)
@@ -419,26 +388,38 @@ def agent():
             return _create_json_response(st, response)
 
     reply: Optional[str] = None
-    # De volgorde van handlers is belangrijk voor de flow
     for handler in (handle_theme_selection, handle_topic_selection, handle_complete_selection, handle_qa, handle_proactive_help):
+        print(f"[DEBUG] Probeert handler: {handler.__name__}")
         reply = handler(st, msg)
         if reply is not None:
+            print(f"[DEBUG] SUCCES! Handler '{handler.__name__}' geeft antwoord: '{reply[:50]}...'")
             break
+            
     if reply is None:
+        print("[DEBUG] GEEN specifieke handler gevonden. Fallback wordt gebruikt.")
         reply = handle_fallback(st, msg)
     
     st["history"].append({"role": "assistant", "content": reply})
     persist(sid)
+    print(f"[DEBUG] Finale antwoord: '{reply}'")
+    print(f"[DEBUG] Stage na verwerking: '{st.get('stage')}'")
     return _create_json_response(st, reply)
 
 # ============================================================
 # Andere endpoints (Export, Frontend Serving)
 # ============================================================
+@app.post("/chat")
+def chat():
+    # Deze functie is niet in gebruik voor de synchrone agent, maar laten we hem staan.
+    origin = request.headers.get("Origin")
+    if origin and origin not in ALLOWED_ORIGINS: abort(403)
+    return Response("Not Implemented", status=501)
+
+
 @app.get("/export/<sid>")
 def export_json(sid: str):
     st = load_state(sid)
-    if not st:
-        abort(404)
+    if not st: abort(404)
     path = os.path.join(os.environ.get("TMPDIR", "/tmp"), f"geboorteplan_{sid}.json")
     with open(path, "w", encoding="utf-8") as f:
         json.dump(st, f, ensure_ascii=False, indent=2)
@@ -451,8 +432,7 @@ def iframe_page():
 @app.route("/", defaults={"path": ""})
 @app.route("/<path:path>")
 def serve_frontend(path):
-    if path == "iframe":
-        return iframe_page()
+    if path == "iframe": return iframe_page()
     full_path = os.path.join(app.static_folder, path)
     if path and os.path.exists(full_path):
         return send_from_directory(app.static_folder, path)
@@ -467,6 +447,4 @@ def allow_iframe(response):
 # Run the app
 # ============================================================
 if __name__ == "__main__":
-    # debug=True is nuttig voor ontwikkeling om gedetailleerde fouten te zien.
-    # Voor live-productie kun je dit op False zetten.
     app.run(host="0.0.0.0", port=10000, debug=True)
