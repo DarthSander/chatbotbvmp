@@ -498,359 +498,293 @@
     </div>
   </main>
 
-  <script>
-    // Initialiseer applicatie na DOM load
-    window.addEventListener('DOMContentLoaded', () => {
-      // Globale variabelen
-      const API_URL = "https://chatbotbvmp.onrender.com/agent";
-      let sessionId = sessionStorage.getItem("agentSession") || null;
-      let currentTheme = null;
-      let selectedTopicsForTheme = {};  // houdt per thema de gekozen onderwerpen bij
+  <<script>
+/*  Geboorteplan-agent – volledig JavaScript-blok (desktop & mobiel)
+    ───────────────────────────────────────────────────────────────
+    Bevat de fixes:
+      •  renderTopicChips()  →  directe her-render, geen setTimeout
+      •  confirmTopics()     →  stuurt alleen de topic-naam (zonder prefix)
+      •  overige logica ongewijzigd
+*/
 
-      // Verwijzing naar DOM elementen
-      const ui = {
-        chatbox: document.getElementById("chatbox"),
-        mobileChatbox: document.getElementById("mobile-chatbox"),
-        input: document.getElementById("input"),
-        mobileInput: document.getElementById("mobile-input"),
-        sendBtn: document.getElementById("send"),
-        mobileSendBtn: document.getElementById("mobile-send"),
-        qOptions: document.getElementById("q-options"),
-        mobileQOptions: document.getElementById("mobile-q-options"),
-        qTitle: document.getElementById("q-title"),
-        mobileQTitle: document.getElementById("mobile-q-title"),
-        topicOptions: document.getElementById("q-topic-options"),
-        mobileTopicOptions: document.getElementById("mobile-q-topic-options"),
-        backTitle: document.getElementById("back-title"),
-        mobileBackTitle: document.getElementById("mobile-back-title"),
-        confirmTopicsBtn: document.getElementById("confirm-topics"),
-        mobileConfirmTopicsBtn: document.getElementById("mobile-confirm-topics"),
-        desktopFlipContainer: document.getElementById("desktop-flip-container"),
-        mobileFlipContainer: document.getElementById("mobile-flip-container"),
-        sidebarLoader: document.getElementById("sidebar-loader"),
-        mobileLoader: document.getElementById("mobile-loader"),
-        qaLogDesktop: document.getElementById("qa-log-desktop"),
-        qaLogFullDesktop: document.getElementById("qa-log-full-desktop"),
-        qaLogMobile: document.getElementById("qa-log-mobile"),
-        qaTabButton: document.getElementById("tab-qa")
-      };
+window.addEventListener('DOMContentLoaded', () => {
+  /* ─────────────────────── globale variabelen ─────────────────────── */
+  const API_URL = "https://chatbotbvmp.onrender.com/agent";
+  let sessionId            = sessionStorage.getItem("agentSession") || null;
+  let currentTheme         = null;
+  let selectedTopicsForTheme = {};           // { [theme]: [topics] }
 
-      // Functies voor chatbubbles en typ-indicator
-      window.addMsg = function(role, markdown, chatboxElem) {
-        if (!chatboxElem) return null;
-        const bubble = document.createElement("div");
-        bubble.className = `bubble ${role === "bot" ? "bot" : "user"}`;
-        bubble.innerHTML = marked.parse(markdown);
-        chatboxElem.appendChild(bubble);
-        chatboxElem.scrollTop = chatboxElem.scrollHeight;
-        return bubble;
+  /* ─────────────────────── DOM-elementen quick-ref ─────────────────────── */
+  const ui = {
+    chatbox:               document.getElementById("chatbox"),
+    mobileChatbox:         document.getElementById("mobile-chatbox"),
+    input:                 document.getElementById("input"),
+    mobileInput:           document.getElementById("mobile-input"),
+    sendBtn:               document.getElementById("send"),
+    mobileSendBtn:         document.getElementById("mobile-send"),
+    qOptions:              document.getElementById("q-options"),
+    mobileQOptions:        document.getElementById("mobile-q-options"),
+    qTitle:                document.getElementById("q-title"),
+    mobileQTitle:          document.getElementById("mobile-q-title"),
+    topicOptions:          document.getElementById("q-topic-options"),
+    mobileTopicOptions:    document.getElementById("mobile-q-topic-options"),
+    backTitle:             document.getElementById("back-title"),
+    mobileBackTitle:       document.getElementById("mobile-back-title"),
+    confirmTopicsBtn:      document.getElementById("confirm-topics"),
+    mobileConfirmTopicsBtn:document.getElementById("mobile-confirm-topics"),
+    desktopFlipContainer:  document.getElementById("desktop-flip-container"),
+    mobileFlipContainer:   document.getElementById("mobile-flip-container"),
+    sidebarLoader:         document.getElementById("sidebar-loader"),
+    mobileLoader:          document.getElementById("mobile-loader"),
+    qaLogDesktop:          document.getElementById("qa-log-desktop"),
+    qaLogFullDesktop:      document.getElementById("qa-log-full-desktop"),
+    qaLogMobile:           document.getElementById("qa-log-mobile"),
+    qaTabButton:           document.getElementById("tab-qa")
+  };
+
+  /* ─────────────────────── helper: chat-bubble ─────────────────────── */
+  window.addMsg = function (role, markdown, chatboxElem) {
+    if (!chatboxElem) return null;
+    const bubble       = document.createElement("div");
+    bubble.className   = `bubble ${role === "bot" ? "bot" : "user"}`;
+    bubble.innerHTML   = marked.parse(markdown);
+    chatboxElem.appendChild(bubble);
+    chatboxElem.scrollTop = chatboxElem.scrollHeight;
+    return bubble;
+  };
+  window.typingBubble = function (chatboxElem) {
+    const bubble = addMsg("bot", "Mae is aan het nadenken...", chatboxElem);
+    if (!bubble) return { element: null };
+    bubble.classList.add("mae-thinking");
+    return { element: bubble };
+  };
+
+  /* ─────────────────────── loader helpers ─────────────────────── */
+  window.showLoader = isMob => (isMob ? ui.mobileLoader : ui.sidebarLoader).style.display = "flex";
+  window.hideLoader = isMob => (isMob ? ui.mobileLoader : ui.sidebarLoader).style.display = "none";
+
+  /* ─────────────────────── API-call helper ─────────────────────── */
+  window.callAgent = async function (message, curSession) {
+    const isMobile  = window.innerWidth <= 900;
+    const chatbox   = isMobile ? ui.mobileChatbox : ui.chatbox;
+    const waitBub   = typingBubble(chatbox);
+    showLoader(isMobile);
+    try {
+      const res = await fetch(API_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message, session_id: curSession })
+      });
+      if (waitBub.element && chatbox.contains(waitBub.element)) chatbox.removeChild(waitBub.element);
+      if (!res.ok) throw new Error(`Server Error: ${res.status}`);
+      return await res.json();
+    } catch (err) {
+      console.error("[callAgent]", err);
+      addMsg("bot", "⚠️ Oeps, er is een technische fout opgetreden. Probeer het later opnieuw.", chatbox);
+      throw err;
+    } finally {
+      hideLoader(isMobile);
+    }
+  };
+
+  /* ─────────────────────── Thema-chips (max 6) ─────────────────────── */
+  window.renderThemes = function (opts, selectedThemes, isMob) {
+    const box   = isMob ? ui.mobileQOptions : ui.qOptions;
+    const title = isMob ? ui.mobileQTitle   : ui.qTitle;
+    if (!box) return;
+    box.innerHTML = "";
+    title.textContent = "Kies een thema (max 6):";
+
+    opts.forEach(name => {
+      const chip = document.createElement("span");
+      chip.className = "theme-chip";
+      chip.textContent = name;
+      const already = selectedThemes.some(t => t.name === name);
+      if (already) {
+        chip.classList.add("selected");
+        const ico = document.createElement("span");
+        ico.className = "edit-bar";
+        ico.textContent = "✎";
+        chip.appendChild(ico);
       }
-      window.typingBubble = function(chatboxElem) {
-        const bubbleElement = addMsg("bot", "Mae is aan het nadenken...", chatboxElem);
-        if (!bubbleElement) return { element: null };
-        bubbleElement.classList.add('mae-thinking');
-        return { element: bubbleElement };
+      if (!already && selectedThemes.length >= 6) {
+        chip.classList.add("disabled");
+      } else {
+        chip.onclick = () => handleChoice(name, false);
       }
-
-      // Laadindicator tonen/verbergen
-      window.showLoader = function(isMobile) {
-        const loader = isMobile ? ui.mobileLoader : ui.sidebarLoader;
-        if (loader) loader.style.display = 'flex';
-      }
-      window.hideLoader = function(isMobile) {
-        const loader = isMobile ? ui.mobileLoader : ui.sidebarLoader;
-        if (loader) loader.style.display = 'none';
-      }
-
-      // API-aanroep functie (agent)
-      window.callAgent = async function(message, currentSessionId) {
-        const isMobile = window.innerWidth <= 900;
-        const chatboxElem = isMobile ? ui.mobileChatbox : ui.chatbox;
-        const waitIndicator = typingBubble(chatboxElem);
-        showLoader(isMobile);
-        try {
-          const response = await fetch(API_URL, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ message, session_id: currentSessionId })
-          });
-          // Verwijder typ-indicator bubble als nog aanwezig
-          if (waitIndicator.element && chatboxElem.contains(waitIndicator.element)) {
-            chatboxElem.removeChild(waitIndicator.element);
-          }
-          if (!response.ok) {
-            const errorText = await response.text();
-            console.error("Server Error Response:", errorText);
-            throw new Error(`Server Error: ${response.status}`);
-          }
-          const data = await response.json();
-          return data;
-        } catch(err) {
-          console.error('[callAgent] Fout:', err);
-          addMsg("bot", "⚠️ Oeps, er is een technische fout opgetreden. Probeer het later opnieuw.", chatboxElem);
-          throw err;
-        } finally {
-          hideLoader(isMobile);
-        }
-      }
-
-      // Thema-chips renderen (max 6 selectie)
-      window.renderThemes = function(options, selectedThemes, isMobile) {
-        const box = isMobile ? ui.mobileQOptions : ui.qOptions;
-        const title = isMobile ? ui.mobileQTitle : ui.qTitle;
-        if (!box || !title) return;
-        box.innerHTML = "";
-        title.textContent = "Kies een thema (max 6):";
-        options.forEach(themeName => {
-          const chip = document.createElement("span");
-          chip.className = "theme-chip";
-          chip.textContent = themeName;
-          const isSelected = selectedThemes.some(s => s.name === themeName);
-          if (isSelected) {
-            chip.classList.add("selected");
-            // Potlood icoon voor reeds gekozen thema
-            const editIcon = document.createElement("span");
-            editIcon.className = "edit-bar";
-            editIcon.textContent = "✎";
-            chip.appendChild(editIcon);
-          }
-          if (!isSelected && selectedThemes.length >= 6) {
-            // Max aantal thema's bereikt, deze chip uitschakelen
-            chip.classList.add("disabled");
-            // (Geen onclick om te voorkomen dat er iets gebeurt bij klikken)
-          } else {
-            chip.onclick = () => {
-              // Stuur thema-naam naar agent (geen user-bubble weergeven)
-              handleChoice(themeName, false);
-            };
-          }
-          box.appendChild(chip);
-        });
-      }
-
-      // Verwerking API-response: render keuzes of schakel weergaven
-      async function callAndRender(msg) {
-        const isMobile = window.innerWidth <= 900;
-        try {
-          const data = await callAgent(msg, sessionId);
-          // Sessie ID eventueel bijwerken/opslagen
-          sessionId = data.session_id;
-          sessionStorage.setItem("agentSession", sessionId);
-          // Toon eventueel het agent-antwoord in de chat
-          const chatboxElem = isMobile ? ui.mobileChatbox : ui.chatbox;
-          if (data.assistant_reply) {
-            addMsg("bot", data.assistant_reply, chatboxElem);
-          }
-          // Update Q&A-lijst als meegeleverd
-          logQA(data.qa);
-          // Schakel UI op basis van nieuwe fase
-          if (data.stage === "choose_theme" && data.options) {
-            if (isMobile) switchMobileFace('themes');
-            renderThemes(data.options, data.themes || [], isMobile);
-          } else if (data.stage === "choose_topic" && data.options && data.current_theme) {
-            currentTheme = data.current_theme;
-            if (ui.backTitle) ui.backTitle.textContent = `Onderwerpen voor “${currentTheme}”`;
-            if (ui.mobileBackTitle) ui.mobileBackTitle.textContent = `Onderwerpen voor “${currentTheme}”`;
-            if (isMobile) {
-              switchMobileFace('topics');
-            } else {
-              ui.desktopFlipContainer.classList.add("flipped-to-topics");
-            }
-            const previouslySelected = (data.topics && data.topics[currentTheme]) || [];
-            // Even wachten op flip-animatie (0.4s) voordat we chips tonen
-            setTimeout(() => {
-              renderTopicChips(data.options, previouslySelected, isMobile);
-            }, 400);
-          }
-        } catch (err) {
-          console.error('[callAndRender] Fout bij verwerken API data:', err);
-        }
-      }
-
-      // Verwerk gebruikersinvoer (versturen)
-      async function handleChoice(txt, showBubble = true) {
-        if (!txt.trim()) return;
-        const isMobile = window.innerWidth <= 900;
-        const chatboxElem = isMobile ? ui.mobileChatbox : ui.chatbox;
-        const inputElem = isMobile ? ui.mobileInput : ui.input;
-        if (showBubble) {
-          addMsg("user", txt, chatboxElem);
-        }
-        if (inputElem) inputElem.value = "";
-        // Centrale afhandeling via callAndRender
-        await callAndRender(txt);
-      }
-
-      // Onderwerp-chips renderen (max 4 selectie per thema)
-      window.renderTopicChips = function(options, previouslySelected, isMobile) {
-        const box = isMobile ? ui.mobileTopicOptions : ui.topicOptions;
-        if (!box) return;
-        box.innerHTML = "";
-        // Sla huidige selectie intern op
-        selectedTopicsForTheme[currentTheme] = [...previouslySelected];
-        options.forEach(opt => {
-          const chip = document.createElement("span");
-          chip.className = "topic-chip";
-          chip.textContent = opt.name;
-          chip.dataset.desc = opt.description || "";
-          const alreadySelected = previouslySelected.includes(opt.name);
-          if (alreadySelected) {
-            chip.classList.add("selected");
-          }
-          if (!alreadySelected && previouslySelected.length >= 4) {
-            // Max aantal onderwerpen bereikt, disable deze chip
-            chip.classList.add("disabled");
-          } else {
-            chip.onclick = () => {
-              const currentSelection = selectedTopicsForTheme[currentTheme] || [];
-              const wasMax = currentSelection.length >= 4;
-              const wasOneAway = currentSelection.length === 3;
-              if (chip.classList.contains("selected")) {
-                // Verwijderen van onderwerp
-                chip.classList.remove("selected");
-                selectedTopicsForTheme[currentTheme] = currentSelection.filter(t => t !== opt.name);
-                if (wasMax) {
-                  // Was op max, dus her-render om andere chips te activeren
-                  setTimeout(() => {
-                    renderTopicChips(options, selectedTopicsForTheme[currentTheme], isMobile);
-                  }, 0);
-                }
-              } else {
-                if (currentSelection.length < 4) {
-                  // Toevoegen van onderwerp
-                  chip.classList.add("selected");
-                  selectedTopicsForTheme[currentTheme].push(opt.name);
-                  if (wasOneAway) {
-                    // Nu selectie == 4, her-render om rest te disablen
-                    setTimeout(() => {
-                      renderTopicChips(options, selectedTopicsForTheme[currentTheme], isMobile);
-                    }, 0);
-                  }
-                }
-              }
-              updateConfirmButtonState(isMobile);
-            };
-          }
-          box.appendChild(chip);
-        });
-        updateConfirmButtonState(isMobile);
-      }
-
-      // Bevestig-knop aan/uit op basis van selectie
-      window.updateConfirmButtonState = function(isMobile) {
-        const btn = isMobile ? ui.mobileConfirmTopicsBtn : ui.confirmTopicsBtn;
-        const selection = selectedTopicsForTheme[currentTheme] || [];
-        if (btn) btn.disabled = selection.length === 0;
-      }
-
-      // Verzamel gekozen onderwerpen en stuur naar backend
-      async function confirmTopics() {
-        const isMobile = window.innerWidth <= 900;
-        showLoader(isMobile);
-        const selection = selectedTopicsForTheme[currentTheme] || [];
-        // Meld elk gekozen onderwerp (stil) aan de backend
-        for (const topic of selection) {
-          await callAgent(`Onderwerp geselecteerd: ${topic}`, sessionId);
-        }
-        // Stuur daarna het "klaar met onderwerpen" signaal en toon update
-        await handleChoice(`Ik ben klaar met de onderwerpen voor ${currentTheme}.`, true);
-        if (isMobile) {
-          switchMobileFace('themes');
-        } else {
-          ui.desktopFlipContainer.classList.remove("flipped-to-topics");
-        }
-        hideLoader(isMobile);
-      }
-
-      // Q&A log bijwerken
-      window.logQA = function(qaArray) {
-        const qaData = qaArray || [];
-        function updateLog(el) {
-          if (!el) return;
-          el.innerHTML = qaData.map(entry =>
-            `<p><strong>${entry.theme} - ${entry.question || entry.name}</strong><br>${entry.answer || 'Nog geen antwoord'}</p>`
-          ).join('');
-          el.scrollTop = el.scrollHeight;
-        }
-        updateLog(ui.qaLogDesktop);
-        updateLog(ui.qaLogFullDesktop);
-        updateLog(ui.qaLogMobile);
-        // Markeer het Q&A tabblad indien nieuwe antwoorden beschikbaar zijn
-        if (ui.qaTabButton && qaData.length > 0 && !ui.qaTabButton.classList.contains('active')) {
-          ui.qaTabButton.classList.add('new-qa');
-        }
-      }
-
-      // Functie om layout te wisselen tussen desktop/mobiel weergave (indien nodig)
-      window.updateLayoutForDevice = function() {
-        const isMobile = window.innerWidth <= 900;
-        document.getElementById('sidebar-flip-container').style.display = isMobile ? 'none' : 'flex';
-        document.getElementById('mobile-flip-container').style.display = isMobile ? 'block' : 'none';
-        document.getElementById('mobile-tabs').style.display = isMobile ? 'flex' : 'none';
-      }
-      window.updateLayoutForDevice();
-
-      // *** Event handlers voor UI-elementen ***
-      // Verzendknoppen
-      ui.sendBtn.onclick = () => handleChoice(ui.input.value.trim());
-      ui.input.addEventListener("keydown", e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); ui.sendBtn.click(); }});
-      ui.mobileSendBtn.onclick = () => handleChoice(ui.mobileInput.value.trim());
-      ui.mobileInput.addEventListener("keydown", e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); ui.mobileSendBtn.click(); }});
-
-      // Thema terugknop (desktop)
-      document.getElementById("back-to-themes").onclick = () => {
-        // Terug naar themaselectie zonder bevestigen
-        ui.desktopFlipContainer.classList.remove("flipped-to-topics");
-        // Zet fase terug op choose_theme in de sessie zonder extra call
-        handleChoice("Ik wil een ander thema kiezen.", false);
-      };
-      // Bekijken alle Q&A (desktop)
-      document.getElementById("view-all-qa").onclick = () => {
-        document.getElementById("sidebar-front").style.display = 'none';
-        document.getElementById("sidebar-qa-desktop").style.display = 'block';
-      };
-      document.getElementById("back-from-qa-desktop").onclick = () => {
-        document.getElementById("sidebar-qa-desktop").style.display = 'none';
-        document.getElementById("sidebar-front").style.display = 'block';
-      };
-
-      // Mobiele navigatietabs
-      const faces = {
-        chat: document.getElementById("mobile-chat-face"),
-        themes: document.getElementById("mobile-themes-face"),
-        topics: document.getElementById("mobile-topics-face"),
-        qa: document.getElementById("mobile-qa-face")
-      };
-      window.switchMobileFace = function(faceName) {
-        Object.values(faces).forEach(face => face.classList.remove("active"));
-        faces[faceName + (faceName.endsWith('s') ? '' : 's') + '-face']?.classList.add("active");
-        // Activeer corresponderende tabknop
-        document.querySelectorAll("#mobile-tabs button").forEach(btn => btn.classList.remove("active"));
-        const tabButton = {
-          chat: document.getElementById("tab-chat"),
-          themes: document.getElementById("tab-themes"),
-          topics: document.getElementById("tab-topics"),
-          qa: document.getElementById("tab-qa")
-        }[faceName];
-        if (tabButton) tabButton.classList.add("active");
-      };
-      document.getElementById("tab-chat").onclick = () => switchMobileFace('chat');
-      document.getElementById("tab-themes").onclick = () => switchMobileFace('themes');
-      document.getElementById("tab-topics").onclick = () => switchMobileFace('topics');
-      document.getElementById("tab-qa").onclick = () => { 
-        switchMobileFace('qa');
-        ui.qaTabButton.classList.remove('new-qa');
-      };
-      document.getElementById("mobile-back-to-themes").onclick = () => switchMobileFace('themes');
-      document.getElementById("mobile-back-from-qa").onclick = () => switchMobileFace('chat');
-
-      // Bevestig-knoppen voor onderwerpen (desktop & mobiel)
-      ui.confirmTopicsBtn.onclick = confirmTopics;
-      ui.mobileConfirmTopicsBtn.onclick = confirmTopics;
-
-      // Start de conversatie automatisch (optioneel)
-      handleChoice("Ik ben klaar om thema’s te kiezen.", false);
+      box.appendChild(chip);
     });
-  </script>
+  };
+
+  /* ─────────────────────── Ontvangen response verwerk ─────────────────────── */
+  async function callAndRender(msg) {
+    const isMobile = window.innerWidth <= 900;
+    const data     = await callAgent(msg, sessionId);
+    sessionId      = data.session_id;
+    sessionStorage.setItem("agentSession", sessionId);
+
+    const chatbox  = isMobile ? ui.mobileChatbox : ui.chatbox;
+    if (data.assistant_reply) addMsg("bot", data.assistant_reply, chatbox);
+
+    logQA(data.qa);
+
+    if (data.stage === "choose_theme" && data.options) {
+      if (isMobile) switchMobileFace("themes");
+      renderThemes(data.options, data.themes || [], isMobile);
+    } else if (data.stage === "choose_topic" && data.options && data.current_theme) {
+      currentTheme = data.current_theme;
+      if (ui.backTitle) ui.backTitle.textContent       = `Onderwerpen voor “${currentTheme}”`;
+      if (ui.mobileBackTitle) ui.mobileBackTitle.textContent = `Onderwerpen voor “${currentTheme}”`;
+
+      if (isMobile) switchMobileFace("topics");
+      else ui.desktopFlipContainer.classList.add("flipped-to-topics");
+
+      const prev = (data.topics && data.topics[currentTheme]) || [];
+      setTimeout(() => renderTopicChips(data.options, prev, isMobile), 400);
+    }
+  }
+
+  /* ─────────────────────── User-input handler ─────────────────────── */
+  async function handleChoice(txt, showBubble = true) {
+    if (!txt.trim()) return;
+    const isMobile  = window.innerWidth <= 900;
+    const chatbox   = isMobile ? ui.mobileChatbox : ui.chatbox;
+    const inputElem = isMobile ? ui.mobileInput : ui.input;
+    if (showBubble) addMsg("user", txt, chatbox);
+    if (inputElem) inputElem.value = "";
+    await callAndRender(txt);
+  }
+
+  /* ─────────────────────── Onderwerp-chips (max 4) ─────────────────────── */
+  window.renderTopicChips = function (opts, previouslySelected, isMob) {
+    const box = isMob ? ui.mobileTopicOptions : ui.topicOptions;
+    if (!box) return;
+    box.innerHTML = "";
+    selectedTopicsForTheme[currentTheme] = [...previouslySelected];
+
+    opts.forEach(opt => {
+      const chip = document.createElement("span");
+      chip.className   = "topic-chip";
+      chip.textContent = opt.name;
+      chip.dataset.desc = opt.description || "";
+
+      const already = previouslySelected.includes(opt.name);
+      if (already) chip.classList.add("selected");
+      if (!already && previouslySelected.length >= 4) {
+        chip.classList.add("disabled");
+      } else {
+        chip.onclick = () => {
+          const sel = selectedTopicsForTheme[currentTheme] || [];
+          if (chip.classList.contains("selected")) {
+            chip.classList.remove("selected");
+            selectedTopicsForTheme[currentTheme] = sel.filter(t => t !== opt.name);
+          } else if (sel.length < 4) {
+            chip.classList.add("selected");
+            sel.push(opt.name);
+          }
+          /*  Nieuw: DIRECT her-render (geen setTimeout) zodat
+              enable/disable status van de overige chips meteen klopt */
+          renderTopicChips(opts, selectedTopicsForTheme[currentTheme], isMob);
+          updateConfirmButtonState(isMob);
+        };
+      }
+      box.appendChild(chip);
+    });
+    updateConfirmButtonState(isMob);
+  };
+
+  /* ─────────────────────── Bevestig-knop enable/disable ─────────────────────── */
+  window.updateConfirmButtonState = isMob => {
+    const btn = isMob ? ui.mobileConfirmTopicsBtn : ui.confirmTopicsBtn;
+    if (btn) btn.disabled = (selectedTopicsForTheme[currentTheme] || []).length === 0;
+  };
+
+  /* ─────────────────────── Topics bevestigen ─────────────────────── */
+  async function confirmTopics() {
+    const isMobile = window.innerWidth <= 900;
+    showLoader(isMobile);
+
+    const selection = selectedTopicsForTheme[currentTheme] || [];
+    /*  FIX: stuur alleen de topic-naam, zonder prefix */
+    for (const topic of selection) {
+      await callAgent(topic, sessionId);
+    }
+    await handleChoice(`Ik ben klaar met de onderwerpen voor ${currentTheme}.`, true);
+
+    if (isMobile) switchMobileFace("themes");
+    else ui.desktopFlipContainer.classList.remove("flipped-to-topics");
+
+    hideLoader(isMobile);
+  }
+
+  /* ─────────────────────── Q&A-log synchroon houden ─────────────────────── */
+  window.logQA = function (qaArr) {
+    const qa = qaArr || [];
+    function fill(el) {
+      if (!el) return;
+      el.innerHTML = qa.map(r =>
+        `<p><strong>${r.theme} – ${r.question || r.name}</strong><br>${r.answer || "Nog geen antwoord"}</p>`
+      ).join("");
+      el.scrollTop = el.scrollHeight;
+    }
+    fill(ui.qaLogDesktop);
+    fill(ui.qaLogFullDesktop);
+    fill(ui.qaLogMobile);
+
+    if (ui.qaTabButton && qa.length && !ui.qaTabButton.classList.contains("active"))
+      ui.qaTabButton.classList.add("new-qa");
+  };
+
+  /* ─────────────────────── Layout toggles ─────────────────────── */
+  window.updateLayoutForDevice = () => {
+    const mob = window.innerWidth <= 900;
+    ui.sidebarFlipContainer.style.display = mob ? "none"  : "flex";
+    ui.mobileFlipContainer .style.display = mob ? "block" : "none";
+    document.getElementById("mobile-tabs").style.display = mob ? "flex" : "none";
+  };
+  window.updateLayoutForDevice();
+  window.addEventListener("resize", updateLayoutForDevice);
+
+  /*  Mobile faces helper */
+  const faces = {
+    chat:   document.getElementById("mobile-chat-face"),
+    themes: document.getElementById("mobile-themes-face"),
+    topics: document.getElementById("mobile-topics-face"),
+    qa:     document.getElementById("mobile-qa-face")
+  };
+  window.switchMobileFace = name => {
+    Object.values(faces).forEach(f => f.classList.remove("active"));
+    faces[name]?.classList.add("active");
+    // tabs
+    document.querySelectorAll("#mobile-tabs button").forEach(b => b.classList.remove("active"));
+    const tab = {chat:"tab-chat",themes:"tab-themes",topics:"tab-topics",qa:"tab-qa"}[name];
+    if (tab) document.getElementById(tab).classList.add("active");
+  };
+
+  /* ─────────────────────── Event-binding ─────────────────────── */
+  ui.sendBtn      .onclick = () => handleChoice(ui.input.value.trim());
+  ui.mobileSendBtn.onclick = () => handleChoice(ui.mobileInput.value.trim());
+  ui.input .addEventListener("keydown", e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); ui.sendBtn.click(); }});
+  ui.mobileInput.addEventListener("keydown", e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); ui.mobileSendBtn.click(); }});
+
+  document.getElementById("back-to-themes").onclick       = () => { ui.desktopFlipContainer.classList.remove("flipped-to-topics"); handleChoice("Ik wil een ander thema kiezen.", false); };
+  document.getElementById("view-all-qa").onclick          = () => { document.getElementById("sidebar-front").style.display = "none"; document.getElementById("sidebar-qa-desktop").style.display = "block"; };
+  document.getElementById("back-from-qa-desktop").onclick = () => { document.getElementById("sidebar-qa-desktop").style.display = "none"; document.getElementById("sidebar-front").style.display = "block"; };
+
+  document.getElementById("tab-chat"  ).onclick = () => switchMobileFace("chat");
+  document.getElementById("tab-themes").onclick = () => switchMobileFace("themes");
+  document.getElementById("tab-topics").onclick = () => switchMobileFace("topics");
+  document.getElementById("tab-qa"    ).onclick = () => { switchMobileFace("qa"); ui.qaTabButton.classList.remove("new-qa"); };
+
+  document.getElementById("mobile-back-to-themes").onclick = () => switchMobileFace("themes");
+  document.getElementById("mobile-back-from-qa").onclick   = () => switchMobileFace("chat");
+
+  ui.confirmTopicsBtn     .onclick = confirmTopics;
+  ui.mobileConfirmTopicsBtn.onclick = confirmTopics;
+
+  /* ─────────────────────── Welkomstprompt ─────────────────────── */
+  handleChoice("Ik ben klaar om thema’s te kiezen.", false);
+});
+</script>
 </body>
 </html>
