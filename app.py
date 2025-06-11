@@ -205,18 +205,39 @@ get_state_tool    = function_tool(_get_state)
 # ============================================================
 @function_tool
 def detect_sentiment(session_id: str, message: str) -> str:
-    """Analyseer 'message' op sentiment ('positive', 'neutral' of 'negative')."""
+    """
+    Analyseer 'message' op sentiment. Crasht niet bij een API-fout, maar geeft 'neutral' terug.
+    """
+    # Geen sentiment nodig voor lege berichten
     if not message.strip():
         return "neutral"
+
     prompt = f"Beoordeel de toon van het volgende bericht als 'positive', 'neutral' of 'negative'. Antwoord alleen met het woord.\nBericht: '{message}'"
+    
     try:
-        resp = client.chat.completions.create(model=MODEL_CHOICE, messages=[{"role":"system", "content": prompt}], max_tokens=3, temperature=0)
+        # Controleer of de API key überhaupt aanwezig is
+        if not client.api_key:
+            print("Waarschuwing: OPENAI_API_KEY niet gevonden. Sentiment-detectie overgeslagen.")
+            return "neutral"
+
+        resp = client.chat.completions.create(
+            model=MODEL_CHOICE,
+            messages=[{"role":"system", "content": prompt}],
+            max_tokens=5, # Iets meer ruimte voor zekerheid
+            temperature=0
+        )
         sentiment = resp.choices[0].message.content.strip().lower()
+        
         if sentiment in ['positive', 'neutral', 'negative']:
             return sentiment
+        else:
+            # Fallback als de LLM iets onverwachts retourneert
+            return "neutral"
+            
     except Exception as e:
-        print(f"Error in sentiment detection: {e}")
-    return "neutral"
+        # Vang ALLE mogelijke fouten af (authenticatie, netwerk, etc.)
+        print(f"Fout tijdens sentiment-detectie: {e}. Keer terug naar 'neutral'.")
+        return "neutral"
 
 def handle_session_recovery(sid: str) -> dict:
     """Zorgt ervoor dat we een geldige sessie hebben. De logica zit in get_session."""
