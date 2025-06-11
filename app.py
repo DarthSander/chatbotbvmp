@@ -1,4 +1,4 @@
-# app.py – Geboorteplan-agent – Volledige, gecorrigeerde en complete versie
+# app.py – Geboorteplan-agent – Volledige, definitief gecorrigeerde en complete versie
 
 from __future__ import annotations
 import os
@@ -98,8 +98,7 @@ SESSION: Dict[str, dict] = {}
 def get_session(sid: str) -> dict:
     if sid in SESSION:
         return SESSION[sid]
-
-    # CORRECTIE: De 'walrus operator' (:=) is hier verwijderd voor maximale compatibiliteit.
+    
     db_state = load_state(sid)
     if db_state:
         st = db_state
@@ -133,7 +132,7 @@ def summarize_chunk(chunk: List[dict]) -> str:
     return r.choices[0].message.content.strip()
 
 # ============================================================
-# Tool-wrappers
+# Tool-wrappers & Functies
 # ============================================================
 def _set_theme_options(session_id: str, options: List[str]) -> str:
     st = get_session(session_id)
@@ -192,30 +191,17 @@ def _log_answer(session_id: str, theme: str, question: str, answer: str) -> str:
 def _get_state(session_id: str) -> str:
     return json.dumps(get_session(session_id))
 
-set_theme_options = function_tool(_set_theme_options)
-set_topic_options = function_tool(_set_topic_options)
-register_theme    = function_tool(_register_theme)
-register_topic    = function_tool(_register_topic)
-complete_theme    = function_tool(_complete_theme)
-log_answer        = function_tool(_log_answer)
-get_state_tool    = function_tool(_get_state)
-
-# ============================================================
-# NIEUWE Functies (Sentiment, Recovery, etc.)
-# ============================================================
-@function_tool
+# CORRECTIE: De @function_tool decorator is hier weggehaald.
 def detect_sentiment(session_id: str, message: str) -> str:
     """
     Analyseer 'message' op sentiment. Crasht niet bij een API-fout, maar geeft 'neutral' terug.
     """
-    # Geen sentiment nodig voor lege berichten
     if not message.strip():
         return "neutral"
 
     prompt = f"Beoordeel de toon van het volgende bericht als 'positive', 'neutral' of 'negative'. Antwoord alleen met het woord.\nBericht: '{message}'"
     
     try:
-        # Controleer of de API key überhaupt aanwezig is
         if not client.api_key:
             print("Waarschuwing: OPENAI_API_KEY niet gevonden. Sentiment-detectie overgeslagen.")
             return "neutral"
@@ -223,7 +209,7 @@ def detect_sentiment(session_id: str, message: str) -> str:
         resp = client.chat.completions.create(
             model=MODEL_CHOICE,
             messages=[{"role":"system", "content": prompt}],
-            max_tokens=5, # Iets meer ruimte voor zekerheid
+            max_tokens=5,
             temperature=0
         )
         sentiment = resp.choices[0].message.content.strip().lower()
@@ -231,16 +217,28 @@ def detect_sentiment(session_id: str, message: str) -> str:
         if sentiment in ['positive', 'neutral', 'negative']:
             return sentiment
         else:
-            # Fallback als de LLM iets onverwachts retourneert
             return "neutral"
             
     except Exception as e:
-        # Vang ALLE mogelijke fouten af (authenticatie, netwerk, etc.)
         print(f"Fout tijdens sentiment-detectie: {e}. Keer terug naar 'neutral'.")
         return "neutral"
 
+# --- Hier worden de functies omgezet naar 'Tools' ---
+set_theme_options = function_tool(_set_theme_options)
+set_topic_options = function_tool(_set_topic_options)
+register_theme    = function_tool(_register_theme)
+register_topic    = function_tool(_register_topic)
+complete_theme    = function_tool(_complete_theme)
+log_answer        = function_tool(_log_answer)
+get_state_tool    = function_tool(_get_state)
+# CORRECTIE: De tool wordt hier apart aangemaakt.
+detect_sentiment_tool = function_tool(detect_sentiment)
+
+# ============================================================
+# Nieuwe Functies (Recovery, Error Handling, etc.)
+# ============================================================
 def handle_session_recovery(sid: str) -> dict:
-    """Zorgt ervoor dat we een geldige sessie hebben. De logica zit in get_session."""
+    """Zorgt ervoor dat we een geldige sessie hebben. De logica zit nu correct in get_session."""
     return get_session(sid)
 
 def handle_error(st: dict, msg: str) -> Optional[str]:
@@ -269,9 +267,12 @@ def update_user_model(st: dict) -> None:
 def handle_theme_selection(st: dict, msg: str) -> Optional[str]:
     if st["stage"] != "choose_theme":
         return None
-    if not st["ui_theme_opts"]:
+    # Bij de start van een nieuwe sessie of als de opties leeg zijn
+    if not st.get("ui_theme_opts"):
         _set_theme_options(st["id"], list(DEFAULT_TOPICS.keys()))
+        # Stuur geen bericht terug; de UI toont nu de opties. De agent reageert pas op de *volgende* input.
         return "Laten we beginnen met het kiezen van de thema's voor jouw geboorteplan. Welke onderwerpen spreken je aan?"
+
     if msg in DEFAULT_TOPICS:
         _register_theme(st["id"], msg, "")
         return f"Oké, thema '{msg}' is toegevoegd. Je kunt nu onderwerpen voor dit thema kiezen, of een volgend thema selecteren."
@@ -280,12 +281,12 @@ def handle_theme_selection(st: dict, msg: str) -> Optional[str]:
 def handle_topic_selection(st: dict, msg: str) -> Optional[str]:
     if st["stage"] != "choose_topic":
         return None
-    theme = st["current_theme"]
-    if not theme: # Veiligheidscheck
+    theme = st.get("current_theme")
+    if not theme:
         st["stage"] = "choose_theme"
         return "Er was iets misgegaan. Kies eerst opnieuw een thema."
-    if not st["ui_topic_opts"]:
-        existing = st["generated_topic_options"].get(theme)
+    if not st.get("ui_topic_opts"):
+        existing = st.get("generated_topic_options", {}).get(theme)
         options = existing if existing else DEFAULT_TOPICS.get(theme, [])
         _set_topic_options(st["id"], theme, options)
         return f"Kies nu de onderwerpen die je wilt bespreken voor het thema '{theme}'."
@@ -296,8 +297,8 @@ def handle_topic_selection(st: dict, msg: str) -> Optional[str]:
     return None
 
 def handle_complete_selection(st: dict, msg: str) -> Optional[str]:
-    # Deze handler wordt geactiveerd als de gebruiker klaar is met een selectie
-    if "klaar" in msg.lower() or "verder" in msg.lower() or "volgende" in msg.lower():
+    low_msg = msg.lower()
+    if "klaar" in low_msg or "verder" in low_msg or "volgende" in low_msg:
         if st["stage"] == "choose_topic":
             st["stage"] = "choose_theme"
             st["ui_topic_opts"] = []
@@ -307,8 +308,7 @@ def handle_complete_selection(st: dict, msg: str) -> Optional[str]:
         elif st["stage"] == "choose_theme":
             _complete_theme(st["id"])
             if st["stage"] == "qa":
-                # Start de eerste vraag direct
-                return handle_qa(st, "")
+                return handle_qa(st, "")  # Start de eerste vraag direct
             else:
                 return "Je moet voor elk gekozen thema minstens één onderwerp selecteren. Kies een thema om onderwerpen toe te voegen."
     return None
@@ -317,13 +317,11 @@ def handle_qa(st: dict, msg: str) -> Optional[str]:
     if st["stage"] != "qa":
         return None
     
-    # Log het antwoord op de vorige vraag, als die er was
     if msg.strip() and st["history"] and st["history"][-1]["role"] == "assistant" and st["history"][-1]["content"].startswith("Vraag:"):
         current_qa_topic = st.get("current_qa_topic", {})
         if current_qa_topic:
             _log_answer(st["id"], current_qa_topic.get("theme"), current_qa_topic.get("question"), msg)
 
-    # Vind de volgende onbeantwoorde vraag
     answered_qs = {(qa["theme"], qa["question"]) for qa in st.get("qa", [])}
     next_question_found = None
     for theme_info in st.get("themes", []):
@@ -342,7 +340,7 @@ def handle_qa(st: dict, msg: str) -> Optional[str]:
         return f"Vraag: {next_question_found['question']} (onderwerp: {next_question_found['theme']})"
     else:
         st["stage"] = "completed"
-        update_user_model(st) # Werk profiel bij aan het einde
+        update_user_model(st)
         persist(st["id"])
         return "Je hebt alle vragen beantwoord! Je kunt je geboorteplan nu exporteren."
 
@@ -421,6 +419,7 @@ def agent():
             return _create_json_response(st, response)
 
     reply: Optional[str] = None
+    # De volgorde van handlers is belangrijk voor de flow
     for handler in (handle_theme_selection, handle_topic_selection, handle_complete_selection, handle_qa, handle_proactive_help):
         reply = handler(st, msg)
         if reply is not None:
