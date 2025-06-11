@@ -229,35 +229,62 @@ def update_user_model(st: dict) -> None:
     st["user_profile"] = {"themes": st.get("themes", []), "topics": st.get("topics", {})}
     persist(st["id"])
 
-# Phase Handlers (agent gedrag per fase van de flow)
 def handle_theme_selection(st: dict, msg: str) -> Optional[str]:
+    """
+    Fase-handler voor het kiezen óf bewerken van thema’s.
+
+    - Init: geeft de lijst thema-opties terug.
+    - Nieuw thema: registreert als er minder dan 6 zijn.
+    - Bestaand thema: zet fase op choose_topic en vult ui_topic_opts,
+      zodat de frontend meteen weet welke onderwerpen er zijn.
+    - Limiet bereikt: geeft uitleg.
+    """
     if st["stage"] != "choose_theme":
         return None
+
+    # ── Eerste keer: stuur lijst met thema’s ───────────────────────
     if not st.get("ui_theme_opts"):
-        # Eerste keer: stel themakeuzes in
         _set_theme_options(st["id"], list(DEFAULT_TOPICS.keys()))
-        return "Laten we beginnen met het kiezen van de thema's voor jouw geboorteplan. Welke onderwerpen spreken je aan?"
-    # Kijk of de gebruiker een thema benoemt dat beschikbaar is
-    chosen_theme = next((thema for thema in DEFAULT_TOPICS if thema.lower() in msg.lower()), None)
-    if chosen_theme:
-        # Thema benoemd
-        if any(t["name"] == chosen_theme for t in st["themes"]):
-            # Thema is al gekozen – heropen voor bewerken
-            st["stage"] = "choose_topic"
-            st["current_theme"] = chosen_theme
-            # Gebruik eventueel bestaande topicopties (gegenereerd of default)
-            options = st.get("generated_topic_options", {}).get(chosen_theme) or DEFAULT_TOPICS.get(chosen_theme, [])
-            st["ui_topic_opts"] = options
-            persist(st["id"])
-            return f"We gaan de onderwerpen voor '{chosen_theme}' aanpassen. Kies of wijzig de onderwerpen voor dit thema."
-        elif len(st["themes"]) < 6:
-            # Nieuw thema registreren
-            _register_theme(st["id"], chosen_theme, "")
-            return f"Oké, thema '{chosen_theme}' is toegevoegd. Je kunt nu onderwerpen voor dit thema kiezen, of een volgend thema selecteren."
-        else:
-            # Maximum thema's al bereikt
-            return "Je hebt al 6 thema’s gekozen; je kunt geen nieuwe thema’s toevoegen tenzij je eerst een ander thema verwijdert."
-    return None
+        return (
+            "Laten we beginnen met het kiezen van de thema's voor jouw geboorteplan. "
+            "Welke onderwerpen spreken je aan?"
+        )
+
+    # ── Kijk of de gebruiker een beschikbaar thema noemt ───────────
+    chosen_theme = next(
+        (t for t in DEFAULT_TOPICS if t.lower() in msg.lower()), None
+    )
+    if not chosen_theme:
+        return None
+
+    # ── Thema is al gekozen → open opnieuw om te bewerken ──────────
+    if any(t["name"] == chosen_theme for t in st["themes"]):
+        st["stage"] = "choose_topic"
+        st["current_theme"] = chosen_theme
+        options = (
+            st.get("generated_topic_options", {}).get(chosen_theme)
+            or DEFAULT_TOPICS.get(chosen_theme, [])
+        )
+        st["ui_topic_opts"] = options      # <-- belangrijke toevoeging
+        persist(st["id"])
+        return (
+            f"We gaan de onderwerpen voor '{chosen_theme}' aanpassen. "
+            f"Kies of wijzig de onderwerpen voor dit thema."
+        )
+
+    # ── Nieuw thema mits limiet (6) niet bereikt ──────────────────
+    if len(st["themes"]) >= 6:
+        return (
+            "Je hebt al 6 thema’s gekozen; je kunt geen nieuwe thema’s toevoegen "
+            "tenzij je eerst een ander thema verwijdert."
+        )
+
+    _register_theme(st["id"], chosen_theme)
+    return (
+        f"Oké, thema '{chosen_theme}' is toegevoegd. "
+        f"Je kunt nu onderwerpen voor dit thema kiezen, of een volgend thema selecteren."
+    )
+
 
 def handle_topic_selection(st: dict, msg: str) -> Optional[str]:
     if st["stage"] != "choose_topic":
