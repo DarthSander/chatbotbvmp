@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
-# app.py – Geboorteplan-agent – Versie met Function Calling
-# Deze versie gebruikt de OpenAI Chat Completions API met Tool Calling voor maximale controle.
-# De AI stuurt het gesprek aan, maar de backend beheert de state en de agent-loop.
+# app.py – Geboorteplan-agent – Versie met Function Calling (GECORRIGEERD)
+# Deze versie lost de "TypeError: not JSON serializable" fout op.
 # Dit bestand is volledig op zichzelf staand, zonder externe 'agents.py' afhankelijkheid.
 
 from __future__ import annotations
@@ -37,7 +36,7 @@ DB_FILE = "sessions.db"
 app = Flask(__name__, static_folder="static", template_folder="templates", static_url_path="")
 CORS(app, origins=ALLOWED_ORIGINS, allow_headers="*", methods=["GET", "POST", "OPTIONS"])
 
-# ───────────────────────── Tool Decorator & Schema Generator (NIEUW) ─────────────────────────
+# ───────────────────────── Tool Decorator & Schema Generator ─────────────────────────
 def function_tool(func: Any) -> Any:
     """Decorator die een functie omzet in een OpenAI-compatibele tool met een JSON-schema."""
     sig = inspect.signature(func)
@@ -51,7 +50,7 @@ def function_tool(func: Any) -> Any:
     }
 
     for name, param in sig.parameters.items():
-        if name == "session_id": continue # Deze wordt automatisch geïnjecteerd
+        if name == "session_id": continue
 
         param_type = type_mapping.get(param.annotation, "string")
         parameters["properties"][name] = {"type": param_type}
@@ -67,7 +66,6 @@ def function_tool(func: Any) -> Any:
         },
     }
     
-    # Koppel het schema aan de functie zelf
     func.openai_schema = openai_schema
     return func
 
@@ -340,12 +338,17 @@ def agent_route():
     for i in range(MAX_TURNS):
         log.debug("Agent loop turn %d. History size: %d", i + 1, len(st["history"]))
         
-        response = client.chat.completions.create(
-            model=MODEL_CHOICE,
-            messages=st["history"],
-            tools=tools_schema,
-            tool_choice="auto"
-        )
+        try:
+            response = client.chat.completions.create(
+                model=MODEL_CHOICE,
+                messages=st["history"],
+                tools=tools_schema,
+                tool_choice="auto"
+            )
+        except Exception as e:
+            log.error("Fout bij aanroepen OpenAI API: %s", e)
+            return jsonify({"assistant_reply": "Sorry, er is momenteel een probleem met de verbinding. Probeer het later opnieuw."}), 500
+
         response_message = response.choices[0].message
         tool_calls = response_message.tool_calls
 
@@ -356,7 +359,9 @@ def agent_route():
             persist(sid)
             return jsonify(build_payload(st, reply))
 
-        st["history"].append(response_message)
+        # *** DE FIX ZIT HIER ***
+        # Converteer de Pydantic-message naar een dictionary voordat je deze toevoegt
+        st["history"].append(response_message.model_dump(exclude_unset=True))
         
         for tool_call in tool_calls:
             function_name = tool_call.function.name
@@ -367,14 +372,14 @@ def agent_route():
             if function_to_call:
                 try:
                     args = json.loads(tool_call.function.arguments)
-                    args["session_id"] = sid # Injecteer session_id
+                    args["session_id"] = sid
                     result = function_to_call(**args)
                 except Exception as e:
                     log.exception("Fout tijdens uitvoeren van tool %s", function_name)
                     result = f"Error: {e}"
             
             st["history"].append(
-                {"tool_call_id": tool_call.id, "role": "tool", "name": function_name, "content": result or "ok"}
+                {"tool_call_id": tool_call.id, "role": "tool", "name": function_name, "content": str(result) or "ok"}
             )
             log.debug("Sessie %s, Tool Result: %s", sid[-6:], result)
 
