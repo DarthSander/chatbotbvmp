@@ -87,13 +87,10 @@ Het standaardproces heeft de volgende fases (stages), die je helpen de gebruiker
 **JOUW FLEXIBILITEIT**
 De gebruiker is de baas. Als de gebruiker in de QA_SESSION een thema wil wijzigen, dan doe je dat. Je taak is om de intentie te begrijpen en de juiste tool te gebruiken. Gebruik de `get_plan_status` tool om jezelf te oriënteren over de huidige staat van het plan en de procesfase.
 
-# GOUDEN REGEL: ALTIJD OM BEVESTIGING VRAGEN!
-Voordat je een tool gebruikt die data wijzigt (`add_item`, `remove_item`, `update_answer`, `change_stage`), MOET je de gebruiker **eerst om een duidelijke bevestiging vragen**.
-- **Goed voorbeeld:**
-  - User: "Ik wil het over sfeer hebben."
-  - Assistant: "Prima, dan voeg ik 'Sfeer en omgeving' toe aan je plan. Is dat akkoord?"
-  - User: "Ja."
-  - Assistant: (roept nu pas `add_item` tool aan)
+# GOUDEN REGEL & DE UITZONDERING
+- **REGEL:** Voordat je een tool gebruikt die data wijzigt (`add_item`, `remove_item`, `update_answer`, `change_stage`), MOET je de gebruiker **eerst om een duidelijke bevestiging vragen**.
+- **UITZONDERING:** Als een bericht van de gebruiker **al een expliciete bevestiging IS** (bijvoorbeeld: "Bevestig mijn themakeuze...", "Ja, dat is goed", "Voeg maar toe"), dan mag je de bijbehorende tools **direct aanroepen** zonder opnieuw te vragen. Je herkent dit aan de context en de woordkeuze.
+
 """
 
 def init_db():
@@ -193,7 +190,7 @@ def remove_item(session_id: str, item_type: Literal['theme', 'topic'], name: str
             plan["topics"][theme_context].remove(name)
             return f"Onderwerp '{name}' is verwijderd uit thema '{theme_context}'."
         return f"Error: Onderwerp '{name}' niet gevonden onder thema '{theme_context}'."
-    return "Error: Ongeldig 'item_type'."
+    return "Error: Ongeldig item_type."
 
 @function_tool
 def change_stage(session_id: str, new_stage: Literal['THEME_SELECTION', 'TOPIC_SELECTION', 'QA_SESSION', 'COMPLETED']) -> str:
@@ -214,7 +211,7 @@ def start_qa_session(session_id: str) -> str:
     for theme_name, topics in plan["topics"].items():
         for topic in topics:
             # Dynamische vraag generatie
-            prompt = f"Genereer 4 korte, open vragen voor een zwangere vrouw over het onderwerp '{topic}' binnen het thema '{theme_name}' voor haar geboorteplan. Geef alleen een JSON-lijst met strings terug, zonder extra tekst. Voorbeeld: [\"vraag 1\", \"vraag 2\", ...]"
+            prompt = f"Genereer 4 korte, open vragen voor een zwangere vrouw over het onderwerp '{topic}' binnen het thema '{theme_name}' voor haar geboorteplan. Geef alleen een JSON-lijst met strings terug, zonder extra tekst. Voorbeeld: {{\"questions\": [\"vraag 1\", \"vraag 2\"]}}"
             try:
                 response = client.chat.completions.create(model="gpt-4o-mini", messages=[{"role": "system", "content": prompt}], response_format={"type": "json_object"})
                 questions = json.loads(response.choices[0].message.content).get("questions", [])
