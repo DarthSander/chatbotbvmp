@@ -195,26 +195,66 @@ def ensure_assistant():
 
 ASSISTANT_ID = ensure_assistant()
 
-# ──────────── Assistant-run helper ────────────
-def run_assistant(sid:str, thread:str, user:str) -> str:
-    openai.beta.threads.messages.create(thread_id=thread, role="user", content=user)
-    run = openai.beta.threads.runs.create(thread_id=thread, assistant_id=ASSISTANT_ID)
+# ---------- thread-run helper ----------
+
+def run_assistant(session_id: str, thread_id: str, user_msg: str) -> str:
+    """
+    Stuurt de gebruikersboodschap naar de thread, start een run
+    en handelt eventuele tool-calls af.
+    """
+    openai.beta.threads.messages.create(
+        thread_id=thread_id,
+        role="user",
+        content=user_msg
+    )
+
+    # start de run
+    run = openai.beta.threads.runs.create(
+        thread_id=thread_id,
+        assistant_id=ASSISTANT_ID
+    )
+
+    # poll tot de run klaar is – gebruik de **keyword-versie** van retrieve
     while True:
-        run = openai.beta.threads.runs.retrieve(thread, run.id)
+        run = openai.beta.threads.runs.retrieve(
+            thread_id=thread_id,
+            run_id=run.id            # <-- keyword! voorkomt TypeError
+        )
+
+        # tool-calls?
         if run.status == "requires_action":
-            outs=[]
-            for c in run.required_action.submit_tool_outputs.tool_calls:
-                fn  = TOOL_IMPL[c.function.name]
-                res = fn(sid, **json.loads(c.function.arguments or "{}"))
-                outs.append({"tool_call_id": c.id, "output": res})
-            openai.beta.threads.runs.submit_tool_outputs(thread, run.id, outputs=outs)
+            outputs = []
+            for call in run.required_action.submit_tool_outputs.tool_calls:
+                fn      = TOOL_IMPL[call.function.name]
+                kwargs  = json.loads(call.function.arguments or "{}")
+                result  = fn(session_id, **kwargs)
+                outputs.append({"tool_call_id": call.id, "output": result})
+
+            openai.beta.threads.runs.submit_tool_outputs(
+                thread_id=thread_id,
+                run_id=run.id,
+                outputs=outputs
+            )
+            continue          # blijf pollen
+
+        if run.status in ("queued", "in_progress"):
+            time.sleep(0.35)
             continue
-        if run.status in ("queued","in_progress"): time.sleep(0.4); continue
+
         if run.status != "completed":
-            log.error("Run-fout: %s", run.last_error); return "⚠️ Er ging iets mis."
+            log.error("OpenAI-run error: %s", run.last_error)
+            return "⚠️ Er ging iets mis – probeer opnieuw."
+
         break
-    msg = openai.beta.threads.messages.list(thread, limit=1).data[0]
+
+    # laatste assistant-bericht ophalen
+    msg = openai.beta.threads.messages.list(
+        thread_id=thread_id,
+        limit=1
+    ).data[0]
+
     return msg.content[0].text.value if msg.content else ""
+
 
 # ──────────── Flask-app ───────────
 app = Flask(__name__, static_folder="static", template_folder="templates", static_url_path="")
