@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-# app.py – Geboorteplan-agent – Versie met Slimme Bevestiging & Verbeterde Tools
-# Deze versie lost het probleem van dubbele bevestiging op en ondersteunt de nieuwe frontend.
+# app.py – Geboorteplan-agent – Versie met Slimme Suggesties & Bevestigingen
+# Deze versie lost het probleem van dubbele bevestiging op en ondersteunt de nieuwe frontend met dynamische chat-chips.
 
 from __future__ import annotations
-import os, json, uuid, sqlite3, time, logging, inspect
+import os, json, uuid, sqlite3, time, logging, inspect, re
 
 from typing import List, Dict, Optional, Any, Literal
 from typing_extensions import TypedDict
@@ -79,18 +79,17 @@ Jij bent "Mae", een gespecialiseerde, proactieve en empathische assistent. Jouw 
 
 # HET PROCES: EEN GIDS, GEEN GEVANGENIS
 Het standaardproces heeft de volgende fases (stages), die je helpen de gebruiker te begeleiden:
-1.  **THEME_SELECTION**: De gebruiker kiest de hoofdthema's (max 6). Je biedt de standaardlijst aan, maar de gebruiker mag ook zelf thema's verzinnen. Gebruik `offer_choices` om de lijst te tonen.
+1.  **THEME_SELECTION**: De gebruiker kiest de hoofdthema's (max 6). Je biedt de standaardlijst aan, maar de gebruiker mag ook zelf thema's verzinnen. Gebruik `offer_choices` om de lijst te tonen. Wacht tot de gebruiker de keuzes bevestigt.
 2.  **TOPIC_SELECTION**: Voor een gekozen thema, kiest de gebruiker onderwerpen (max 4 per thema). Ook hier mag de gebruiker zelf onderwerpen toevoegen.
-3.  **QA_SESSION**: Na de keuzes, roep je `start_qa_session` aan. Dit genereert 4 vragen per gekozen onderwerp. Vervolgens stel je de vragen één voor één met `get_next_question` en sla je antwoorden op met `log_answer`.
+3.  **QA_SESSION**: Pas als de gebruiker expliciet aangeeft klaar te zijn met alle keuzes, roep je `start_qa_session` aan. Dit genereert 4 vragen per gekozen onderwerp. Vervolgens stel je de vragen één voor één met `get_next_question` en sla je antwoorden op met `log_answer`.
 4.  **COMPLETED**: Alle vragen zijn beantwoord.
 
 **JOUW FLEXIBILITEIT**
-De gebruiker is de baas. Als de gebruiker in de QA_SESSION een thema wil wijzigen, dan doe je dat. Je taak is om de intentie te begrijpen en de juiste tool te gebruiken. Gebruik de `get_plan_status` tool om jezelf te oriënteren over de huidige staat van het plan en de procesfase.
+De gebruiker is de baas. Als de gebruiker in de QA_SESSION een thema wil wijzigen, dan doe je dat. Je taak is om de intentie te begrijpen en de juiste tool te gebruiken. Gebruik de `get_plan_status` tool om jezelf te oriënteren over de huidige staat van het plan en de procesfase. Als je gevraagd wordt om onderwerpen te bedenken, geef dan een lijst in je tekst-antwoord. De frontend zal hier knoppen van maken.
 
 # GOUDEN REGEL & DE UITZONDERING
 - **REGEL:** Voordat je een tool gebruikt die data wijzigt (`add_item`, `remove_item`, `update_answer`, `change_stage`), MOET je de gebruiker **eerst om een duidelijke bevestiging vragen**.
 - **UITZONDERING:** Als een bericht van de gebruiker **al een expliciete bevestiging IS** (bijvoorbeeld: "Bevestig mijn themakeuze...", "Ja, dat is goed", "Voeg maar toe"), dan mag je de bijbehorende tools **direct aanroepen** zonder opnieuw te vragen. Je herkent dit aan de context en de woordkeuze.
-
 """
 
 def init_db():
@@ -129,13 +128,11 @@ def persist(sid: str):
 # ───────────────────────── Volledig Uitgewerkte Tools ─────────────────────────
 @function_tool
 def get_plan_status(session_id: str) -> str:
-    """Geeft een overzicht van de huidige staat van het geboorteplan, inclusief de huidige procesfase (stage)."""
     st = get_session(session_id)
     return json.dumps({"stage": st['stage'], "plan": st['plan']})
 
 @function_tool
 def offer_choices(session_id: str, choice_type: Literal['themes', 'topics'], theme_context: Optional[str] = None) -> str:
-    """Presenteert een lijst met standaard keuzemogelijkheden voor thema's of onderwerpen."""
     if choice_type == 'themes':
         return f"De 10 standaard thema's zijn: {', '.join([t['name'] for t in DEFAULT_THEMES])}."
     if choice_type == 'topics':
@@ -147,15 +144,13 @@ def offer_choices(session_id: str, choice_type: Literal['themes', 'topics'], the
 
 @function_tool
 def add_item(session_id: str, item_type: Literal['theme', 'topic'], name: str, theme_context: Optional[str] = None, is_custom: bool = False) -> str:
-    """Voegt een thema of onderwerp toe aan het plan. Kan ook een zelfbedacht (custom) item toevoegen."""
     st = get_session(session_id)
     plan = st["plan"]
     if item_type == 'theme':
         if len(plan["themes"]) >= 6: return "Error: Je kunt maximaal 6 thema's kiezen."
         if name not in [t["name"] for t in plan["themes"]]:
             plan["themes"].append({"name": name, "is_custom": is_custom})
-            st['stage'] = Stage.TOPIC_SELECTION.value
-            return f"Thema '{name}' is toegevoegd. Roep nu de 'offer_choices' tool aan met `choice_type='topics'` en `theme_context='{name}'` om de onderwerpen te tonen."
+            return f"Thema '{name}' toegevoegd."
         return f"Thema '{name}' was al gekozen."
     if item_type == 'topic':
         if not theme_context: return "Error: Ik moet weten aan welk thema ik dit onderwerp moet toevoegen."
@@ -170,7 +165,6 @@ def add_item(session_id: str, item_type: Literal['theme', 'topic'], name: str, t
 
 @function_tool
 def remove_item(session_id: str, item_type: Literal['theme', 'topic'], name: str, theme_context: Optional[str] = None) -> str:
-    """Verwijdert een thema of een specifiek onderwerp uit het plan."""
     st = get_session(session_id)
     plan = st["plan"]
     name_lower = name.lower()
@@ -191,14 +185,13 @@ def remove_item(session_id: str, item_type: Literal['theme', 'topic'], name: str
 
 @function_tool
 def change_stage(session_id: str, new_stage: Literal['THEME_SELECTION', 'TOPIC_SELECTION', 'QA_SESSION', 'COMPLETED']) -> str:
-    """Wijzigt de procesfase, bijvoorbeeld van onderwerpkeuze terug naar themakeuze, of door naar de vragenronde."""
     st = get_session(session_id)
     st['stage'] = new_stage
     return f"Oké, de procesfase is nu veranderd naar {new_stage}."
 
+# ... (andere tools zoals start_qa_session, etc. blijven hetzelfde) ...
 @function_tool
 def start_qa_session(session_id: str) -> str:
-    """Genereert alle vragen voor de gekozen onderwerpen en start de vragenronde."""
     st = get_session(session_id)
     if st['stage'] == Stage.QA_SESSION.value: return "We zijn al in de vragenronde."
     plan = st["plan"]
@@ -216,10 +209,8 @@ def start_qa_session(session_id: str) -> str:
     if not st["qa_queue"]: return "Er zijn geen onderwerpen gekozen om vragen over te stellen. Kies eerst onderwerpen."
     st['stage'] = Stage.QA_SESSION.value
     return f"Oké, de vragenlijst is gemaakt. We gaan nu beginnen met de vragen. Roep 'get_next_question' aan om de eerste vraag te stellen."
-
 @function_tool
 def get_next_question(session_id: str) -> str:
-    """Haalt de volgende vraag uit de wachtrij."""
     st = get_session(session_id)
     if st['stage'] != Stage.QA_SESSION.value: return "Error: We zijn niet in de vragenronde. Start deze eerst met 'start_qa_session'."
     if not st["qa_queue"]:
@@ -229,26 +220,23 @@ def get_next_question(session_id: str) -> str:
     st["current_question"] = st["qa_queue"].pop(0)
     cq = st["current_question"]
     return f"Vraag over '{cq['topic']}': {cq['question']}"
-
 @function_tool
 def log_answer(session_id: str, answer: str) -> str:
-    """Slaat het antwoord op de huidige vraag op."""
     st = get_session(session_id)
     cq = st.get("current_question")
     if not cq: return "Error: Er is geen actieve vraag om te beantwoorden. Gebruik eerst 'get_next_question'."
     st["plan"]["qa_items"].append({"question": cq["question"], "answer": answer, "theme": cq["theme"], "topic": cq["topic"]})
     st["current_question"] = None
     return "Antwoord opgeslagen. Roep 'get_next_question' aan voor de volgende vraag."
-
 @function_tool
 def update_answer(session_id: str, question_text: str, new_answer: str) -> str:
-    """Past een eerder gegeven antwoord op een specifieke vraag aan."""
     st = get_session(session_id)
     for qa_item in st["plan"]["qa_items"]:
         if qa_item["question"] == question_text:
             qa_item["answer"] = new_answer
             return f"Het antwoord op de vraag '{question_text[:30]}...' is bijgewerkt."
-    return "Error: De betreffende vraag is niet gevonden in de reeds beantwoorde vragen."
+    return "Error: De betreffende vraag is niet gevonden."
+
 
 tool_funcs = [get_plan_status, offer_choices, add_item, remove_item, change_stage, start_qa_session, get_next_question, log_answer, update_answer]
 tools_schema = [get_schema(t) for t in tool_funcs]
@@ -256,18 +244,20 @@ TOOL_IMPLEMENTATIONS = {t.openai_schema['function']['name']: t for t in tool_fun
 
 # ───────────────────────── Hoofd-endpoint & Agent Loop ─────────────────────────
 def build_payload(st: dict, reply: str) -> dict:
-    """Stelt de JSON-respons samen voor de frontend, inclusief suggesties voor knoppen."""
     payload = {
-        "assistant_reply": reply,
-        "session_id": st["id"],
-        "stage": st["stage"],
-        "plan": st["plan"],
-        "suggested_replies": []
+        "assistant_reply": reply, "session_id": st["id"], "stage": st["stage"],
+        "plan": st["plan"], "suggested_replies": []
     }
-    # Heuristics om te bepalen of er Ja/Nee knoppen getoond moeten worden.
+    # Heuristics om suggesties te extraheren voor de frontend
     confirmation_triggers = ["akkoord?", "is dat correct?", "wil je dat ik", "zal ik"]
     if any(trigger in reply.lower() for trigger in confirmation_triggers):
         payload["suggested_replies"] = ["Ja", "Nee"]
+    else:
+        # Zoek naar lijsten (bullet points of genummerd)
+        list_items = re.findall(r'^\s*[\*\-•\d]\.?\s+(.*)', reply, re.MULTILINE)
+        if list_items:
+            payload["suggested_replies"] = [item.strip() for item in list_items]
+            
     return payload
 
 @app.post("/agent")
