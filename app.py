@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
-# app.py – Geboorteplan-agent – Volledig Functionele Stateful & Flexibele Versie
-# Deze architectuur combineert een gestructureerd proces (stages) met maximale AI-flexibiliteit.
-# Alle tools en logica zijn nu volledig geïmplementeerd.
+# app.py – Geboorteplan-agent – Versie met Slimme Bevestiging & Verbeterde Tools
+# Deze versie lost het probleem van dubbele bevestiging op en ondersteunt de nieuwe frontend.
 
 from __future__ import annotations
 import os, json, uuid, sqlite3, time, logging, inspect
@@ -71,6 +70,7 @@ DEFAULT_TOPICS_PER_THEME = {
     "Ondersteuning": ["Aanwezigheid partner", "Rol van de partner", "Aanwezigheid doula", "Communicatie met zorgverleners"],
     "Bevalling & medisch beleid": ["Pijnbestrijding opties", "Houding tijdens bevallen", "Medische interventies", "Keizersnede voorkeuren"],
     "Sfeer en omgeving": ["Muziek en geluid", "Licht en temperatuur", "Gebruik van water (douche/bad)", "Privacy wensen"],
+    "Voeding na de geboorte": ["Borstvoeding of flesvoeding", "Voedingshoudingen", "Kolven", "Hulp bij voeding"],
 }
 
 SYSTEM_PROMPT = """
@@ -155,7 +155,7 @@ def add_item(session_id: str, item_type: Literal['theme', 'topic'], name: str, t
         if name not in [t["name"] for t in plan["themes"]]:
             plan["themes"].append({"name": name, "is_custom": is_custom})
             st['stage'] = Stage.TOPIC_SELECTION.value
-            return f"Thema '{name}' toegevoegd. We zijn nu in de onderwerp-kiesfase voor dit thema."
+            return f"Thema '{name}' is toegevoegd. Roep nu de 'offer_choices' tool aan met `choice_type='topics'` en `theme_context='{name}'` om de onderwerpen te tonen."
         return f"Thema '{name}' was al gekozen."
     if item_type == 'topic':
         if not theme_context: return "Error: Ik moet weten aan welk thema ik dit onderwerp moet toevoegen."
@@ -174,16 +174,13 @@ def remove_item(session_id: str, item_type: Literal['theme', 'topic'], name: str
     st = get_session(session_id)
     plan = st["plan"]
     name_lower = name.lower()
-
     if item_type == 'theme':
         theme_to_remove = next((t for t in plan["themes"] if t["name"].lower() == name_lower), None)
         if theme_to_remove:
             plan["themes"].remove(theme_to_remove)
-            if theme_to_remove["name"] in plan["topics"]:
-                del plan["topics"][theme_to_remove["name"]]
+            if theme_to_remove["name"] in plan["topics"]: del plan["topics"][theme_to_remove["name"]]
             return f"Thema '{name}' en bijbehorende onderwerpen zijn verwijderd."
         return f"Error: Thema '{name}' niet gevonden."
-
     if item_type == 'topic':
         if not theme_context: return "Error: 'theme_context' is verplicht bij verwijderen van onderwerp."
         if theme_context in plan["topics"] and name in plan["topics"][theme_context]:
@@ -204,25 +201,19 @@ def start_qa_session(session_id: str) -> str:
     """Genereert alle vragen voor de gekozen onderwerpen en start de vragenronde."""
     st = get_session(session_id)
     if st['stage'] == Stage.QA_SESSION.value: return "We zijn al in de vragenronde."
-    
     plan = st["plan"]
     st["qa_queue"] = []
-    
     for theme_name, topics in plan["topics"].items():
         for topic in topics:
-            # Dynamische vraag generatie
-            prompt = f"Genereer 4 korte, open vragen voor een zwangere vrouw over het onderwerp '{topic}' binnen het thema '{theme_name}' voor haar geboorteplan. Geef alleen een JSON-lijst met strings terug, zonder extra tekst. Voorbeeld: {{\"questions\": [\"vraag 1\", \"vraag 2\"]}}"
+            prompt = f"Genereer 4 korte, open vragen voor een zwangere vrouw over het onderwerp '{topic}' binnen het thema '{theme_name}' voor haar geboorteplan. Geef alleen een JSON-object terug met een 'questions' key die een lijst van strings bevat. Voorbeeld: {{\"questions\": [\"vraag 1\", \"vraag 2\"]}}"
             try:
                 response = client.chat.completions.create(model="gpt-4o-mini", messages=[{"role": "system", "content": prompt}], response_format={"type": "json_object"})
                 questions = json.loads(response.choices[0].message.content).get("questions", [])
                 for q_text in questions:
                     st["qa_queue"].append({"theme": theme_name, "topic": topic, "question": q_text})
             except Exception:
-                # Fallback naar standaardvragen
                 st["qa_queue"].append({"theme": theme_name, "topic": topic, "question": f"Wat zijn je wensen omtrent {topic}?"})
-
     if not st["qa_queue"]: return "Er zijn geen onderwerpen gekozen om vragen over te stellen. Kies eerst onderwerpen."
-    
     st['stage'] = Stage.QA_SESSION.value
     return f"Oké, de vragenlijst is gemaakt. We gaan nu beginnen met de vragen. Roep 'get_next_question' aan om de eerste vraag te stellen."
 
@@ -235,7 +226,6 @@ def get_next_question(session_id: str) -> str:
         st['stage'] = Stage.COMPLETED.value
         st['current_question'] = None
         return "Alle vragen zijn beantwoord! Het geboorteplan is compleet."
-    
     st["current_question"] = st["qa_queue"].pop(0)
     cq = st["current_question"]
     return f"Vraag over '{cq['topic']}': {cq['question']}"
@@ -246,7 +236,6 @@ def log_answer(session_id: str, answer: str) -> str:
     st = get_session(session_id)
     cq = st.get("current_question")
     if not cq: return "Error: Er is geen actieve vraag om te beantwoorden. Gebruik eerst 'get_next_question'."
-    
     st["plan"]["qa_items"].append({"question": cq["question"], "answer": answer, "theme": cq["theme"], "topic": cq["topic"]})
     st["current_question"] = None
     return "Antwoord opgeslagen. Roep 'get_next_question' aan voor de volgende vraag."
@@ -267,7 +256,19 @@ TOOL_IMPLEMENTATIONS = {t.openai_schema['function']['name']: t for t in tool_fun
 
 # ───────────────────────── Hoofd-endpoint & Agent Loop ─────────────────────────
 def build_payload(st: dict, reply: str) -> dict:
-    return {"assistant_reply": reply, "session_id": st["id"], "stage": st["stage"], "plan": st["plan"]}
+    """Stelt de JSON-respons samen voor de frontend, inclusief suggesties voor knoppen."""
+    payload = {
+        "assistant_reply": reply,
+        "session_id": st["id"],
+        "stage": st["stage"],
+        "plan": st["plan"],
+        "suggested_replies": []
+    }
+    # Heuristics om te bepalen of er Ja/Nee knoppen getoond moeten worden.
+    confirmation_triggers = ["akkoord?", "is dat correct?", "wil je dat ik", "zal ik"]
+    if any(trigger in reply.lower() for trigger in confirmation_triggers):
+        payload["suggested_replies"] = ["Ja", "Nee"]
+    return payload
 
 @app.post("/agent")
 def agent_route():
