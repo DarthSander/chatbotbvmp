@@ -194,14 +194,16 @@ register_topic     = function_tool(_register_topic)
 complete_theme     = function_tool(_complete_theme)
 log_answer         = function_tool(_log_answer)
 
-# helper: schema ophalen ongeacht attribuutnaam
 def get_schema(ft):
-    return getattr(ft, "openai_schema", getattr(ft, "schema"))
+    """Haal het OpenAI-compatible schema uit een FunctionTool instance."""
+    if hasattr(ft, "openai_schema"):
+        return ft.openai_schema
+    if hasattr(ft, "schema"):
+        return ft.schema               # oudere helper-versies
+    if hasattr(ft, "function") and isinstance(ft.function, dict):
+        return ft.function             # fallback – nieuwere helper
+    raise AttributeError("FunctionTool mist een herkenbaar schema-attribuut")
 
-tool_objs        = [set_theme_options, set_topic_options, register_theme,
-                    register_topic, complete_theme, log_answer]
-assistant_tools  = [get_schema(t) for t in tool_objs]
-TOOL_IMPL        = {get_schema(t)["function"]["name"]: t for t in tool_objs}
 
 # ───────────────────────── Handlers ─────────────────────────
 def handle_theme_selection(st: dict, txt: str) -> Optional[str]:
