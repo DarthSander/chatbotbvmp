@@ -1,30 +1,20 @@
 #!/usr/bin/env python3
-# app.py – Geboorteplan‑agent – volledige versie (Assistant‑SDK v2) met uitgebreide DEBUG‑logs
-#
-# ❗ Deze file overschrijft je oude app.py volledig.
-#   ‑ Alle oorspronkelijke handlers en routes zijn ongewijzigd meegenomen.
-#   ‑ Enkele *enige* toevoegingen:
-#       • Nieuwe helper `get_schema()` → haalt schema uit FunctionTool ongeacht property‑naam
-#       • Extra debug‑statements (logging.DEBUG) in critical paths
-#       • Poll‑loop in `run_assistant()` stopt na 45 sec om eindeloze loops te voorkomen
-#       • Kleine bug‑fix in `build_payload()` (None‑safety)
-#
-# Zet LOG_LEVEL=DEBUG in je environment om alles te zien.
-# Tested tegen openai==1.14.0
-# ------------------------------------------------------------------------------
+# app.py – Geboorteplan-agent – Versie met Function Calling
+# Deze versie gebruikt de OpenAI Chat Completions API met Tool Calling voor maximale controle.
+# De AI stuurt het gesprek aan, maar de backend beheert de state en de agent-loop.
+# Dit bestand is volledig op zichzelf staand, zonder externe 'agents.py' afhankelijkheid.
 
 from __future__ import annotations
-import os, json, uuid, sqlite3, time, re, logging
-from typing import List, Dict, Optional
+import os, json, uuid, sqlite3, time, logging, inspect
+
+from typing import List, Dict, Optional, Any
 from typing_extensions import TypedDict
 
 from flask import Flask, request, jsonify, abort, send_file, send_from_directory, render_template
 from flask_cors import CORS
+from openai import OpenAI
 
-from openai import OpenAI                       # >=1.14.0 (assistants v2)
-from agents import function_tool                # jouw eigen decorator/wrapper
-
-# ───────────────────────── logging ─────────────────────────
+# ───────────────────────── Logging & Basisconfiguratie ─────────────────────────
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
 logging.basicConfig(
     level=getattr(logging, LOG_LEVEL, logging.INFO),
@@ -33,351 +23,384 @@ logging.basicConfig(
 )
 log = logging.getLogger("mae-backend")
 
-# ───────────────────────── OpenAI config ───────────────────
-client       = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-ASSISTANT_ID = os.getenv("ASSISTANT_ID", "asst_mBo58qbk0JCyptia1sa4nKkE")
+client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 MODEL_CHOICE = os.getenv("MODEL_CHOICE", "gpt-4o-mini")
 
-# ───────────────────────── Flask/CORS ──────────────────────
 ALLOWED_ORIGINS = [
     "https://bevalmeteenplan.nl",
     "https://www.bevalmeteenplan.nl",
     "https://chatbotbvmp.onrender.com",
 ]
+DB_FILE = "sessions.db"
+
+# ───────────────────────── Flask App Setup ─────────────────────────
 app = Flask(__name__, static_folder="static", template_folder="templates", static_url_path="")
 CORS(app, origins=ALLOWED_ORIGINS, allow_headers="*", methods=["GET", "POST", "OPTIONS"])
 
-# ───────────────────────── DB helpers ──────────────────────
-DB_FILE = "sessions.db"
-def init_db():
-    with sqlite3.connect(DB_FILE) as con:
-        con.execute(
-            """CREATE TABLE IF NOT EXISTS sessions (
-                id          TEXT PRIMARY KEY,
-                state       TEXT NOT NULL,
-                user_profile TEXT,
-                thread_id   TEXT
-            )"""
-        )
-init_db()
+# ───────────────────────── Tool Decorator & Schema Generator (NIEUW) ─────────────────────────
+def function_tool(func: Any) -> Any:
+    """Decorator die een functie omzet in een OpenAI-compatibele tool met een JSON-schema."""
+    sig = inspect.signature(func)
+    parameters = {"type": "object", "properties": {}, "required": []}
+    
+    type_mapping = {
+        str: "string",
+        int: "integer",
+        float: "number",
+        bool: "boolean",
+    }
 
-def load_state(sid: str) -> Optional[dict]:
-    with sqlite3.connect(DB_FILE) as con:
-        row = con.execute("""SELECT state,user_profile,thread_id
-                              FROM sessions WHERE id=?""", (sid,)).fetchone()
-        if not row:
-            return None
-        state_json, profile_json, thread_id = row
-        state = json.loads(state_json)
-        state["user_profile"] = json.loads(profile_json) if profile_json else None
-        state["thread_id"]   = thread_id
-        return state
+    for name, param in sig.parameters.items():
+        if name == "session_id": continue # Deze wordt automatisch geïnjecteerd
 
-def save_state(sid: str, st: dict) -> None:
-    with sqlite3.connect(DB_FILE) as con:
-        st_copy  = st.copy()
-        profile  = st_copy.pop("user_profile", None)
-        thread   = st_copy.get("thread_id")
-        con.execute(
-            """REPLACE INTO sessions
-                   (id,state,user_profile,thread_id)
-                   VALUES (?,?,?,?)""",
-            (sid, json.dumps(st_copy), json.dumps(profile), thread),
-        )
-        con.commit()
+        param_type = type_mapping.get(param.annotation, "string")
+        parameters["properties"][name] = {"type": param_type}
+        if param.default is inspect.Parameter.empty:
+            parameters["required"].append(name)
 
-# ───────────────────────── Domein‑constanten ────────────────────────
+    openai_schema = {
+        "type": "function",
+        "function": {
+            "name": func.__name__,
+            "description": func.__doc__ or "",
+            "parameters": parameters,
+        },
+    }
+    
+    # Koppel het schema aan de functie zelf
+    func.openai_schema = openai_schema
+    return func
+
+def get_schema(ft: Any) -> dict:
+    """Haalt het OpenAI-schema uit een functie-object dat is gedecoreerd met @function_tool."""
+    return getattr(ft, "openai_schema", {})
+
+# ───────────────────────── Strikte Types & Constanten ─────────────────────────
 class NamedDescription(TypedDict):
     name: str
     description: str
 
 DEFAULT_TOPICS: Dict[str, List[NamedDescription]] = {
     "Ondersteuning": [
-        {"name": "Wie wil je bij de bevalling?",         "description": "Welke personen wil je er fysiek bij hebben?"},
+        {"name": "Wie wil je bij de bevalling?", "description": "Welke personen wil je er fysiek bij hebben?"},
         {"name": "Rol van je partner of ander persoon?", "description": "Specificeer taken of wensen voor je partner."},
-        {"name": "Wil je een doula / kraamzorg?",        "description": "Extra ondersteuning tijdens en na de bevalling."},
-        {"name": "Wat verwacht je van het personeel?",   "description": "Welke stijl van begeleiding past bij jou?"},
+        {"name": "Wil je een doula / kraamzorg?", "description": "Extra ondersteuning tijdens en na de bevalling."},
+        {"name": "Wat verwacht je van het personeel?", "description": "Welke stijl van begeleiding past bij jou?"},
     ],
     "Bevalling & medisch beleid": [
-        {"name": "Pijnstilling",    "description": "Medicamenteuze en niet-medicamenteuze opties."},
-        {"name": "Interventies",    "description": "Bijv. inknippen, kunstverlossing, infuus."},
-        {"name": "Noodsituaties",   "description": "Wat als het anders loopt dan gepland?"},
+        {"name": "Pijnstilling", "description": "Medicamenteuze en niet-medicamenteuze opties."},
+        {"name": "Interventies", "description": "Bijv. inknippen, kunstverlossing, infuus."},
+        {"name": "Noodsituaties", "description": "Wat als het anders loopt dan gepland?"},
         {"name": "Placenta-keuzes", "description": "Placenta bewaren, laten staan, of doneren?"},
     ],
     "Sfeer en omgeving": [
         {"name": "Muziek & verlichting", "description": "Rustige muziek? Gedimd licht?"},
-        {"name": "Privacy",              "description": "Wie mag binnenkomen en fotograferen?"},
-        {"name": "Foto’s / video",       "description": "Wil je opnames laten maken?"},
-        {"name": "Eigen spulletjes",     "description": "Bijv. eigen kussen, etherische olie."},
+        {"name": "Privacy", "description": "Wie mag binnenkomen en fotograferen?"},
+        {"name": "Foto’s / video", "description": "Wil je opnames laten maken?"},
+        {"name": "Eigen spulletjes", "description": "Bijv. eigen kussen, etherische olie."},
     ],
     "Voeding na de geboorte": [
-        {"name": "Borstvoeding",       "description": "Ondersteuning, kolven, rooming-in."},
-        {"name": "Flesvoeding",        "description": "Welke melk? Wie geeft de fles?"},
+        {"name": "Borstvoeding", "description": "Ondersteuning, kolven, rooming-in."},
+        {"name": "Flesvoeding", "description": "Welke melk? Wie geeft de fles?"},
         {"name": "Combinatie-voeding", "description": "Afwisselen borst en fles."},
-        {"name": "Allergieën",         "description": "Rekening houden met familiaire allergieën."},
+        {"name": "Allergieën", "description": "Rekening houden met familiaire allergieën."},
     ],
 }
 
-# ───────────────────────── Sessiebeheer ─────────────────────────
+# ───────────────────────── De "Grondwet" van de Agent (System Prompt) ─────────────────────────
+SYSTEM_PROMPT = """
+# ROL EN DOEL
+Jij bent "Mae", een gespecialiseerde en empathische assistent. Jouw enige doel is om gebruikers te helpen bij het stap-voor-stap invullen van een geboorteplan. Je volgt ALTIJD een strikt, vaststaand proces en wijkt hier nooit van af. Je bent geen algemene chatbot.
+
+# HET PROCES (STATE MACHINE)
+Je begeleidt de gebruiker door de volgende fases, die worden bijgehouden via een 'stage'-variabele in de sessie. Je MOET je tools gebruiken om de 'stage' te veranderen en de gebruiker door het proces te leiden.
+
+- **Fase 1: Thema's Kiezen (stage: 'choose_theme')**
+  - Je startpunt. Bied de gebruiker de hoofdthema's aan. Als de gebruiker een thema kiest, roep je `register_theme` aan. Dit verandert de stage automatisch naar 'choose_topic'.
+  - De gebruiker kan meerdere thema's kiezen.
+
+- **Fase 2: Onderwerpen Kiezen (stage: 'choose_topic')**
+  - Voor het HUIDIGE thema (`current_theme`), bied je de beschikbare onderwerpen aan. Als de gebruiker een onderwerp kiest, roep je `register_topic` aan.
+  - Als de gebruiker aangeeft "klaar te zijn met dit thema" of "terug te willen naar thema's", zet je de stage terug naar 'choose_theme' zodat een nieuw thema gekozen kan worden. Gebruik hiervoor `complete_topic_selection`.
+
+- **Fase 3: Afronden Keuzes & Start Vragen (stage overgang)**
+  - Wanneer de gebruiker in de 'choose_theme' fase aangeeft helemaal klaar te zijn, roep je de `complete_all_selections` tool aan. Deze tool controleert of alles is ingevuld en zet de stage naar 'qa'.
+
+- **Fase 4: Vragen Beantwoorden (stage: 'qa')**
+  - Nadat `complete_all_selections` is aangeroepen, is de volgende stap het stellen van vragen. Vraag de gebruiker of ze klaar is voor de vragen.
+  - Als ze ja zegt, roep de `get_next_question` tool aan om de EERSTE vraag op te halen.
+  - Stel de vraag aan de gebruiker. Voor elk antwoord dat de gebruiker geeft, roep je de `log_answer_and_get_next` tool aan. Deze tool slaat het antwoord op en geeft direct de volgende vraag terug.
+  - Ga door met het aanroepen van `log_answer_and_get_next` totdat deze aangeeft dat er geen vragen meer zijn.
+
+- **Fase 5: Voltooid (stage: 'completed')**
+  - Als de `get_next_question` of `log_answer_and_get_next` tool aangeeft dat alle vragen zijn beantwoord, feliciteer je de gebruiker en vertel je dat het geboorteplan kan worden geëxporteerd.
+
+# REGELS
+- Gebruik ALTIJD de tools om de state (zoals 'stage' of 'qa' lijsten) aan te passen.
+- Wees kort en doelgericht. Begeleid de gebruiker naar de volgende stap.
+- Als je een vraag niet begrijpt, vraag om verduidelijking in de context van de huidige fase.
+- Geef nooit medisch advies.
+- Start het gesprek ALTIJD met het aanbieden van de thema's.
+"""
+
+# ───────────────────────── Database & Sessiebeheer ─────────────────────────
+def init_db():
+    with sqlite3.connect(DB_FILE) as con:
+        con.execute(
+            """CREATE TABLE IF NOT EXISTS sessions (
+                id TEXT PRIMARY KEY,
+                state TEXT NOT NULL
+            )"""
+        )
+init_db()
+
+def load_state(sid: str) -> Optional[dict]:
+    with sqlite3.connect(DB_FILE) as con:
+        row = con.execute("SELECT state FROM sessions WHERE id=?", (sid,)).fetchone()
+        if not row: return None
+        log.debug("Sessie %s geladen uit DB.", sid[-6:])
+        return json.loads(row[0])
+
+def save_state(sid: str, st: dict) -> None:
+    with sqlite3.connect(DB_FILE) as con:
+        con.execute("REPLACE INTO sessions (id, state) VALUES (?, ?)", (sid, json.dumps(st)))
+        con.commit()
+        log.debug("Sessie %s opgeslagen in DB.", sid[-6:])
+
 SESSION: Dict[str, dict] = {}
 def get_session(sid: str) -> dict:
-    if sid in SESSION:
-        return SESSION[sid]
-    db = load_state(sid)
-    if db:
-        SESSION[sid] = db
-        return db
-    SESSION[sid] = {
-        "id": sid,
-        "stage": "choose_theme",
-        "themes": [], "topics": {}, "qa": [],
-        "ui_theme_opts": [], "ui_topic_opts": [],
+    if sid in SESSION: return SESSION[sid]
+    
+    db_state = load_state(sid)
+    if db_state:
+        SESSION[sid] = db_state
+        return db_state
+
+    log.info("Nieuwe sessie %s wordt aangemaakt.", sid[-6:])
+    st = {
+        "id": sid, "stage": "choose_theme", "themes": [], "topics": {}, "qa": [],
+        "history": [{"role": "system", "content": SYSTEM_PROMPT}],
+        "ui_theme_opts": list(DEFAULT_TOPICS.keys()),
+        "ui_topic_opts": [],
         "current_theme": None,
-        "user_profile": None,
-        "thread_id": None,
+        "current_qa_topic": None,
     }
-    return SESSION[sid]
+    SESSION[sid] = st
+    return st
 
 def persist(sid: str):
-    save_state(sid, SESSION[sid])
+    if sid in SESSION: save_state(sid, SESSION[sid])
 
-# ────────────────────────── Tool‑implementaties ────────────────────
-def _set_theme_options(session_id: str, opts: List[str]) -> str:
+# ───────────────────────── Tools met Ingebouwde Guardrails ─────────────────────────
+@function_tool
+def register_theme(session_id: str, theme: str) -> str:
+    """Registreert een door de gebruiker gekozen thema en zet de state naar 'choose_topic'."""
     st = get_session(session_id)
-    st["ui_theme_opts"] = opts
-    persist(session_id)
-    return "ok"
-
-def _set_topic_options(session_id: str, theme: str, opts: List[NamedDescription]) -> str:
-    st = get_session(session_id)
-    st["ui_topic_opts"] = opts
-    st["current_theme"] = theme
-    persist(session_id)
-    return "ok"
-
-def _register_theme(session_id: str, theme: str, desc: str = "") -> str:
-    st = get_session(session_id)
+    if st["stage"] != "choose_theme":
+        return f"Error: Kan geen thema registreren. Huidige fase is '{st['stage']}', moet 'choose_theme' zijn."
+    
     if theme not in [t["name"] for t in st["themes"]]:
-        st["themes"].append({"name": theme, "description": desc})
+        st["themes"].append({"name": theme, "description": ""})
         st["stage"] = "choose_topic"
         st["current_theme"] = theme
         st["ui_topic_opts"] = DEFAULT_TOPICS.get(theme, [])
         persist(session_id)
-    return "ok"
+        return f"Ok, thema '{theme}' is toegevoegd. De fase is nu 'choose_topic'. De gebruiker kan nu onderwerpen voor dit thema kiezen."
+    return "Thema was al gekozen."
 
-def _register_topic(session_id: str, theme: str, topic: str) -> str:
+@function_tool
+def register_topic(session_id: str, topic: str) -> str:
+    """Registreert een specifiek onderwerp voor het HUIDIGE thema."""
     st = get_session(session_id)
-    st["topics"].setdefault(theme, [])
-    if topic not in st["topics"][theme] and len(st["topics"][theme]) < 4:
-        st["topics"][theme].append(topic)
+    theme = st.get("current_theme")
+    if st["stage"] != "choose_topic" or not theme:
+        return f"Error: Kan geen onderwerp registreren. Huidige fase is '{st['stage']}' (geen huidig thema) en moet 'choose_topic' zijn."
+
+    lst = st["topics"].setdefault(theme, [])
+    if topic not in lst:
+        lst.append(topic)
         persist(session_id)
-    return "ok"
+        return f"Ok, onderwerp '{topic}' toegevoegd aan thema '{theme}'."
+    return "Onderwerp was al gekozen."
 
-def _complete_theme(session_id: str) -> str:
+@function_tool
+def complete_topic_selection(session_id: str) -> str:
+    """Finaliseert de onderwerpkeuze voor het HUIDIGE thema en keert terug naar de themakeuze."""
     st = get_session(session_id)
-    if all(st["topics"].get(t["name"]) for t in st["themes"]):
-        st["stage"] = "qa"
-    else:
-        st["stage"] = "choose_theme"
+    if st["stage"] != "choose_topic":
+        return f"Error: Kan onderwerpselectie niet afronden. Fase is '{st['stage']}', moet 'choose_topic' zijn."
+    
+    st["stage"] = "choose_theme"
     st["current_theme"] = None
     st["ui_topic_opts"] = []
     persist(session_id)
-    return "ok"
+    return "Ok, teruggekeerd naar themakeuze. Vraag de gebruiker een nieuw thema te kiezen of de selectie af te ronden."
 
-def _log_answer(session_id: str, theme: str, q: str, a: str) -> str:
+@function_tool
+def complete_all_selections(session_id: str) -> str:
+    """Finaliseert ALLE keuzes. Controleert of alles is ingevuld en zet de state naar 'qa'."""
     st = get_session(session_id)
-    for qa in st["qa"]:
-        if qa["theme"] == theme and qa["question"] == q:
-            qa["answer"] = a
-            break
-    else:
-        st["qa"].append({"theme": theme, "question": q, "answer": a})
+    if not st["themes"]:
+        return "Error: Gebruiker moet minimaal één thema kiezen."
+    if not all(t["name"] in st["topics"] and st["topics"][t["name"]] for t in st["themes"]):
+        return "Error: Voor elk gekozen thema moet minstens één onderwerp geselecteerd zijn."
+
+    st["stage"] = "qa"
     persist(session_id)
-    return "ok"
+    return "Ok, alle keuzes zijn afgerond. De fase is nu 'qa'. Vraag de gebruiker of ze klaar is om de vragen te beantwoorden."
 
-# FunctionTool decorators
-set_theme_options  = function_tool(_set_theme_options)
-set_topic_options  = function_tool(_set_topic_options)
-register_theme     = function_tool(_register_theme)
-register_topic     = function_tool(_register_topic)
-complete_theme     = function_tool(_complete_theme)
-log_answer         = function_tool(_log_answer)
+def _find_next_question(st: dict) -> Optional[dict]:
+    answered_qs = {(qa["theme"], qa["question"]) for qa in st.get("qa", [])}
+    for theme_info in st.get("themes", []):
+        theme_name = theme_info["name"]
+        for topic_name in st.get("topics", {}).get(theme_name, []):
+            all_topics_for_theme = DEFAULT_TOPICS.get(theme_name, [])
+            topic_obj = next((t for t in all_topics_for_theme if t["name"] == topic_name), None)
+            if topic_obj and (theme_name, topic_obj["description"]) not in answered_qs:
+                return {"theme": theme_name, "question": topic_obj["description"], "topic": topic_name}
+    return None
 
-tool_objs = [set_theme_options, set_topic_options, register_theme,
-             register_topic, complete_theme, log_answer]
+@function_tool
+def get_next_question(session_id: str) -> str:
+    """Haalt de EERSTE vraag op voor de gebruiker om te beantwoorden."""
+    st = get_session(session_id)
+    if st["stage"] != "qa":
+        return f"Error: Kan geen vraag ophalen. Huidige fase is '{st['stage']}', moet 'qa' zijn."
+    
+    next_q = _find_next_question(st)
+    if next_q:
+        st["current_qa_topic"] = next_q
+        persist(session_id)
+        return f"Vraag voor onderwerp '{next_q['topic']}': {next_q['question']}"
+    
+    st["stage"] = "completed"
+    persist(session_id)
+    return "Alle vragen zijn beantwoord. Er zijn geen vragen meer."
 
-# …(bestaande FunctionTool-decorators hierboven)…
+@function_tool
+def log_answer_and_get_next(session_id: str, answer: str) -> str:
+    """Slaat het antwoord op de HUIDIGE vraag op en haalt de VOLGENDE vraag op."""
+    st = get_session(session_id)
+    if st["stage"] != "qa":
+        return f"Error: Kan geen antwoord opslaan. Huidige fase is '{st['stage']}', moet 'qa' zijn."
 
-# ────────────────── Helpers: tool-schemas ophalen ──────────────────
-import inspect, logging
-log = logging.getLogger("mae-backend")
+    current_q = st.get("current_qa_topic")
+    if not current_q:
+        return "Error: Er is geen huidige vraag om te beantwoorden. Roep eerst 'get_next_question' aan."
 
-def get_schema(ft):
-    """Zoek de OpenAI-schema in diverse decorator-varianten.
-       Bouw zonodig zelf een minimal fallback, zodat het altijd werkt."""
-    if hasattr(ft, "openai_schema"):
-        log.debug("schema via ft.openai_schema")
-        return ft.openai_schema
-    if hasattr(ft, "schema"):
-        log.debug("schema via ft.schema")
-        return ft.schema
-    if hasattr(ft, "function") and hasattr(ft.function, "openai_schema"):
-        log.debug("schema via ft.function.openai_schema")
-        return ft.function.openai_schema
+    # Log het antwoord
+    st["qa"].append({"theme": current_q["theme"], "question": current_q["question"], "answer": answer})
+    
+    # Zoek de volgende vraag
+    next_q = _find_next_question(st)
+    if next_q:
+        st["current_qa_topic"] = next_q
+        persist(session_id)
+        return f"Antwoord opgeslagen. Volgende vraag voor onderwerp '{next_q['topic']}': {next_q['question']}"
+    
+    st["stage"] = "completed"
+    st["current_qa_topic"] = None
+    persist(session_id)
+    return "Antwoord opgeslagen. Alle vragen zijn nu beantwoord."
 
-    # --- Fallback: maak een simpel schema uit de functie-signatuur ---
-    fn = getattr(ft, "function", ft)
-    sig = inspect.signature(fn)
-    props = {name: {"type": "string"} for name in sig.parameters}
-    built = {
-        "type": "function",
-        "function": {
-            "name": fn.__name__,
-            "description": fn.__doc__ or "",
-            "parameters": {
-                "type": "object",
-                "properties": props,
-                "required": list(props)
-            },
-        },
-    }
-    log.warning("Fallback-schema gebouwd voor %s – controleer decorator?", fn.__name__)
-    return built
-
-tool_objs       = [set_theme_options, set_topic_options, register_theme,
-                   register_topic, complete_theme, log_answer]
-assistant_tools = [get_schema(t) for t in tool_objs]
-TOOL_IMPL       = {sch['function']['name']: t for sch, t in zip(assistant_tools, tool_objs)}
+# ───────────────────────── Tool Setup voor de API ─────────────────────────
+tool_funcs = [
+    register_theme, register_topic, complete_topic_selection,
+    complete_all_selections, get_next_question, log_answer_and_get_next
+]
+tools_schema = [get_schema(t) for t in tool_funcs]
+TOOL_IMPLEMENTATIONS = {t.openai_schema['function']['name']: t for t in tool_funcs}
 
 
-# ───────────────────────── Assistant helpers ──────────────────────
-def create_or_get_thread(sess: dict) -> str:
-    if sess.get("thread_id"):
-        return sess["thread_id"]
-    thread = client.beta.threads.create()
-    sess["thread_id"] = thread.id
-    persist(sess["id"])
-    log.debug("Nieuw thread %s aangemaakt voor %s", thread.id, sess["id"][-6:])
-    return thread.id
-
-def run_assistant(sid: str, thread_id: str, user_input: str, timeout: float = 45.0) -> str:
-    """Voer assistant‑run uit, incl. tool‑calls."""
-    # 1) user‑message push
-    client.beta.threads.messages.create(
-        thread_id=thread_id,
-        role="user",
-        content=user_input,
-    )
-
-    # 2) run starten
-    run = client.beta.threads.runs.create(
-        thread_id=thread_id,
-        assistant_id=ASSISTANT_ID,
-        tools=assistant_tools,          # expliciet schema meegeven
-        model=MODEL_CHOICE,
-    )
-    start_ts = time.time()
-
-    while True:
-        run = client.beta.threads.runs.retrieve(
-            thread_id=thread_id,
-            run_id=run.id,
-        )
-        log.debug("run %s status=%s", run.id, run.status)
-
-        if run.status == "requires_action":
-            handle_tool_calls(sid, thread_id, run)
-        elif run.status == "completed":
-            break
-        elif run.status in ("failed", "cancelled", "expired"):
-            return "Er ging iets mis – probeer het nog eens."
-
-        if time.time() - start_ts > timeout:
-            client.beta.threads.runs.cancel(thread_id, run.id)
-            return "Het duurt langer dan verwacht; probeer het nogmaals."
-        time.sleep(0.8)
-
-    # 3) laatste assistant‑bericht ophalen
-    msgs = client.beta.threads.messages.list(thread_id)
-    assistant_msg = next(
-        (m for m in reversed(msgs.data) if m.role == "assistant"), None
-    )
-    return assistant_msg.content[0].text.value if assistant_msg else "…"
-
-def handle_tool_calls(sid: str, thread_id: str, run):
-    calls = run.required_action.submit_tool_outputs.tool_calls
-    outputs = []
-
-    for call in calls:
-        fn_name = call.function.name
-        payload = json.loads(call.function.arguments or "{}")
-        log.debug("Tool‑call %s → %s(%s)", call.id, fn_name, payload)
-        try:
-            result = TOOL_IMPL[fn_name](**payload)
-        except Exception as exc:
-            result = f"Error: {exc}"
-            log.exception("Tool %s liep fout", fn_name)
-        outputs.append({"tool_call_id": call.id, "output": result or "ok"})
-
-    client.beta.threads.runs.submit_tool_outputs(
-        thread_id=thread_id,
-        run_id=run.id,
-        tool_outputs=outputs,
-    )
-
-# ───────────────────────── Flask helper ─────────────────────
+# ───────────────────────── De Nieuwe Agent Endpoint ─────────────────────────
 def build_payload(st: dict, reply: str) -> dict:
+    """Stelt de JSON-respons samen voor de frontend."""
     return {
         "assistant_reply": reply,
         "session_id": st["id"],
+        "stage": st["stage"],
         "options": st["ui_topic_opts"] if st["stage"] == "choose_topic" else st["ui_theme_opts"],
         "current_theme": st.get("current_theme"),
         "themes": st["themes"],
         "topics": st["topics"],
         "qa": st["qa"],
-        "stage": st["stage"],
     }
 
-# ───────────────────────── Flask routes ────────────────────
 @app.post("/agent")
 def agent_route():
-    origin = request.headers.get("Origin") or ""
-    if origin and origin not in ALLOWED_ORIGINS:
-        abort(403)
-
     body = request.get_json(force=True) or {}
-    txt  = body.get("message", "")
+    msg  = body.get("message", "")
     sid  = body.get("session_id") or str(uuid.uuid4())
-    sess = get_session(sid)
+    st   = get_session(sid)
 
-    thread = create_or_get_thread(sess)
-    reply  = run_assistant(sid, thread, txt)
-    log.info("%s → %s", sid[-6:], reply[:60])
-    return jsonify(build_payload(sess, reply))
+    st["history"].append({"role": "user", "content": msg})
+    log.info("Sessie %s, User: \"%s\"", sid[-6:], msg)
 
+    MAX_TURNS = 5
+    for i in range(MAX_TURNS):
+        log.debug("Agent loop turn %d. History size: %d", i + 1, len(st["history"]))
+        
+        response = client.chat.completions.create(
+            model=MODEL_CHOICE,
+            messages=st["history"],
+            tools=tools_schema,
+            tool_choice="auto"
+        )
+        response_message = response.choices[0].message
+        tool_calls = response_message.tool_calls
+
+        if not tool_calls:
+            reply = response_message.content
+            log.info("Sessie %s, Assistant: \"%s\"", sid[-6:], reply)
+            st["history"].append({"role": "assistant", "content": reply})
+            persist(sid)
+            return jsonify(build_payload(st, reply))
+
+        st["history"].append(response_message)
+        
+        for tool_call in tool_calls:
+            function_name = tool_call.function.name
+            log.info("Sessie %s, Tool Call: %s", sid[-6:], function_name)
+            function_to_call = TOOL_IMPLEMENTATIONS.get(function_name)
+            
+            result = f"Error: Tool '{function_name}' niet gevonden."
+            if function_to_call:
+                try:
+                    args = json.loads(tool_call.function.arguments)
+                    args["session_id"] = sid # Injecteer session_id
+                    result = function_to_call(**args)
+                except Exception as e:
+                    log.exception("Fout tijdens uitvoeren van tool %s", function_name)
+                    result = f"Error: {e}"
+            
+            st["history"].append(
+                {"tool_call_id": tool_call.id, "role": "tool", "name": function_name, "content": result or "ok"}
+            )
+            log.debug("Sessie %s, Tool Result: %s", sid[-6:], result)
+
+    log.error("Agent overschreed maximum aantal turns (%d).", MAX_TURNS)
+    return jsonify({"assistant_reply": "Er ging iets mis, probeer het opnieuw."}), 500
+
+# ───────────────────────── Overige Endpoints (Export, Frontend) ─────────────────────────
 @app.get("/export/<sid>")
 def export_json(sid: str):
     st = load_state(sid)
-    if not st:
-        abort(404)
-    path = os.path.join("/tmp", f"geboorteplan_{sid}.json")
+    if not st: abort(404)
+    path = os.path.join(os.environ.get("TMPDIR", "/tmp"), f"geboorteplan_{sid}.json")
     with open(path, "w", encoding="utf-8") as f:
         json.dump(st, f, ensure_ascii=False, indent=2)
     return send_file(path, as_attachment=True, download_name=os.path.basename(path))
 
 @app.route("/", defaults={"path": ""})
 @app.route("/<path:path>")
-def serve_frontend(path=""):
+def serve_frontend(path):
     if path == "iframe":
-        return render_template(
-            "iframe_page.html",
-            backend_url=os.getenv("RENDER_EXTERNAL_URL", "http://127.0.0.1:10000")
-        )
-    full = os.path.join(app.static_folder, path)
-    if path and os.path.exists(full):
+        return render_template('iframe_page.html', backend_url=os.getenv("RENDER_EXTERNAL_URL", "http://127.0.0.1:10000"))
+    full_path = os.path.join(app.static_folder, path)
+    if path and os.path.exists(full_path):
         return send_from_directory(app.static_folder, path)
     return send_from_directory(app.static_folder, "index.html")
 
-# ───────────────────────── Entrypoint ──────────────────────
+# ───────────────────────── Entrypoint ─────────────────────────
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.getenv("PORT", 10000)), debug=True)
