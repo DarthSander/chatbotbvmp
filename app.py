@@ -7,11 +7,11 @@ from typing import List, Dict, Optional
 from typing_extensions import TypedDict
 from flask import (
     Flask, request, jsonify, abort,
-    send_from_directory, send_file, render_template
+    send_from_directory, send_file
 )
 from flask_cors import CORS
 import openai
-from agents import function_tool           # jouw helper
+from agents import function_tool                     # helper
 
 # ─────────────────────────── logging ────────────────────────────
 logging.basicConfig(
@@ -22,11 +22,11 @@ logging.basicConfig(
 log = logging.getLogger("mae-backend")
 
 # ─────────────────────────── Config ─────────────────────────────
-openai.api_key   = os.getenv("OPENAI_API_KEY")
-MODEL_NAME       = "gpt-4.1"            # gebruik het 4.1-model
-ASSISTANT_FILE   = "assistant_id.txt"   # cache locatie
-DB_FILE          = "sessions.db"
-ALLOWED_ORIGINS  = [
+openai.api_key  = os.getenv("OPENAI_API_KEY")
+MODEL_NAME      = "gpt-4.1"
+ASSISTANT_FILE  = "assistant_id.txt"
+DB_FILE         = "sessions.db"
+ALLOWED_ORIGINS = [
     "https://bevalmeteenplan.nl",
     "https://www.bevalmeteenplan.nl",
     "https://chatbotbvmp.onrender.com"
@@ -65,13 +65,13 @@ DEFAULT_TOPICS: Dict[str, List[NamedDescription]] = {
 }
 
 # ─────────────────────── SQLite sessies ─────────────────────────
-def init_db() -> None:
+def init_db():
     with sqlite3.connect(DB_FILE) as con:
         con.execute("""CREATE TABLE IF NOT EXISTS sessions(
                          id TEXT PRIMARY KEY,
                          thread_id TEXT,
                          state TEXT
-                       )""")
+                      )""")
 init_db()
 
 def load_session(sid: str) -> Optional[dict]:
@@ -98,15 +98,13 @@ def blank_state() -> dict:
 
 ST: Dict[str, dict] = {}
 
-# ─────────────────────── Python business-functies ────────────────
+# ─────────────────────── Business-functies ───────────────────────
 def _set_theme_options(sid: str, options: List[str]) -> str:
-    ST[sid]["ui_theme_opts"] = options
-    return "ok"
+    ST[sid]["ui_theme_opts"] = options; return "ok"
 
 def _set_topic_options(sid: str, theme: str, options: List[NamedDescription]) -> str:
     ST[sid]["current_theme"] = theme
-    ST[sid]["ui_topic_opts"] = options
-    return "ok"
+    ST[sid]["ui_topic_opts"] = options; return "ok"
 
 def _register_theme(sid: str, theme: str, description: str = "") -> str:
     s = ST[sid]
@@ -136,7 +134,7 @@ def _log_answer(sid: str, theme: str, question: str, answer: str) -> str:
     ST[sid]["qa"].append({"theme": theme, "question": question, "answer": answer})
     return "ok"
 
-# ─────────────────────── tool-objects & mapping ──────────────────
+# ─────────────────────── Tools & schemas ─────────────────────────
 tool_objs = [
     function_tool(_set_theme_options),
     function_tool(_set_topic_options),
@@ -145,8 +143,24 @@ tool_objs = [
     function_tool(_complete_theme),
     function_tool(_log_answer)
 ]
-assistant_tools = [obj.function for obj in tool_objs]
-TOOL_IMPL = {obj.function["name"]: globals()[obj.function["name"]] for obj in tool_objs}
+
+def get_schema(obj):
+    for attr in ("function", "schema", "openai_schema", "json_schema"):
+        if hasattr(obj, attr):
+            return getattr(obj, attr)
+    raise AttributeError("Kan OpenAI-schema niet vinden in FunctionTool")
+
+assistant_tools = [get_schema(obj) for obj in tool_objs]
+
+# mapping handmatig (namen zonder leading underscore)
+TOOL_IMPL = {
+    "set_theme_options":  _set_theme_options,
+    "set_topic_options":  _set_topic_options,
+    "register_theme":     _register_theme,
+    "register_topic":     _register_topic,
+    "complete_theme":     _complete_theme,
+    "log_answer":         _log_answer
+}
 
 # ─────────────────────── Assistant maken / laden ─────────────────
 def ensure_assistant() -> str:
@@ -156,20 +170,18 @@ def ensure_assistant() -> str:
     prompt = (
         "Je bent Mae, digitale verloskundige.\n\n"
         "Stroom:\n"
-        "1. Toon standaardthema’s met _set_theme_options en vraag of de gebruiker "
+        "1. Toon standaardthema’s (_set_theme_options) en vraag of de gebruiker "
         "een eigen thema wil toevoegen.\n"
         "2. Bij elk (nieuw) thema: stel in de chat voor “Zal ik thema ‘X’ toevoegen?” "
-        "en wacht op bevestiging (‘ja’, ‘oke’, ‘doe maar’). Pas dan _register_theme.\n"
-        "3. Thema actief → toon onderwerpenchips via _set_topic_options.\n"
-        "   Voor elk gekozen onderwerp: vraag eerst of het opgeslagen mag worden. "
-        "Bevestigt de gebruiker? Dan _register_topic.\n"
-        "4. Als gebruiker ‘klaar’ zegt bij een thema: vraag bevestiging en roep "
-        "_complete_theme.\n"
-        "5. Zodra alle thema’s en onderwerpen klaar zijn (stage == qa), stel je "
-        "precies één vraag per onderwerp (description). Bij elk antwoord vraag je "
-        "of je het zo mag opslaan; bevestiging → _log_answer.\n\n"
-        "Voor ELKE tool-call eerst een expliciete vraag in de chat, nooit zomaar.\n"
-        "Gebruik uitsluitend de gedefinieerde tools om data / UI te wijzigen."
+        "en wacht op bevestiging (‘ja’). Pas dan _register_theme.\n"
+        "3. Toon onderwerpenchips via _set_topic_options. "
+        "Voor ieder onderwerp: vraag eerst of het toegevoegd moet worden; "
+        "bij bevestiging _register_topic.\n"
+        "4. Bij ‘klaar’ voor een thema: vraag bevestiging en roep _complete_theme.\n"
+        "5. In de Q&A-fase stel je één vraag per onderwerp en vraag je of het antwoord "
+        "zo opgeslagen mag worden; bevestiging → _log_answer.\n\n"
+        "Voor ELKE tool-call eerst toestemming vragen in de chat. "
+        "Gebruik alleen de tools om de backend te muteren."
     )
 
     assistant = openai.beta.assistants.create(
@@ -195,20 +207,19 @@ def run_assistant(sid: str, thread_id: str, user_text: str) -> str:
         if run.status == "requires_action":
             outs = []
             for call in run.required_action.submit_tool_outputs.tool_calls:
-                fn_name = call.function.name
+                name = call.function.name
                 args = json.loads(call.function.arguments or "{}")
-                log.debug("Tool-call: %s %s", fn_name, args)
-                result = TOOL_IMPL[fn_name](sid, **args)
+                log.debug("Tool-call: %s %s", name, args)
+                result = TOOL_IMPL[name](sid, **args)
                 outs.append({"tool_call_id": call.id, "output": result})
             openai.beta.threads.runs.submit_tool_outputs(thread_id, run.id, outputs=outs)
             continue
-        if run.status in ("queued", "in_progress"):
+        if run.status in ("queued","in_progress"):
             time.sleep(0.4); continue
         if run.status != "completed":
-            log.error("Assistant-run status %s error %s", run.status, run.last_error)
+            log.error("Run status %s – error %s", run.status, run.last_error)
             return "Er ging iets mis, probeer later opnieuw."
         break
-
     last = openai.beta.threads.messages.list(thread_id, limit=1).data[0]
     return last.content[0].text.value if last.content else ""
 
@@ -219,26 +230,26 @@ CORS(app, origins=ALLOWED_ORIGINS, allow_headers="*", methods=["GET","POST"])
 @app.post("/agent")
 def agent_route():
     d = request.get_json(force=True)
-    user_text = d.get("message","")
-    sid       = d.get("session_id") or str(uuid.uuid4())
+    txt = d.get("message","")
+    sid = d.get("session_id") or str(uuid.uuid4())
 
     sess = load_session(sid)
     if not sess:
         thread = openai.beta.threads.create()
-        sess = {"id": sid, "thread_id": thread.id, "state": {}}
+        sess = {"id": sid, "thread_id": thread.id}
         ST[sid] = blank_state()
     else:
         ST.setdefault(sid, blank_state())
 
-    log.debug("IN  %s | %s", sid[-6:], user_text)
-    assistant_reply = run_assistant(sid, sess["thread_id"], user_text)
-    log.debug("OUT %s | %s", sid[-6:], assistant_reply[:90])
+    log.debug("IN  %s | %s", sid[-6:], txt)
+    reply = run_assistant(sid, sess["thread_id"], txt)
+    log.debug("OUT %s | %s", sid[-6:], reply[:90])
 
     save_session(sid, sess["thread_id"], ST[sid])
 
     return jsonify({
         "session_id": sid,
-        "assistant_reply": assistant_reply,
+        "assistant_reply": reply,
         "stage": ST[sid]["stage"],
         "options": ST[sid]["ui_topic_opts"] if ST[sid]["stage"]=="choose_topic"
                                              else ST[sid]["ui_theme_opts"],
