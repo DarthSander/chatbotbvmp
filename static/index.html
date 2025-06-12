@@ -119,11 +119,14 @@
   </main>
 <script>
 window.addEventListener('DOMContentLoaded', () => {
+  console.log('[Init] DOM volledig geladen. Script wordt uitgevoerd.');
+
   /* ───── 1. Globals & DOM ─────────────────────────────────── */
   const API_URL = "/agent";
   let sessionId = sessionStorage.getItem("agentSession") || null;
-  let localSelections = { themes: new Set(), topics: {} }; // Lokale selecties voor de UI
-  let currentThemeForTopics = null; // Welk thema wordt getoond op de 'back' face
+  let localSelections = { themes: new Set(), topics: {} };
+  let currentThemeForTopics = null;
+  console.log(`[Init] Sessie ID bij start: ${sessionId}`);
 
   const ui = {
     chatbox: document.getElementById("chatbox"), mobileChatbox: document.getElementById("mobile-chatbox"),
@@ -152,16 +155,19 @@ window.addEventListener('DOMContentLoaded', () => {
   async function callAgent(message, sid) {
     const isMobile = window.innerWidth <= 900;
     const chatBox = isMobile ? ui.mobileChatbox : ui.chatbox;
+    const payload = { message, session_id: sid };
+    console.log('[API Call] Verzenden naar agent:', payload);
     showLoader(isMobile);
     try {
       const res = await fetch(API_URL, {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message, session_id: sid })
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload)
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      return await res.json();
+      const data = await res.json();
+      console.log('[API Response] Data ontvangen van agent:', data);
+      return data;
     } catch (err) {
-      console.error("[callAgent]", err);
+      console.error("[API Error]", err);
       addMsg("bot", "⚠️ Er ging iets mis. Probeer het later opnieuw.", chatBox);
       throw err;
     } finally {
@@ -171,35 +177,34 @@ window.addEventListener('DOMContentLoaded', () => {
 
   /* ───── 4. UI Rendering Engine ──────────────────────────── */
   function renderUI(data) {
-    if (!data || !data.plan) return;
+    console.log('[UI Render] Start UI-render met data:', data);
+    if (!data || !data.plan) {
+        console.warn('[UI Render] Geen of ongeldige data om te renderen.');
+        return;
+    }
     
-    const { stage, plan } = data;
-    // Synchroniseer lokale selecties met de backend-staat voor de volgende render-cyclus
+    const { plan } = data;
     localSelections.themes = new Set((plan.themes || []).map(t => t.name));
     localSelections.topics = plan.topics || {};
+    console.log('[UI Render] Lokale selecties gesynchroniseerd:', localSelections);
 
-    renderFrontFace(stage, plan);
-    renderBackFace(plan);
-    
-    // Render de mobiele weergave apart
-    renderMobilePlan(stage, plan);
+    renderFrontFace(plan);
+    renderBackFace();
+    renderMobilePlan();
   }
 
-  function renderFrontFace(stage, plan) {
+  function renderFrontFace(plan) {
     let html = '<h4>Jouw Geboorteplan</h4>';
-    // Thema's
     html += '<div class="plan-section"><h5>Thema\'s (kies max 6)</h5><div class="chips-container">';
     const allPossibleThemes = Array.from(new Set([...DEFAULT_THEME_LIST, ...Array.from(localSelections.themes)]));
     
     allPossibleThemes.forEach(themeName => {
       const isSelected = localSelections.themes.has(themeName);
       const isDisabled = !isSelected && localSelections.themes.size >= 6;
-      html += `<div class="chip theme ${isSelected ? 'selected' : ''} ${isDisabled ? 'disabled' : ''}" 
-                    onclick="handleThemeChipClick('${themeName}')">${themeName}</div>`;
+      html += `<div class="chip theme ${isSelected ? 'selected' : ''} ${isDisabled ? 'disabled' : ''}" onclick="handleThemeChipClick('${themeName}')">${themeName}</div>`;
     });
     html += '</div><button class="confirm-btn" onclick="confirmThemeSelections()">Bevestig Thema\'s</button></div>';
     
-    // QA Overzicht
     html += '<div class="plan-section"><h5>Jouw Antwoorden</h5>';
     if (plan.qa_items && plan.qa_items.length > 0) {
       plan.qa_items.forEach(qa => {
@@ -212,8 +217,11 @@ window.addEventListener('DOMContentLoaded', () => {
     ui.planFront.innerHTML = html;
   }
 
-  function renderBackFace(plan) {
-    if (!currentThemeForTopics) return;
+  function renderBackFace() {
+    if (!currentThemeForTopics) {
+        ui.planBack.innerHTML = ''; // Maak leeg als er geen huidig thema is
+        return;
+    }
     
     let html = `<button class="back-button" onclick="flipToFront()">← Terug naar overzicht</button>`;
     html += `<h4>Onderwerpen voor "${currentThemeForTopics}"</h4>`;
@@ -225,17 +233,14 @@ window.addEventListener('DOMContentLoaded', () => {
     allPossibleTopics.forEach(topicName => {
         const isSelected = selectedTopics.has(topicName);
         const isDisabled = !isSelected && selectedTopics.size >= 4;
-        html += `<div class="chip topic ${isSelected ? 'selected' : ''} ${isDisabled ? 'disabled' : ''}"
-                      onclick="handleTopicChipClick('${currentThemeForTopics}', '${topicName}')">${topicName}</div>`;
+        html += `<div class="chip topic ${isSelected ? 'selected' : ''} ${isDisabled ? 'disabled' : ''}" onclick="handleTopicChipClick('${currentThemeForTopics}', '${topicName}')">${topicName}</div>`;
     });
-    html += `</div><button class="confirm-btn" onclick="confirmTopicSelections('${currentThemeForTopics}')">Bevestig Onderwerpen voor dit Thema</button>`;
+    html += `</div><button class="confirm-btn" onclick="confirmTopicSelections('${currentThemeForTopics}')">Bevestig Onderwerpen</button>`;
     ui.planBack.innerHTML = html;
   }
   
-  function renderMobilePlan(stage, plan){
-      // Deze functie kan de logica van renderFrontFace hergebruiken voor de mobiele view
-      // Voor nu houden we het simpel en kopiëren we de output.
-      ui.mobilePlanFace.innerHTML = ui.planFront.innerHTML;
+  function renderMobilePlan(){
+      ui.mobilePlanFace.innerHTML = ui.planFront.innerHTML + (ui.planBack.innerHTML || '');
   }
   
   /* ───── 5. Hoofdlogica & UI Interactie ─────────────────── */
@@ -245,6 +250,7 @@ window.addEventListener('DOMContentLoaded', () => {
     const chatBox = isMobile ? ui.mobileChatbox : ui.chatbox;
     const inputEl = isMobile ? ui.mobileInput : ui.input;
 
+    console.log(`[handleSend] Versturen bericht: "${txt}"`);
     addMsg("user", txt, chatBox);
     inputEl.value = "";
 
@@ -254,24 +260,33 @@ window.addEventListener('DOMContentLoaded', () => {
       sessionId = data.session_id;
       sessionStorage.setItem("agentSession", sessionId);
       if (data.assistant_reply) addMsg("bot", data.assistant_reply, chatBox);
-      renderUI(data); // Render de hele UI opnieuw
+      renderUI(data);
     }
   }
 
   window.handleThemeChipClick = (themeName) => {
+    console.log(`[Chip Click] Thema geklikt: ${themeName}`);
     if (localSelections.themes.has(themeName)) {
       localSelections.themes.delete(themeName);
-      delete localSelections.topics[themeName]; // Verwijder ook geselecteerde topics
+      delete localSelections.topics[themeName];
     } else if (localSelections.themes.size < 6) {
       localSelections.themes.add(themeName);
     }
-    currentThemeForTopics = themeName; // Zet als huidig thema
-    renderUI({ plan: { themes: Array.from(localSelections.themes).map(name => ({name})), topics: localSelections.topics, qa_items: [] }});
-    // Trigger de flip
-    setTimeout(() => ui.flipCard.classList.add('is-flipped'), 100);
+    currentThemeForTopics = themeName;
+    
+    const fakePlanData = {
+        themes: Array.from(localSelections.themes).map(name => ({name})),
+        topics: localSelections.topics,
+        qa_items: [] // QA is niet relevant voor deze lokale update
+    };
+    console.log('[Chip Click] Lokale staat bijgewerkt, UI wordt opnieuw getekend.', localSelections);
+    renderUI({ plan: fakePlanData });
+    
+    setTimeout(() => ui.flipCard.classList.add('is-flipped'), 50);
   }
 
   window.handleTopicChipClick = (themeName, topicName) => {
+      console.log(`[Chip Click] Onderwerp geklikt: ${topicName} voor thema ${themeName}`);
       const selectedTopics = new Set(localSelections.topics[themeName] || []);
       if (selectedTopics.has(topicName)) {
           selectedTopics.delete(topicName);
@@ -279,22 +294,26 @@ window.addEventListener('DOMContentLoaded', () => {
           selectedTopics.add(topicName);
       }
       localSelections.topics[themeName] = Array.from(selectedTopics);
-      renderBackFace(); // Alleen de achterkant opnieuw tekenen
+      console.log(`[Chip Click] Lokale onderwerpen voor ${themeName} bijgewerkt:`, localSelections.topics[themeName]);
+      renderBackFace();
   }
   
   window.flipToFront = () => {
+      console.log('[UI Action] Terugflippen naar voorkant.');
       ui.flipCard.classList.remove('is-flipped');
   }
 
   window.confirmThemeSelections = () => {
       const themeNames = Array.from(localSelections.themes);
       const message = `Bevestig mijn themakeuze. Ik heb gekozen: ${themeNames.join(', ') || 'geen thema\'s'}.`;
+      console.log('[Confirm] Thema-bevestiging wordt verstuurd:', message);
       handleSend(message);
   }
 
   window.confirmTopicSelections = (themeName) => {
       const topicNames = localSelections.topics[themeName] || [];
       const message = `Bevestig mijn onderwerpkeuze voor het thema '${themeName}'. Ik heb gekozen: ${topicNames.join(', ') || 'geen onderwerpen'}.`;
+      console.log('[Confirm] Onderwerp-bevestiging wordt verstuurd:', message);
       handleSend(message);
       flipToFront();
   }
@@ -318,6 +337,7 @@ window.addEventListener('DOMContentLoaded', () => {
   };
 
   function switchMobileFace(faceName) {
+      console.log(`[Mobile] Wisselen naar tab: ${faceName}`);
       document.getElementById("mobile-chat-face").classList.toggle('active', faceName === 'chat');
       document.getElementById("mobile-plan-face").classList.toggle('active', faceName === 'plan');
       document.getElementById("tab-chat").classList.toggle('active', faceName === 'chat');
@@ -326,6 +346,7 @@ window.addEventListener('DOMContentLoaded', () => {
 
   function updateLayoutForDevice() {
     const isMobile = window.innerWidth <= 900;
+    console.log(`[Layout] Layout bijgewerkt. Is mobiel: ${isMobile}`);
     ui.chatCol.style.display = isMobile ? "none" : "flex";
     ui.sidebarContainer.style.display = isMobile ? "none" : "flex";
     ui.mobileContainer.style.display = isMobile ? "block" : "none";
