@@ -307,24 +307,25 @@ window.addEventListener('DOMContentLoaded', () => {
     console.log(`[Chip Click] Thema geklikt: ${themeName}`);
     currentThemeForTopics = themeName;
     
-    if (localSelections.themes.has(themeName)) {
-        // Thema is al geselecteerd, toon onderwerpen
-        console.log(`[Chip Click] Thema '${themeName}' is al geselecteerd. Flippen naar onderwerpen.`);
-    } else if (localSelections.themes.size < 6) {
-        // Nieuw thema, tijdelijk lokaal toevoegen
-        console.log(`[Chip Click] Nieuw thema '${themeName}' lokaal geselecteerd.`);
-        localSelections.themes.add(themeName);
-    } else {
-        console.log(`[Chip Click] Limiet van 6 thema's bereikt. Kan '${themeName}' niet toevoegen.`);
-        return; // Doe niets als limiet is bereikt
+    // Alleen lokaal de UI bijwerken om de flip te triggeren.
+    // De 'echte' selectie gebeurt bij bevestiging.
+    if (!localSelections.themes.has(themeName)) {
+       if (localSelections.themes.size >= 6) {
+           console.log(`[Chip Click] Limiet bereikt, kan niet selecteren.`);
+           return;
+       }
+       // We tonen het alsof het geselecteerd is, maar sturen het pas later.
     }
-
-    renderUI({ plan: { themes: Array.from(localSelections.themes).map(name => ({name})), topics: localSelections.topics, qa_items: [] }});
+    
+    // Forceer een rerender van de achterkant.
+    renderBackFace(); 
+    
     setTimeout(() => ui.flipCard.classList.add('is-flipped'), 50);
   }
 
   window.handleTopicChipClick = (themeName, topicName) => {
       console.log(`[Chip Click] Onderwerp geklikt: ${topicName} voor thema ${themeName}`);
+      // Lokaal de selectie togglen in de UI, zonder direct te versturen.
       const selectedTopics = new Set(localSelections.topics[themeName] || []);
       if (selectedTopics.has(topicName)) {
           selectedTopics.delete(topicName);
@@ -333,7 +334,7 @@ window.addEventListener('DOMContentLoaded', () => {
       }
       localSelections.topics[themeName] = Array.from(selectedTopics);
       console.log(`[Chip Click] Lokale onderwerpen voor ${themeName} bijgewerkt:`, localSelections.topics[themeName]);
-      renderBackFace();
+      renderBackFace(); // Alleen de achterkant opnieuw tekenen
   }
   
   window.flipToFront = () => {
@@ -403,3 +404,4 @@ window.addEventListener('DOMContentLoaded', () => {
 </script>
 </body>
 </html>
+
