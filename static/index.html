@@ -240,18 +240,25 @@ window.addEventListener('DOMContentLoaded', () => {
   }
   
   function renderMobilePlan(){
-      ui.mobilePlanFace.innerHTML = ui.planFront.innerHTML + (ui.planBack.innerHTML || '');
+      // Voor de eenvoud, toont de mobiele plan-view alleen de voorkant.
+      const frontFaceHtml = ui.planFront.innerHTML;
+      ui.mobilePlanFace.innerHTML = frontFaceHtml;
   }
   
   /* ───── 5. Hoofdlogica & UI Interactie ─────────────────── */
-  async function handleSend(txt) {
+  async function handleSend(txt, isSilent = false) {
     if (!txt.trim()) return;
     const isMobile = window.innerWidth <= 900;
     const chatBox = isMobile ? ui.mobileChatbox : ui.chatbox;
     const inputEl = isMobile ? ui.mobileInput : ui.input;
+    
+    if (!isSilent) {
+        console.log(`[handleSend] Zichtbaar bericht wordt verstuurd: "${txt}"`);
+        addMsg("user", txt, chatBox);
+    } else {
+        console.log(`[handleSend] Stil bericht wordt verstuurd: "${txt}"`);
+    }
 
-    console.log(`[handleSend] Versturen bericht: "${txt}"`);
-    addMsg("user", txt, chatBox);
     inputEl.value = "";
 
     const data = await callAgent(txt, sessionId);
@@ -277,7 +284,7 @@ window.addEventListener('DOMContentLoaded', () => {
     const fakePlanData = {
         themes: Array.from(localSelections.themes).map(name => ({name})),
         topics: localSelections.topics,
-        qa_items: [] // QA is niet relevant voor deze lokale update
+        qa_items: []
     };
     console.log('[Chip Click] Lokale staat bijgewerkt, UI wordt opnieuw getekend.', localSelections);
     renderUI({ plan: fakePlanData });
@@ -305,16 +312,14 @@ window.addEventListener('DOMContentLoaded', () => {
 
   window.confirmThemeSelections = () => {
       const themeNames = Array.from(localSelections.themes);
-      const message = `Bevestig mijn themakeuze. Ik heb gekozen: ${themeNames.join(', ') || 'geen thema\'s'}.`;
-      console.log('[Confirm] Thema-bevestiging wordt verstuurd:', message);
-      handleSend(message);
+      const message = `Bevestig mijn themakeuze. Ik heb de volgende thema's gekozen: ${themeNames.join(', ') || 'geen'}.`;
+      handleSend(message, true); // Stuur stil
   }
 
   window.confirmTopicSelections = (themeName) => {
       const topicNames = localSelections.topics[themeName] || [];
-      const message = `Bevestig mijn onderwerpkeuze voor het thema '${themeName}'. Ik heb gekozen: ${topicNames.join(', ') || 'geen onderwerpen'}.`;
-      console.log('[Confirm] Onderwerp-bevestiging wordt verstuurd:', message);
-      handleSend(message);
+      const message = `Bevestig mijn onderwerpkeuze voor het thema '${themeName}'. Ik heb gekozen: ${topicNames.join(', ') || 'geen'}.`;
+      handleSend(message, true); // Stuur stil
       flipToFront();
   }
   
