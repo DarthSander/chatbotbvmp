@@ -28,7 +28,10 @@
     .bubble { padding: 12px 16px; margin: 8px 0; border-radius: 12px; max-width: 80%; line-height: 1.4; word-wrap: break-word; box-shadow: var(--shadow); }
     .bubble.user { background: #fff; margin-left: auto; }
     .bubble.bot { background: var(--rose-sub); margin-right: auto; }
-    #input-area, #mobile-input-area { display: flex; gap: 8px; margin-top: auto; border-top: 1px solid #ddd; padding: 8px 0; }
+    #quick-replies { padding: 8px 0; display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-start; }
+    #quick-replies .chip { margin: 0; }
+    #input-area, #mobile-input-area { display: flex; flex-direction: column; }
+    #input-wrapper, #mobile-input-wrapper { display: flex; gap: 8px; margin-top: auto; border-top: 1px solid #ddd; padding: 8px 0; }
     #input, #mobile-input { flex: 1; border: none; padding: 10px; font-size: 16px; border-radius: 4px; font-family: inherit; }
     #input:focus, #mobile-input:focus { outline: 2px solid var(--rose); }
     #send, #mobile-send { background: var(--rose); color: #fff; border: none; padding: 0 16px; font-size: 16px; border-radius: 4px; cursor: pointer; }
@@ -87,10 +90,13 @@
     <!-- Chat kolom -->
     <div id="chat-col">
       <div id="chatbox"></div>
-      <div class="loader-container" id="chat-loader"><div class="loader"></div></div>
       <div id="input-area">
-        <textarea id="input" placeholder="Typ je bericht…" rows="1"></textarea>
-        <button id="send">Verstuur</button>
+        <div id="quick-replies" class="chips-container"></div>
+        <div class="loader-container" id="chat-loader"><div class="loader"></div></div>
+        <div id="input-wrapper">
+          <textarea id="input" placeholder="Typ je bericht…" rows="1"></textarea>
+          <button id="send">Verstuur</button>
+        </div>
       </div>
     </div>
 
@@ -106,10 +112,13 @@
     <div id="mobile-container" style="display:none;">
       <div class="mobile-face active" id="mobile-chat-face">
         <div id="mobile-chatbox"></div>
-        <div class="loader-container" id="mobile-chat-loader"><div class="loader"></div></div>
         <div id="mobile-input-area">
-          <textarea id="mobile-input" placeholder="Typ je bericht…" rows="1"></textarea>
-          <button id="mobile-send">Verstuur</button>
+          <div id="mobile-quick-replies" class="chips-container"></div>
+          <div class="loader-container" id="mobile-chat-loader"><div class="loader"></div></div>
+          <div id="mobile-input-wrapper">
+            <textarea id="mobile-input" placeholder="Typ je bericht…" rows="1"></textarea>
+            <button id="mobile-send">Verstuur</button>
+          </div>
         </div>
       </div>
       <div class="mobile-face" id="mobile-plan-face">
@@ -130,6 +139,7 @@ window.addEventListener('DOMContentLoaded', () => {
 
   const ui = {
     chatbox: document.getElementById("chatbox"), mobileChatbox: document.getElementById("mobile-chatbox"),
+    quickReplies: document.getElementById("quick-replies"), mobileQuickReplies: document.getElementById("mobile-quick-replies"),
     input: document.getElementById("input"), mobileInput: document.getElementById("mobile-input"),
     sendBtn: document.getElementById("send"), mobileSendBtn: document.getElementById("mobile-send"),
     chatLoader: document.getElementById("chat-loader"), mobileChatLoader: document.getElementById("mobile-chat-loader"),
@@ -183,14 +193,14 @@ window.addEventListener('DOMContentLoaded', () => {
         return;
     }
     
-    const { plan } = data;
-    localSelections.themes = new Set((plan.themes || []).map(t => t.name));
-    localSelections.topics = plan.topics || {};
+    localSelections.themes = new Set((data.plan.themes || []).map(t => t.name));
+    localSelections.topics = data.plan.topics || {};
     console.log('[UI Render] Lokale selecties gesynchroniseerd:', localSelections);
 
-    renderFrontFace(plan);
+    renderFrontFace(data.plan);
     renderBackFace();
     renderMobilePlan();
+    renderQuickReplies(data.suggested_replies || []);
   }
 
   function renderFrontFace(plan) {
@@ -219,7 +229,7 @@ window.addEventListener('DOMContentLoaded', () => {
 
   function renderBackFace() {
     if (!currentThemeForTopics) {
-        ui.planBack.innerHTML = ''; // Maak leeg als er geen huidig thema is
+        ui.planBack.innerHTML = '';
         return;
     }
     
@@ -230,21 +240,42 @@ window.addEventListener('DOMContentLoaded', () => {
     const selectedTopics = new Set(localSelections.topics[currentThemeForTopics] || []);
     const allPossibleTopics = Array.from(new Set([...(DEFAULT_TOPICS_PER_THEME[currentThemeForTopics] || []), ...Array.from(selectedTopics)]));
 
-    allPossibleTopics.forEach(topicName => {
-        const isSelected = selectedTopics.has(topicName);
-        const isDisabled = !isSelected && selectedTopics.size >= 4;
-        html += `<div class="chip topic ${isSelected ? 'selected' : ''} ${isDisabled ? 'disabled' : ''}" onclick="handleTopicChipClick('${currentThemeForTopics}', '${topicName}')">${topicName}</div>`;
-    });
+    if(allPossibleTopics.length === 0){
+        html += `<p style="font-style: italic; color: #666;">Vraag de agent om suggesties voor dit thema.</p>`;
+    } else {
+        allPossibleTopics.forEach(topicName => {
+            const isSelected = selectedTopics.has(topicName);
+            const isDisabled = !isSelected && selectedTopics.size >= 4;
+            html += `<div class="chip topic ${isSelected ? 'selected' : ''} ${isDisabled ? 'disabled' : ''}" onclick="handleTopicChipClick('${currentThemeForTopics}', '${topicName}')">${topicName}</div>`;
+        });
+    }
     html += `</div><button class="confirm-btn" onclick="confirmTopicSelections('${currentThemeForTopics}')">Bevestig Onderwerpen</button>`;
     ui.planBack.innerHTML = html;
   }
   
   function renderMobilePlan(){
-      // Voor de eenvoud, toont de mobiele plan-view alleen de voorkant.
       const frontFaceHtml = ui.planFront.innerHTML;
       ui.mobilePlanFace.innerHTML = frontFaceHtml;
   }
   
+  function renderQuickReplies(replies) {
+    const isMobile = window.innerWidth <= 900;
+    const container = isMobile ? ui.mobileQuickReplies : ui.quickReplies;
+    container.innerHTML = '';
+    if (!replies || replies.length === 0) return;
+
+    console.log('[UI Render] Quick replies renderen:', replies);
+    replies.forEach(reply => {
+        const button = document.createElement('button');
+        button.className = 'chip';
+        button.textContent = reply;
+        button.onclick = () => {
+            handleSend(reply);
+        };
+        container.appendChild(button);
+    });
+  }
+
   /* ───── 5. Hoofdlogica & UI Interactie ─────────────────── */
   async function handleSend(txt, isSilent = false) {
     if (!txt.trim()) return;
@@ -260,6 +291,7 @@ window.addEventListener('DOMContentLoaded', () => {
     }
 
     inputEl.value = "";
+    renderQuickReplies([]);
 
     const data = await callAgent(txt, sessionId);
     
@@ -273,22 +305,21 @@ window.addEventListener('DOMContentLoaded', () => {
 
   window.handleThemeChipClick = (themeName) => {
     console.log(`[Chip Click] Thema geklikt: ${themeName}`);
-    if (localSelections.themes.has(themeName)) {
-      localSelections.themes.delete(themeName);
-      delete localSelections.topics[themeName];
-    } else if (localSelections.themes.size < 6) {
-      localSelections.themes.add(themeName);
-    }
     currentThemeForTopics = themeName;
     
-    const fakePlanData = {
-        themes: Array.from(localSelections.themes).map(name => ({name})),
-        topics: localSelections.topics,
-        qa_items: []
-    };
-    console.log('[Chip Click] Lokale staat bijgewerkt, UI wordt opnieuw getekend.', localSelections);
-    renderUI({ plan: fakePlanData });
-    
+    if (localSelections.themes.has(themeName)) {
+        // Thema is al geselecteerd, toon onderwerpen
+        console.log(`[Chip Click] Thema '${themeName}' is al geselecteerd. Flippen naar onderwerpen.`);
+    } else if (localSelections.themes.size < 6) {
+        // Nieuw thema, tijdelijk lokaal toevoegen
+        console.log(`[Chip Click] Nieuw thema '${themeName}' lokaal geselecteerd.`);
+        localSelections.themes.add(themeName);
+    } else {
+        console.log(`[Chip Click] Limiet van 6 thema's bereikt. Kan '${themeName}' niet toevoegen.`);
+        return; // Doe niets als limiet is bereikt
+    }
+
+    renderUI({ plan: { themes: Array.from(localSelections.themes).map(name => ({name})), topics: localSelections.topics, qa_items: [] }});
     setTimeout(() => ui.flipCard.classList.add('is-flipped'), 50);
   }
 
@@ -312,13 +343,13 @@ window.addEventListener('DOMContentLoaded', () => {
 
   window.confirmThemeSelections = () => {
       const themeNames = Array.from(localSelections.themes);
-      const message = `Bevestig mijn themakeuze. Ik heb de volgende thema's gekozen: ${themeNames.join(', ') || 'geen'}.`;
+      const message = `Ik heb mijn thema's gekozen. Dit zijn ze: ${themeNames.join(', ')}.`;
       handleSend(message, true); // Stuur stil
   }
 
   window.confirmTopicSelections = (themeName) => {
       const topicNames = localSelections.topics[themeName] || [];
-      const message = `Bevestig mijn onderwerpkeuze voor het thema '${themeName}'. Ik heb gekozen: ${topicNames.join(', ') || 'geen'}.`;
+      const message = `Voor het thema '${themeName}' heb ik de volgende onderwerpen gekozen: ${topicNames.join(', ')}.`;
       handleSend(message, true); // Stuur stil
       flipToFront();
   }
@@ -328,6 +359,7 @@ window.addEventListener('DOMContentLoaded', () => {
     "Ondersteuning": ["Aanwezigheid partner", "Rol van de partner", "Aanwezigheid doula", "Communicatie met zorgverleners"],
     "Bevalling & medisch beleid": ["Pijnbestrijding opties", "Houding tijdens bevallen", "Medische interventies", "Keizersnede voorkeuren"],
     "Sfeer en omgeving": ["Muziek en geluid", "Licht en temperatuur", "Gebruik van water (douche/bad)", "Privacy wensen"],
+    "Voeding na de geboorte": ["Borstvoeding of flesvoeding", "Voedingshoudingen", "Kolven", "Hulp bij voeding"],
   };
 
   /* ───── 6. Initialisatie ────────────────────────────────── */
