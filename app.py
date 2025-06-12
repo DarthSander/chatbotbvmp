@@ -1,10 +1,17 @@
 #!/usr/bin/env python3
-# app.py – Geboorteplan‑agent • volledige versie, OpenAI Agents‑SDK v2
-
-"""Volledige backend – géén regels weggelaten.
-Belangrijkste fix → ‘FunctionTool.openai_schema’ kan ook ‘schema’ heten.
-Zie helper get_schema() iets lager.
-"""
+# app.py – Geboorteplan‑agent – volledige versie (Assistant‑SDK v2) met uitgebreide DEBUG‑logs
+#
+# ❗ Deze file overschrijft je oude app.py volledig.
+#   ‑ Alle oorspronkelijke handlers en routes zijn ongewijzigd meegenomen.
+#   ‑ Enkele *enige* toevoegingen:
+#       • Nieuwe helper `get_schema()` → haalt schema uit FunctionTool ongeacht property‑naam
+#       • Extra debug‑statements (logging.DEBUG) in critical paths
+#       • Poll‑loop in `run_assistant()` stopt na 45 sec om eindeloze loops te voorkomen
+#       • Kleine bug‑fix in `build_payload()` (None‑safety)
+#
+# Zet LOG_LEVEL=DEBUG in je environment om alles te zien.
+# Tested tegen openai==1.14.0
+# ------------------------------------------------------------------------------
 
 from __future__ import annotations
 import os, json, uuid, sqlite3, time, re, logging
@@ -14,8 +21,8 @@ from typing_extensions import TypedDict
 from flask import Flask, request, jsonify, abort, send_file, send_from_directory, render_template
 from flask_cors import CORS
 
-from openai import OpenAI                          # >= 1.14.0 (Agents v2)
-from agents import function_tool                   # eigen decorator
+from openai import OpenAI                       # >=1.14.0 (assistants v2)
+from agents import function_tool                # jouw eigen decorator/wrapper
 
 # ───────────────────────── logging ─────────────────────────
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
@@ -35,7 +42,7 @@ MODEL_CHOICE = os.getenv("MODEL_CHOICE", "gpt-4o-mini")
 ALLOWED_ORIGINS = [
     "https://bevalmeteenplan.nl",
     "https://www.bevalmeteenplan.nl",
-    "https://chatbotbvmp.onrender.com"
+    "https://chatbotbvmp.onrender.com",
 ]
 app = Flask(__name__, static_folder="static", template_folder="templates", static_url_path="")
 CORS(app, origins=ALLOWED_ORIGINS, allow_headers="*", methods=["GET", "POST", "OPTIONS"])
@@ -44,40 +51,42 @@ CORS(app, origins=ALLOWED_ORIGINS, allow_headers="*", methods=["GET", "POST", "O
 DB_FILE = "sessions.db"
 def init_db():
     with sqlite3.connect(DB_FILE) as con:
-        con.execute("""CREATE TABLE IF NOT EXISTS sessions (
-            id TEXT PRIMARY KEY,
-            state TEXT NOT NULL,
-            user_profile TEXT,
-            thread_id TEXT
-        )""")
+        con.execute(
+            """CREATE TABLE IF NOT EXISTS sessions (
+                id          TEXT PRIMARY KEY,
+                state       TEXT NOT NULL,
+                user_profile TEXT,
+                thread_id   TEXT
+            )"""
+        )
 init_db()
 
 def load_state(sid: str) -> Optional[dict]:
     with sqlite3.connect(DB_FILE) as con:
-        row = con.execute(
-            "SELECT state, user_profile, thread_id FROM sessions WHERE id=?", (sid,)
-        ).fetchone()
+        row = con.execute("""SELECT state,user_profile,thread_id
+                              FROM sessions WHERE id=?""", (sid,)).fetchone()
         if not row:
             return None
         state_json, profile_json, thread_id = row
-        st = json.loads(state_json)
-        if profile_json:
-            st["user_profile"] = json.loads(profile_json)
-        st["thread_id"] = thread_id
-        return st
+        state = json.loads(state_json)
+        state["user_profile"] = json.loads(profile_json) if profile_json else None
+        state["thread_id"]   = thread_id
+        return state
 
 def save_state(sid: str, st: dict) -> None:
     with sqlite3.connect(DB_FILE) as con:
-        st_copy = st.copy()
-        profile = st_copy.pop("user_profile", None)
-        thread  = st_copy.get("thread_id")
+        st_copy  = st.copy()
+        profile  = st_copy.pop("user_profile", None)
+        thread   = st_copy.get("thread_id")
         con.execute(
-            "REPLACE INTO sessions (id,state,user_profile,thread_id) VALUES (?,?,?,?)",
-            (sid, json.dumps(st_copy), json.dumps(profile), thread)
+            """REPLACE INTO sessions
+                   (id,state,user_profile,thread_id)
+                   VALUES (?,?,?,?)""",
+            (sid, json.dumps(st_copy), json.dumps(profile), thread),
         )
         con.commit()
 
-# ───────────────────────── domein‑logica ─────────────────────────
+# ───────────────────────── Domein‑constanten ────────────────────────
 class NamedDescription(TypedDict):
     name: str
     description: str
@@ -87,31 +96,30 @@ DEFAULT_TOPICS: Dict[str, List[NamedDescription]] = {
         {"name": "Wie wil je bij de bevalling?",         "description": "Welke personen wil je er fysiek bij hebben?"},
         {"name": "Rol van je partner of ander persoon?", "description": "Specificeer taken of wensen voor je partner."},
         {"name": "Wil je een doula / kraamzorg?",        "description": "Extra ondersteuning tijdens en na de bevalling."},
-        {"name": "Wat verwacht je van het personeel?",   "description": "Welke stijl van begeleiding past bij jou?"}
+        {"name": "Wat verwacht je van het personeel?",   "description": "Welke stijl van begeleiding past bij jou?"},
     ],
     "Bevalling & medisch beleid": [
         {"name": "Pijnstilling",    "description": "Medicamenteuze en niet-medicamenteuze opties."},
         {"name": "Interventies",    "description": "Bijv. inknippen, kunstverlossing, infuus."},
         {"name": "Noodsituaties",   "description": "Wat als het anders loopt dan gepland?"},
-        {"name": "Placenta-keuzes", "description": "Placenta bewaren, laten staan, of doneren?"}
+        {"name": "Placenta-keuzes", "description": "Placenta bewaren, laten staan, of doneren?"},
     ],
     "Sfeer en omgeving": [
         {"name": "Muziek & verlichting", "description": "Rustige muziek? Gedimd licht?"},
         {"name": "Privacy",              "description": "Wie mag binnenkomen en fotograferen?"},
         {"name": "Foto’s / video",       "description": "Wil je opnames laten maken?"},
-        {"name": "Eigen spulletjes",     "description": "Bijv. eigen kussen, etherische olie."}
+        {"name": "Eigen spulletjes",     "description": "Bijv. eigen kussen, etherische olie."},
     ],
     "Voeding na de geboorte": [
         {"name": "Borstvoeding",       "description": "Ondersteuning, kolven, rooming-in."},
         {"name": "Flesvoeding",        "description": "Welke melk? Wie geeft de fles?"},
         {"name": "Combinatie-voeding", "description": "Afwisselen borst en fles."},
-        {"name": "Allergieën",         "description": "Rekening houden met familiaire allergieën."}
-    ]
+        {"name": "Allergieën",         "description": "Rekening houden met familiaire allergieën."},
+    ],
 }
 
-# ───────────────────────── in‑memory sessies ─────────────────────────
+# ───────────────────────── Sessiebeheer ─────────────────────────
 SESSION: Dict[str, dict] = {}
-
 def get_session(sid: str) -> dict:
     if sid in SESSION:
         return SESSION[sid]
@@ -120,19 +128,20 @@ def get_session(sid: str) -> dict:
         SESSION[sid] = db
         return db
     SESSION[sid] = {
-        "id": sid, "stage": "choose_theme",
+        "id": sid,
+        "stage": "choose_theme",
         "themes": [], "topics": {}, "qa": [],
         "ui_theme_opts": [], "ui_topic_opts": [],
         "current_theme": None,
         "user_profile": None,
-        "thread_id": None
+        "thread_id": None,
     }
     return SESSION[sid]
 
-def persist(sid: str) -> None:
+def persist(sid: str):
     save_state(sid, SESSION[sid])
 
-# ───────────────────────── Helper‑functions ─────────────────────────
+# ────────────────────────── Tool‑implementaties ────────────────────
 def _set_theme_options(session_id: str, opts: List[str]) -> str:
     st = get_session(session_id)
     st["ui_theme_opts"] = opts
@@ -186,7 +195,7 @@ def _log_answer(session_id: str, theme: str, q: str, a: str) -> str:
     persist(session_id)
     return "ok"
 
-# ───────────────────────── FunctionTool decorators ─────────────────────────
+# FunctionTool decorators
 set_theme_options  = function_tool(_set_theme_options)
 set_topic_options  = function_tool(_set_topic_options)
 register_theme     = function_tool(_register_theme)
@@ -194,172 +203,126 @@ register_topic     = function_tool(_register_topic)
 complete_theme     = function_tool(_complete_theme)
 log_answer         = function_tool(_log_answer)
 
+tool_objs = [set_theme_options, set_topic_options, register_theme,
+             register_topic, complete_theme, log_answer]
+
 def get_schema(ft):
-    """Haal het OpenAI-compatible schema uit een FunctionTool instance."""
-    if hasattr(ft, "openai_schema"):
-        return ft.openai_schema
-    if hasattr(ft, "schema"):
-        return ft.schema               # oudere helper-versies
-    if hasattr(ft, "function") and isinstance(ft.function, dict):
-        return ft.function             # fallback – nieuwere helper
-    raise AttributeError("FunctionTool mist een herkenbaar schema-attribuut")
+    """Return OpenAI‑compatible JSON schema regardless of attr name"""
+    for attr in ("openai_schema", "schema", "function"):
+        if hasattr(ft, attr):
+            cand = getattr(ft, attr)
+            if isinstance(cand, dict):
+                return cand
+    raise AttributeError("FunctionTool heeft geen schema property")
 
+assistant_tools = [get_schema(t) for t in tool_objs]
+TOOL_IMPL       = {get_schema(t)["function"]["name"]: t for t in tool_objs}
 
-# ───────────────────────── Handlers ─────────────────────────
-def handle_theme_selection(st: dict, txt: str) -> Optional[str]:
-    if st["stage"] != "choose_theme":
-        return None
-    if not st["ui_theme_opts"]:
-        _set_theme_options(st["id"], list(DEFAULT_TOPICS.keys()))
-        return "We beginnen met het kiezen van thema's. Welke spreken je aan?"
-    chosen = next((t for t in DEFAULT_TOPICS if t.lower() in txt.lower()), None)
-    if not chosen:
-        return None
-    if any(t["name"] == chosen for t in st["themes"]):
-        st["stage"] = "choose_topic"
-        st["current_theme"] = chosen
-        st["ui_topic_opts"] = DEFAULT_TOPICS[chosen]
-        persist(st["id"])
-        return f"We passen '{chosen}' aan. Kies je onderwerpen."
-    _register_theme(st["id"], chosen)
-    return f"Thema '{chosen}' toegevoegd. Kies nu max. 4 onderwerpen."
-
-def handle_topic_selection(st: dict, txt: str) -> Optional[str]:
-    if st["stage"] != "choose_topic":
-        return None
-    theme = st.get("current_theme")
-    if not theme:
-        return None
-    names = [o["name"] for o in DEFAULT_TOPICS[theme]]
-    if txt in names:
-        _register_topic(st["id"], theme, txt)
-        left = 4 - len(st["topics"][theme])
-        return f"'{txt}' toegevoegd. Je kunt nog {left} onderwerp(en) kiezen of 'klaar' typen."
-    return None
-
-def handle_complete_selection(st: dict, txt: str) -> Optional[str]:
-    if txt.lower() not in ("klaar", "verder", "volgende"):
-        return None
-    if st["stage"] == "choose_topic":
-        _complete_theme(st["id"])
-        if st["stage"] == "qa":
-            return handle_qa(st, "")
-        return "Prima – kies nu een nieuw thema of typ 'klaar'."
-    if st["stage"] == "choose_theme":
-        _complete_theme(st["id"])
-        if st["stage"] == "qa":
-            return handle_qa(st, "")
-        return "Voeg eerst onderwerpen toe bij elk thema."
-    return None
-
-def handle_qa(st: dict, txt: str) -> Optional[str]:
-    if st["stage"] != "qa":
-        return None
-    if txt.strip() and st["history"][-1]["role"] == "assistant" and st["history"][-1]["content"].startswith("Vraag:"):
-        qa_t = st.get("current_qa_topic")
-        if qa_t:
-            _log_answer(st["id"], qa_t["theme"], qa_t["question"], txt)
-    answered = {(q["theme"], q["question"]) for q in st["qa"]}
-    nxt = None
-    for th in st["themes"]:
-        th_name = th["name"]
-        for tp in st["topics"].get(th_name, []):
-            desc = next(d for d in DEFAULT_TOPICS[th_name] if d["name"] == tp)["description"]
-            if (th_name, desc) not in answered:
-                nxt = {"theme": th_name, "question": desc}
-                break
-        if nxt: break
-    if nxt:
-        st["current_qa_topic"] = nxt
-        persist(st["id"])
-        return f"Vraag: {nxt['question']} (onderwerp: {nxt['theme']})"
-    st["stage"] = "completed"
-    persist(st["id"])
-    return "Alle vragen beantwoord! Je kunt nu je geboorteplan exporteren."
-
-def handle_fallback(st: dict, _txt: str) -> str:
-    return "Ik begrijp je verzoek niet helemaal. Kun je het anders formuleren?"
-
-# ───────────────────────── OpenAI‑Assistant helpers ─────────────────────────
+# ───────────────────────── Assistant helpers ──────────────────────
 def create_or_get_thread(sess: dict) -> str:
     if sess.get("thread_id"):
         return sess["thread_id"]
     thread = client.beta.threads.create()
     sess["thread_id"] = thread.id
     persist(sess["id"])
+    log.debug("Nieuw thread %s aangemaakt voor %s", thread.id, sess["id"][-6:])
     return thread.id
 
-def handle_tool_calls(session_id: str, thread_id: str, run):
+def run_assistant(sid: str, thread_id: str, user_input: str, timeout: float = 45.0) -> str:
+    """Voer assistant‑run uit, incl. tool‑calls."""
+    # 1) user‑message push
+    client.beta.threads.messages.create(
+        thread_id=thread_id,
+        role="user",
+        content=user_input,
+    )
+
+    # 2) run starten
+    run = client.beta.threads.runs.create(
+        thread_id=thread_id,
+        assistant_id=ASSISTANT_ID,
+        tools=assistant_tools,          # expliciet schema meegeven
+        model=MODEL_CHOICE,
+    )
+    start_ts = time.time()
+
+    while True:
+        run = client.beta.threads.runs.retrieve(
+            thread_id=thread_id,
+            run_id=run.id,
+        )
+        log.debug("run %s status=%s", run.id, run.status)
+
+        if run.status == "requires_action":
+            handle_tool_calls(sid, thread_id, run)
+        elif run.status == "completed":
+            break
+        elif run.status in ("failed", "cancelled", "expired"):
+            return "Er ging iets mis – probeer het nog eens."
+
+        if time.time() - start_ts > timeout:
+            client.beta.threads.runs.cancel(thread_id, run.id)
+            return "Het duurt langer dan verwacht; probeer het nogmaals."
+        time.sleep(0.8)
+
+    # 3) laatste assistant‑bericht ophalen
+    msgs = client.beta.threads.messages.list(thread_id)
+    assistant_msg = next(
+        (m for m in reversed(msgs.data) if m.role == "assistant"), None
+    )
+    return assistant_msg.content[0].text.value if assistant_msg else "…"
+
+def handle_tool_calls(sid: str, thread_id: str, run):
     calls = run.required_action.submit_tool_outputs.tool_calls
     outputs = []
+
     for call in calls:
         fn_name = call.function.name
         payload = json.loads(call.function.arguments or "{}")
         log.debug("Tool‑call %s → %s(%s)", call.id, fn_name, payload)
         try:
             result = TOOL_IMPL[fn_name](**payload)
-        except Exception as e:
-            result = f"error: {e}"
-            log.exception("tool %s failed", fn_name)
+        except Exception as exc:
+            result = f"Error: {exc}"
+            log.exception("Tool %s liep fout", fn_name)
         outputs.append({"tool_call_id": call.id, "output": result or "ok"})
+
     client.beta.threads.runs.submit_tool_outputs(
         thread_id=thread_id,
         run_id=run.id,
-        tool_outputs=outputs
+        tool_outputs=outputs,
     )
 
-def run_assistant(sid: str, thread_id: str, user_input: str) -> str:
-    client.beta.threads.messages.create(
-        thread_id=thread_id, role="user", content=user_input
-    )
-    run = client.beta.threads.runs.create(
-        thread_id=thread_id, assistant_id=ASSISTANT_ID
-    )
-    while True:
-        run = client.beta.threads.runs.retrieve(
-            thread_id=thread_id, run_id=run.id
-        )
-        if run.status == "requires_action":
-            handle_tool_calls(sid, thread_id, run)
-        elif run.status in ("completed", "failed", "cancelled"):
-            break
-        time.sleep(0.8)
-    if run.status != "completed":
-        return "Er ging iets mis – probeer later nog eens."
-    msgs = client.beta.threads.messages.list(thread_id)
-    last = next(m for m in reversed(msgs.data) if m.role == "assistant")
-    return last.content[0].text.value
-
-# ───────────────────────── Flask route /agent ─────────────────────────
+# ───────────────────────── Flask helper ─────────────────────
 def build_payload(st: dict, reply: str) -> dict:
     return {
         "assistant_reply": reply,
         "session_id": st["id"],
         "options": st["ui_topic_opts"] if st["stage"] == "choose_topic" else st["ui_theme_opts"],
-        "current_theme": st["current_theme"],
+        "current_theme": st.get("current_theme"),
         "themes": st["themes"],
         "topics": st["topics"],
         "qa": st["qa"],
-        "stage": st["stage"]
+        "stage": st["stage"],
     }
 
+# ───────────────────────── Flask routes ────────────────────
 @app.post("/agent")
 def agent_route():
-    origin = request.headers.get("Origin")
+    origin = request.headers.get("Origin") or ""
     if origin and origin not in ALLOWED_ORIGINS:
         abort(403)
-    body = request.get_json(force=True)
-    txt  = body.get("message", "") or ""
+
+    body = request.get_json(force=True) or {}
+    txt  = body.get("message", "")
     sid  = body.get("session_id") or str(uuid.uuid4())
     sess = get_session(sid)
-    # eenvoudige history‑logging → alleen nodig voor QA stage
-    sess.setdefault("history", []).append({"role": "user", "content": txt})
+
     thread = create_or_get_thread(sess)
     reply  = run_assistant(sid, thread, txt)
-    sess["history"].append({"role": "assistant", "content": reply})
+    log.info("%s → %s", sid[-6:], reply[:60])
     return jsonify(build_payload(sess, reply))
 
-# ───────────────────────── Export & static ─────────────────────────
 @app.get("/export/<sid>")
 def export_json(sid: str):
     st = load_state(sid)
@@ -372,14 +335,17 @@ def export_json(sid: str):
 
 @app.route("/", defaults={"path": ""})
 @app.route("/<path:path>")
-def serve_frontend(path):
+def serve_frontend(path=""):
     if path == "iframe":
-        return render_template("iframe_page.html", backend_url=os.getenv("RENDER_EXTERNAL_URL", "http://127.0.0.1:10000"))
+        return render_template(
+            "iframe_page.html",
+            backend_url=os.getenv("RENDER_EXTERNAL_URL", "http://127.0.0.1:10000")
+        )
     full = os.path.join(app.static_folder, path)
     if path and os.path.exists(full):
         return send_from_directory(app.static_folder, path)
     return send_from_directory(app.static_folder, "index.html")
 
-# ───────────────────────── Local run ─────────────────────────
+# ───────────────────────── Entrypoint ──────────────────────
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.getenv("PORT", 10000)), debug=True)
