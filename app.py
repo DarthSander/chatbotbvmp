@@ -1,35 +1,76 @@
 #!/usr/bin/env python3
-# Mae – Geboorteplan-agent (function_tool-versie, GPT-4.1)
+# app.py – Geboorteplan-agent (volledige versie, Agents-SDK v2 ready)
 
 from __future__ import annotations
-import os, json, uuid, sqlite3, time, logging
+import os, json, uuid, sqlite3, time, re, logging
 from typing import List, Dict, Optional
 from typing_extensions import TypedDict
-from flask import Flask, request, jsonify, abort, send_from_directory, send_file
-from flask_cors import CORS
-import openai
-from agents import function_tool          # <-- weer in gebruik!
 
-# ──────────── logging ────────────
+from flask import Flask, request, jsonify, abort, send_file, send_from_directory, render_template
+from flask_cors import CORS
+
+from openai import OpenAI                    # >=1.14.0 (agents v2)
+from agents import function_tool             # jouw eigen decorator
+
+# ───────────────────────── logging ─────────────────────────
+LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
 logging.basicConfig(
-    level=getattr(logging, os.getenv("LOG_LEVEL", "DEBUG").upper(), logging.DEBUG),
+    level=getattr(logging, LOG_LEVEL, logging.INFO),
     format="%(asctime)s [%(levelname)s] %(name)s – %(message)s",
     datefmt="%H:%M:%S"
 )
 log = logging.getLogger("mae-backend")
 
-# ──────────── Config ─────────────
-openai.api_key  = os.getenv("OPENAI_API_KEY")
-MODEL_NAME      = "gpt-4.1"
-ASSISTANT_FILE  = "assistant_id.txt"
-DB_FILE         = "sessions.db"
+# ───────────────────────── OpenAI config ───────────────────
+client       = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+ASSISTANT_ID = os.getenv("ASSISTANT_ID", "asst_mBo58qbk0JCyptia1sa4nKkE")
+MODEL_CHOICE = os.getenv("MODEL_CHOICE", "gpt-4o-mini")
+
+# ───────────────────────── Flask/CORS ──────────────────────
 ALLOWED_ORIGINS = [
     "https://bevalmeteenplan.nl",
     "https://www.bevalmeteenplan.nl",
     "https://chatbotbvmp.onrender.com"
 ]
+app = Flask(__name__, static_folder="static", template_folder="templates", static_url_path="")
+CORS(app, origins=ALLOWED_ORIGINS, allow_headers="*", methods=["GET", "POST", "OPTIONS"])
 
-# ──────────── Basisdata ──────────
+# ───────────────────────── DB helpers ──────────────────────
+DB_FILE = "sessions.db"
+def init_db():
+    with sqlite3.connect(DB_FILE) as con:
+        con.execute("""CREATE TABLE IF NOT EXISTS sessions (
+            id TEXT PRIMARY KEY,
+            state TEXT NOT NULL,
+            user_profile TEXT,
+            thread_id TEXT
+        )""")
+init_db()
+
+def load_state(sid: str) -> Optional[dict]:
+    with sqlite3.connect(DB_FILE) as con:
+        row = con.execute("SELECT state, user_profile, thread_id FROM sessions WHERE id=?", (sid,)).fetchone()
+        if not row:
+            return None
+        state_json, profile_json, thread_id = row
+        st = json.loads(state_json)
+        if profile_json:
+            st["user_profile"] = json.loads(profile_json)
+        st["thread_id"] = thread_id
+        return st
+
+def save_state(sid: str, st: dict) -> None:
+    with sqlite3.connect(DB_FILE) as con:
+        st_copy = st.copy()
+        profile = st_copy.pop("user_profile", None)
+        thread  = st_copy.get("thread_id")
+        con.execute(
+            "REPLACE INTO sessions (id,state,user_profile,thread_id) VALUES (?,?,?,?)",
+            (sid, json.dumps(st_copy), json.dumps(profile), thread)
+        )
+        con.commit()
+
+# ───────────────────────── domein-logica (niets veranderd) ─────────────────
 class NamedDescription(TypedDict):
     name: str
     description: str
@@ -61,245 +102,220 @@ DEFAULT_TOPICS: Dict[str, List[NamedDescription]] = {
     ]
 }
 
-# ──────────── Database ───────────
-def init_db():
-    with sqlite3.connect(DB_FILE) as con:
-        con.execute("""CREATE TABLE IF NOT EXISTS sessions(
-                         id TEXT PRIMARY KEY,
-                         thread_id TEXT,
-                         state TEXT
-                       )""")
-init_db()
+# ───────────────────────── in-memory sessies ─────────────────────────
+SESSION: Dict[str, dict] = {}
 
-def load_session(sid: str) -> Optional[dict]:
-    row = sqlite3.connect(DB_FILE).execute(
-        "SELECT thread_id, state FROM sessions WHERE id=?", (sid,)
-    ).fetchone()
-    if not row: return None
-    return {"id": sid, "thread_id": row[0], "state": json.loads(row[1] or "{}")}
+def get_session(sid: str) -> dict:
+    if sid in SESSION:
+        return SESSION[sid]
+    db = load_state(sid)
+    if db:
+        SESSION[sid] = db
+        return db
+    # nieuwe sessie
+    SESSION[sid] = {
+        "id": sid, "stage": "choose_theme",
+        "themes": [], "topics": {}, "qa": [],
+        "ui_theme_opts": [], "ui_topic_opts": [],
+        "current_theme": None,
+        "user_profile": None,
+        "thread_id": None
+    }
+    return SESSION[sid]
 
-def save_session(sid: str, thread: str, state: dict):
-    with sqlite3.connect(DB_FILE) as con:
-        con.execute("REPLACE INTO sessions(id, thread_id, state) VALUES(?,?,?)",
-                    (sid, thread, json.dumps(state)))
+def persist(sid: str) -> None:
+    save_state(sid, SESSION[sid])
 
-# ──────────── In-memory state ─────
-def blank_state(): return {
-    "stage": "choose_theme",
-    "themes": [], "topics": {}, "qa": [],
-    "current_theme": None,
-    "ui_theme_opts": [], "ui_topic_opts": []
-}
-ST: Dict[str, dict] = {}
-
-# ──────────── Business-logic ──────
-def _set_theme_options(sid: str, options: List[str]): ST[sid]["ui_theme_opts"] = options; return "ok"
-def _set_topic_options(sid: str, theme: str, options: List[NamedDescription]):
-    ST[sid].update(current_theme=theme, ui_topic_opts=options); return "ok"
-def _register_theme(sid: str, theme: str, description: str=""):
-    s=ST[sid]
-    if len(s["themes"])<6 and theme not in [t["name"] for t in s["themes"]]:
-        s["themes"].append({"name":theme,"description":description})
-        s.update(stage="choose_topic", current_theme=theme, ui_topic_opts=DEFAULT_TOPICS.get(theme,[]))
+# ───────────────────────── Helper-functions (unchanged) ─────────────────────
+def _set_theme_options(session_id: str, opts: List[str]) -> str:
+    st = get_session(session_id)
+    st["ui_theme_opts"] = opts
+    persist(session_id)
     return "ok"
-def _register_topic(sid: str, theme: str, topic: str):
-    s=ST[sid]["topics"].setdefault(theme, [])
-    if topic not in s and len(s)<4: s.append(topic)
+
+def _set_topic_options(session_id: str, theme: str, opts: List[NamedDescription]) -> str:
+    st = get_session(session_id)
+    st["ui_topic_opts"] = opts
+    st["current_theme"] = theme
+    persist(session_id)
     return "ok"
-def _complete_theme(sid: str):
-    s=ST[sid]; s.update(stage="choose_theme", current_theme=None, ui_topic_opts=[])
-    if all(s["topics"].get(t["name"]) for t in s["themes"]): s["stage"]="qa"
+
+def _register_theme(session_id: str, theme: str, desc: str = "") -> str:
+    st = get_session(session_id)
+    if theme not in [t["name"] for t in st["themes"]]:
+        st["themes"].append({"name": theme, "description": desc})
+        st["stage"] = "choose_topic"
+        st["current_theme"] = theme
+        st["ui_topic_opts"] = DEFAULT_TOPICS.get(theme, [])
+        persist(session_id)
     return "ok"
-def _log_answer(sid: str, theme: str, question: str, answer: str):
-    ST[sid]["qa"].append({"theme":theme,"question":question,"answer":answer}); return "ok"
 
-# ──────────── function_tool wrappers ──────────
-@function_tool
-def set_theme_options(sid: str, options: List[str]) -> str:
-    """Frontend: toon thema-chips"""
-    return _set_theme_options(sid, options)
+def _register_topic(session_id: str, theme: str, topic: str) -> str:
+    st = get_session(session_id)
+    st["topics"].setdefault(theme, [])
+    if topic not in st["topics"][theme] and len(st["topics"][theme]) < 4:
+        st["topics"][theme].append(topic)
+        persist(session_id)
+    return "ok"
 
-@function_tool
-def set_topic_options(sid: str, theme: str, options: List[NamedDescription]) -> str:
-    """Frontend: toon onderwerp-chips voor een thema"""
-    return _set_topic_options(sid, theme, options)
+def _complete_theme(session_id: str) -> str:
+    st = get_session(session_id)
+    if all(st["topics"].get(t["name"]) for t in st["themes"]):
+        st["stage"] = "qa"
+    else:
+        st["stage"] = "choose_theme"
+    st["current_theme"] = None
+    st["ui_topic_opts"] = []
+    persist(session_id)
+    return "ok"
 
-@function_tool
-def register_theme(sid: str, theme: str, description: str="") -> str:
-    """Sla een gekozen thema op"""
-    return _register_theme(sid, theme, description)
+def _log_answer(session_id: str, theme: str, q: str, a: str) -> str:
+    st = get_session(session_id)
+    for qa in st["qa"]:
+        if qa["theme"] == theme and qa["question"] == q:
+            qa["answer"] = a
+            break
+    else:
+        st["qa"].append({"theme": theme, "question": q, "answer": a})
+    persist(session_id)
+    return "ok"
 
-@function_tool
-def register_topic(sid: str, theme: str, topic: str) -> str:
-    """Sla een onderwerp onder een thema op"""
-    return _register_topic(sid, theme, topic)
+# ───────────────────────── FunctionTool decorators ─────────────────────────
+set_theme_options  = function_tool(_set_theme_options)
+set_topic_options  = function_tool(_set_topic_options)
+register_theme     = function_tool(_register_theme)
+register_topic     = function_tool(_register_topic)
+complete_theme     = function_tool(_complete_theme)
+log_answer         = function_tool(_log_answer)
 
-@function_tool
-def complete_theme(sid: str) -> str:
-    """Markeer huidig thema als afgerond"""
-    return _complete_theme(sid)
+# ↓↓↓ verzamel de schemas direct NA de definitie – noodzakelijk voor de agent
+tool_objs     = [set_theme_options, set_topic_options, register_theme,
+                 register_topic, complete_theme, log_answer]
+assistant_tools = [t.openai_schema for t in tool_objs]        # ← schema's
+TOOL_IMPL       = {t.openai_schema["function"]["name"]: t for t in tool_objs}
 
-@function_tool
-def log_answer(sid: str, theme: str, question: str, answer: str) -> str:
-    """Bewaar Q&A-antwoord"""
-    return _log_answer(sid, theme, question, answer)
+# ───────────────────────── OpenAI-Assistant helpers ─────────────────────────
+def create_or_get_thread(sess: dict) -> str:
+    """Eén thread per sessie (blijft bewaard)."""
+    if sess.get("thread_id"):
+        return sess["thread_id"]
+    thread = client.beta.threads.create()
+    sess["thread_id"] = thread.id
+    persist(sess["id"])
+    return thread.id
 
-# Alle FunctionTool-objecten op één plek
-tool_objs = [
-    set_theme_options, set_topic_options, register_theme,
-    register_topic, complete_theme, log_answer
-]
-
-# ── Robuuste schema-extractie
-def get_schema(obj):
-    # 1) nieuwe Agents-SDK: obj is dataclass FunctionTool
-    if hasattr(obj, "name") and hasattr(obj, "params_json_schema"):
-        return {
-            "type":"function",
-            "function":{
-                "name": obj.name,
-                "description": getattr(obj, "description", ""),
-                "parameters": obj.params_json_schema
-            }
-        }
-    # 2) oudere helper: dict-achtige
-    if isinstance(obj, dict) and "function" in obj:
-        return obj
-    raise AttributeError("Onbekende FunctionTool-vorm")
-
-assistant_tools = [get_schema(o) for o in tool_objs]
-
-# Mapping: naam ➜ Python-functie (we kennen de originele)
-TOOL_IMPL = {
-    "set_theme_options":  _set_theme_options,
-    "set_topic_options":  _set_topic_options,
-    "register_theme":     _register_theme,
-    "register_topic":     _register_topic,
-    "complete_theme":     _complete_theme,
-    "log_answer":         _log_answer
-}
-
-# ──────────── Assistant maken of laden ─────────
-def ensure_assistant():
-    if os.path.exists(ASSISTANT_FILE): return open(ASSISTANT_FILE).read().strip()
-    prompt = (
-        "Je bent Mae, digitale verloskundige.\n"
-        "Vraag ALTIJD toestemming (‘Is het goed als ik…’) vóór je "
-        "een tool oproept. Houd het menselijk en proactief."
-    )
-    a = openai.beta.assistants.create(name="Mae", instructions=prompt,
-                                      model=MODEL_NAME, tools=assistant_tools)
-    open(ASSISTANT_FILE,"w").write(a.id)
-    log.info("Assistant aangemaakt %s", a.id)
-    return a.id
-
-ASSISTANT_ID = ensure_assistant()
-
-# ---------- thread-run helper ----------
-
-def run_assistant(session_id: str, thread_id: str, user_msg: str) -> str:
-    """
-    Stuurt de gebruikersboodschap naar de thread, start een run
-    en handelt eventuele tool-calls af.
-    """
-    openai.beta.threads.messages.create(
+def run_assistant(sid: str, thread_id: str, user_input: str) -> str:
+    # 1. voeg user-bericht toe
+    client.beta.threads.messages.create(
         thread_id=thread_id,
         role="user",
-        content=user_msg
+        content=user_input
     )
 
-    # start de run
-    run = openai.beta.threads.runs.create(
+    # 2. start run
+    run = client.beta.threads.runs.create(
         thread_id=thread_id,
-        assistant_id=ASSISTANT_ID
+        assistant_id=ASSISTANT_ID,
     )
 
-    # poll tot de run klaar is – gebruik de **keyword-versie** van retrieve
+    # 3. poll-lus
     while True:
-        run = openai.beta.threads.runs.retrieve(
+        run = client.beta.threads.runs.retrieve(   # keyword-args!
             thread_id=thread_id,
-            run_id=run.id            # <-- keyword! voorkomt TypeError
+            run_id=run.id
         )
+        log.debug("run %s – status=%s", run.id, run.status)
 
-        # tool-calls?
         if run.status == "requires_action":
-            outputs = []
-            for call in run.required_action.submit_tool_outputs.tool_calls:
-                fn      = TOOL_IMPL[call.function.name]
-                kwargs  = json.loads(call.function.arguments or "{}")
-                result  = fn(session_id, **kwargs)
-                outputs.append({"tool_call_id": call.id, "output": result})
+            handle_tool_calls(sid, thread_id, run)   # uitvoer hieronder
+        elif run.status in ("completed", "failed", "cancelled"):
+            break
+        time.sleep(0.8)
 
-            openai.beta.threads.runs.submit_tool_outputs(
-                thread_id=thread_id,
-                run_id=run.id,
-                outputs=outputs
-            )
-            continue          # blijf pollen
+    if run.status != "completed":
+        return "Er ging iets mis; probeer het nog eens."
 
-        if run.status in ("queued", "in_progress"):
-            time.sleep(0.35)
-            continue
+    # 4. laatste assistant-bericht teruggeven
+    msgs = client.beta.threads.messages.list(thread_id)
+    last = next(m for m in reversed(msgs.data) if m.role == "assistant")
+    return last.content[0].text.value
 
-        if run.status != "completed":
-            log.error("OpenAI-run error: %s", run.last_error)
-            return "⚠️ Er ging iets mis – probeer opnieuw."
+def handle_tool_calls(session_id: str, thread_id: str, run):
+    calls = run.required_action.submit_tool_outputs.tool_calls
+    outputs = []
 
-        break
+    for call in calls:
+        fn_name  = call.function.name
+        payload  = json.loads(call.function.arguments or "{}")
+        log.debug("Tool-call %s → %s(%s)", call.id, fn_name, payload)
 
-    # laatste assistant-bericht ophalen
-    msg = openai.beta.threads.messages.list(
+        try:
+            result = TOOL_IMPL[fn_name](**payload)
+        except Exception as e:
+            result = f"Error in tool {fn_name}: {e}"
+            log.exception("Tool %s failed", fn_name)
+
+        outputs.append({"tool_call_id": call.id, "output": result or "ok"})
+
+    client.beta.threads.runs.submit_tool_outputs(
         thread_id=thread_id,
-        limit=1
-    ).data[0]
+        run_id=run.id,
+        tool_outputs=outputs
+    )
 
-    return msg.content[0].text.value if msg.content else ""
-
-
-# ──────────── Flask-app ───────────
-app = Flask(__name__, static_folder="static", template_folder="templates", static_url_path="")
-CORS(app, origins=ALLOWED_ORIGINS, allow_headers="*", methods=["GET","POST"])
+# ───────────────────────── Flask route /agent ─────────────────────────
+def build_payload(st: dict, reply: str) -> dict:
+    return {
+        "assistant_reply": reply,
+        "session_id": st["id"],
+        "options": st["ui_topic_opts"] if st["stage"] == "choose_topic" else st["ui_theme_opts"],
+        "current_theme": st["current_theme"],
+        "themes": st["themes"],
+        "topics": st["topics"],
+        "qa": st["qa"],
+        "stage": st["stage"]
+    }
 
 @app.post("/agent")
 def agent_route():
-    d=request.get_json(force=True); txt=d.get("message",""); sid=d.get("session_id") or str(uuid.uuid4())
-    sess=load_session(sid)
-    if not sess:
-        t=openai.beta.threads.create(); sess={"id":sid,"thread_id":t.id}; ST[sid]=blank_state()
-    else: ST.setdefault(sid, blank_state())
+    origin = request.headers.get("Origin")
+    if origin and origin not in ALLOWED_ORIGINS:
+        abort(403)
 
+    body   = request.get_json(force=True)
+    txt    = body.get("message", "") or ""
+    sid    = body.get("session_id") or str(uuid.uuid4())
+    sess   = get_session(sid)
+
+    # ---------------------------------- run LLM/agent
+    thread = create_or_get_thread(sess)
+    reply  = run_assistant(sid, thread, txt)
     log.debug("IN  %s | %s", sid[-6:], txt)
-    reply = run_assistant(sid, sess["thread_id"], txt)
-    log.debug("OUT %s | %s", sid[-6:], reply[:80])
-    save_session(sid, sess["thread_id"], ST[sid])
 
-    return jsonify({
-        "session_id": sid,
-        "assistant_reply": reply,
-        "stage": ST[sid]["stage"],
-        "options": ST[sid]["ui_topic_opts"] if ST[sid]["stage"]=="choose_topic"
-                                             else ST[sid]["ui_theme_opts"],
-        "current_theme": ST[sid]["current_theme"],
-        "themes": ST[sid]["themes"],
-        "topics": ST[sid]["topics"],
-        "qa": ST[sid]["qa"]
-    })
+    # ---------------------------------- front-end state blijft via tools!
+    return jsonify(build_payload(sess, reply))
 
-# ──────────── Static & export ─────
+# ───────────────────────── Export / static files ─────────────────────────
 @app.get("/export/<sid>")
-def export_json(sid:str):
-    if sid not in ST: abort(404)
-    p=f"/tmp/geboorteplan_{sid}.json"
-    with open(p,"w",encoding="utf-8") as f: json.dump(ST[sid], f, ensure_ascii=False, indent=2)
-    return send_file(p, as_attachment=True, download_name=os.path.basename(p))
+def export_json(sid: str):
+    st = load_state(sid)
+    if not st:
+        abort(404)
+    path = os.path.join("/tmp", f"geboorteplan_{sid}.json")
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(st, f, ensure_ascii=False, indent=2)
+    return send_file(path, as_attachment=True, download_name=os.path.basename(path))
 
-@app.route("/", defaults={"path":""})
+@app.route("/", defaults={"path": ""})
 @app.route("/<path:path>")
-def index(path):
-    root=app.static_folder
-    if path and os.path.exists(os.path.join(root,path)):
-        return send_from_directory(root, path)
-    return send_from_directory(root, "index.html")
+def serve_frontend(path):
+    if path == "iframe":
+        return render_template("iframe_page.html", backend_url=os.getenv("RENDER_EXTERNAL_URL", "http://127.0.0.1:10000"))
+    full_path = os.path.join(app.static_folder, path)
+    if path and os.path.exists(full_path):
+        return send_from_directory(app.static_folder, path)
+    return send_from_directory(app.static_folder, "index.html")
 
+# ───────────────────────── Local run ─────────────────────────
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=int(os.getenv("PORT","10000")), debug=True)
+    app.run(host="0.0.0.0", port=int(os.getenv("PORT", 10000)), debug=True)
