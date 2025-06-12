@@ -206,17 +206,49 @@ log_answer         = function_tool(_log_answer)
 tool_objs = [set_theme_options, set_topic_options, register_theme,
              register_topic, complete_theme, log_answer]
 
-def get_schema(ft):
-    """Return OpenAI‑compatible JSON schema regardless of attr name"""
-    for attr in ("openai_schema", "schema", "function"):
-        if hasattr(ft, attr):
-            cand = getattr(ft, attr)
-            if isinstance(cand, dict):
-                return cand
-    raise AttributeError("FunctionTool heeft geen schema property")
+# …(bestaande FunctionTool-decorators hierboven)…
 
+# ────────────────── Helpers: tool-schemas ophalen ──────────────────
+import inspect, logging
+log = logging.getLogger("mae-backend")
+
+def get_schema(ft):
+    """Zoek de OpenAI-schema in diverse decorator-varianten.
+       Bouw zonodig zelf een minimal fallback, zodat het altijd werkt."""
+    if hasattr(ft, "openai_schema"):
+        log.debug("schema via ft.openai_schema")
+        return ft.openai_schema
+    if hasattr(ft, "schema"):
+        log.debug("schema via ft.schema")
+        return ft.schema
+    if hasattr(ft, "function") and hasattr(ft.function, "openai_schema"):
+        log.debug("schema via ft.function.openai_schema")
+        return ft.function.openai_schema
+
+    # --- Fallback: maak een simpel schema uit de functie-signatuur ---
+    fn = getattr(ft, "function", ft)
+    sig = inspect.signature(fn)
+    props = {name: {"type": "string"} for name in sig.parameters}
+    built = {
+        "type": "function",
+        "function": {
+            "name": fn.__name__,
+            "description": fn.__doc__ or "",
+            "parameters": {
+                "type": "object",
+                "properties": props,
+                "required": list(props)
+            },
+        },
+    }
+    log.warning("Fallback-schema gebouwd voor %s – controleer decorator?", fn.__name__)
+    return built
+
+tool_objs       = [set_theme_options, set_topic_options, register_theme,
+                   register_topic, complete_theme, log_answer]
 assistant_tools = [get_schema(t) for t in tool_objs]
-TOOL_IMPL       = {get_schema(t)["function"]["name"]: t for t in tool_objs}
+TOOL_IMPL       = {sch['function']['name']: t for sch, t in zip(assistant_tools, tool_objs)}
+
 
 # ───────────────────────── Assistant helpers ──────────────────────
 def create_or_get_thread(sess: dict) -> str:
