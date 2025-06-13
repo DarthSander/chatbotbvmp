@@ -1,3 +1,8 @@
+Oké, uitstekend. We pakken het stap voor stap aan.
+
+Hier is de volledige en opnieuw aangepaste `index.html` code. Deze versie bevat de correcties voor de problemen die we zojuist hebben geïdentificeerd, met name de aanpassingen in `callAgent` en `renderFrontFace` om de "reverting chip" en de inconsistenties op te lossen.
+
+```html
 <!DOCTYPE html>
 <html lang="nl">
 <head>
@@ -124,7 +129,7 @@
     }
     @keyframes spin{ to{ transform:rotate(360deg); } }
 
-    /* ---------- NIEUWE ANIMATIE ---------- */
+    /* ---------- Animatie ---------- */
     @keyframes flash {
       from { background-color: var(--sage-light); }
       to { background-color: transparent; }
@@ -308,7 +313,7 @@ window.addEventListener("DOMContentLoaded", () => {
   const showLoader = isMobile => (isMobile ? ui.mobileChatLoader : ui.chatLoader).style.display = "flex";
   const hideLoader = isMobile => (isMobile ? ui.mobileChatLoader : ui.chatLoader).style.display = "none";
 
-  /* ---------- 2.4 Server-call ---------- */
+  /* ---------- 2.4 Server-call (AANGEPAST) ---------- */
   async function callAgent(message, sid){
     const isMobile = window.innerWidth <= 900;
     showLoader(isMobile);
@@ -327,17 +332,17 @@ window.addEventListener("DOMContentLoaded", () => {
       const data = await res.json();
       dlog('log', '[API ←] data', data);
       return data;
-    }catch(err){
+    } catch(err) {
       dlog('error', '[API error]', err);
       const box = isMobile ? ui.mobileChatbox : ui.chatbox;
-      addMsg("bot", "⚠️ Er ging iets mis bij de server-aanroep.", box);
-      throw err;
-    }finally{
+      addMsg("bot", "⚠️ Er ging iets mis bij de server-aanroep. Controleer de verbinding en probeer het opnieuw.", box);
+      return null; // Geef null terug bij een fout, gooi de error niet door
+    } finally {
       hideLoader(isMobile);
     }
   }
 
-  /* ---------- 2.5 Render-engine ---------- */
+  /* ---------- 2.5 Render-engine (AANGEPAST) ---------- */
   function renderUI(data){
     if(!data || !data.plan){ dlog('warn','[renderUI] Geen plan in payload'); return; }
 
@@ -345,7 +350,6 @@ window.addEventListener("DOMContentLoaded", () => {
     localSelections.themes = new Set((data.plan.themes || []).map(t => t.name));
     localSelections.topics = data.plan.topics || {};
 
-    /* ❶ JSON-menu uit present_tool_choices? */
     let menuChoices = [];
     if(typeof data.assistant_reply === "string" && data.assistant_reply.trim().startsWith("{")){
       try{
@@ -354,17 +358,17 @@ window.addEventListener("DOMContentLoaded", () => {
       }catch(_){ /* not a menu */ }
     }
 
-    renderFrontFace({plan: data.plan});
+    renderFrontFace(data.plan); // Aanroep aangepast
     renderBackFace();
     renderMobilePlan();
     renderQuickReplies([ ...(data.suggested_replies || []), ...menuChoices ]);
     console.groupEnd();
   }
 
-  /* ----- voor-kant van flip-card ----- */
-  function renderFrontFace(data){
-      const plan = data.plan; // Zorg ervoor dat 'plan' correct wordt doorgegeven
-      let html = '<h4>Jouw Geboorteplan</h4>';
+  /* ----- voor-kant van flip-card (AANGEPAST) ----- */
+  function renderFrontFace(plan){ // Accepteert nu direct het plan-object
+    if (!plan) return; // Veiligheidscheck
+    let html = '<h4>Jouw Geboorteplan</h4>';
 
     /* Thema-blokken */
     html += '<div class="plan-section"><h5>Thema\'s (kies max 6)</h5><div class="chips-container">';
@@ -483,18 +487,22 @@ window.addEventListener("DOMContentLoaded", () => {
     const msg = `Gebruiker heeft thema '${themeName}' ${operation === 'add' ? 'toegevoegd' : 'verwijderd'}.`;
     handleSend(msg, true).then(success => {
         if (success) {
-            // Als het succesvol was, toon de achterkant (indien een thema is toegevoegd)
             if (operation === 'add') {
                 currentThemeForTopics = themeName;
-                renderBackFace(); // Render de achterkant met de juiste topics
+                renderBackFace();
                 setTimeout(() => ui.flipCard.classList.add('is-flipped'), 50);
             }
         } else {
-            // Als er iets misging, zet de UI terug naar de vorige staat
+            // Zet UI terug als de servercall mislukt
             localSelections.themes = originalThemes;
         }
-        // Herteken de voorkant om de knopstatus bij te werken
-        renderFrontFace({ plan: { themes: [...localSelections.themes].map(name => ({name})), topics: localSelections.topics, qa_items: (window.$debug.lastRes?.plan?.qa_items || []) } });
+        // Herteken de voorkant om de staat te corrigeren
+        const currentPlanState = {
+            themes: [...localSelections.themes].map(name => ({name})),
+            topics: localSelections.topics,
+            qa_items: [] // Gebruik lege array of haal uit laatste succesvolle response
+        };
+        renderFrontFace(currentPlanState);
     });
   };
 
@@ -509,11 +517,9 @@ window.addEventListener("DOMContentLoaded", () => {
         return;
     }
     
-    // Stuur een stille update naar de backend
     const msg = `Voor thema '${themeName}', onderwerp '${topicName}' ${operation === 'add' ? 'toegevoegd' : 'verwijderd'}.`;
     handleSend(msg, true);
     
-    // Lokale update voor directe feedback (wordt gecorrigeerd door renderUI na de call)
     if (operation === 'add') {
         set.add(topicName);
     } else {
@@ -617,7 +623,7 @@ window.addEventListener("DOMContentLoaded", () => {
     }
 
     inputEl.value = "";
-    renderQuickReplies([]); // oude opties weg
+    renderQuickReplies([]);
 
     try{
       const data = await callAgent(txt, sessionId);
@@ -626,7 +632,6 @@ window.addEventListener("DOMContentLoaded", () => {
       sessionId = data.session_id;
       sessionStorage.setItem("agentSession", sessionId);
 
-      /* als assistant_reply puur JSON-menu is, niet in bubble tonen */
       let isJsonMenu = false;
       try{ isJsonMenu = JSON.parse(data.assistant_reply).choices ? true : false; }
       catch(_){ /* not JSON */ }
@@ -639,8 +644,9 @@ window.addEventListener("DOMContentLoaded", () => {
       return true; // Geef true terug bij succes
 
     }catch(err){
-      addMsg("bot","⚠️ Onbekende fout. Probeer opnieuw.", chatBox);
-      return false; // Geef false terug bij een fout
+      // Deze catch is nu een extra vangnet, de meeste fouten worden in callAgent afgehandeld
+      addMsg("bot","⚠️ Onbekende fout in de verwerking. Probeer opnieuw.", chatBox);
+      return false;
     }
   }
 
