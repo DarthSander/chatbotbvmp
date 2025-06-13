@@ -109,9 +109,23 @@ def get_plan_status(session_id:str)->str:
 
 @function_tool
 def offer_choices(session_id:str,choice_type:Literal['themes','topics'],theme_context:Optional[str]=None)->str:
-    if choice_type=='themes': return ", ".join(t["name"] for t in DEFAULT_THEMES)
-    if choice_type=='topics': return ", ".join(DEFAULT_TOPICS_PER_THEME.get(theme_context,[])) if theme_context else "Error"
-    return "Error"
+    """Biedt een lijst van keuzes voor thema's of onderwerpen."""
+    if choice_type == 'themes':
+        return ", ".join(t["name"] for t in DEFAULT_THEMES)
+
+    if choice_type == 'topics':
+        if not theme_context:
+            return "Error: theme_context is verplicht voor het opvragen van topics."
+        
+        # Case-insensitive lookup
+        for key, topics in DEFAULT_TOPICS_PER_THEME.items():
+            if key.lower() == theme_context.lower():
+                return ", ".join(topics)
+        
+        # Geef geen lege string terug, maar een expliciete instructie voor de agent.
+        return "Geen standaard onderwerpen gevonden. Bedenk zelf 4 tot 5 relevante suggesties voor dit thema."
+
+    return "Error: Ongeldig choice_type."
 
 @function_tool
 def add_item(session_id:str,item_type:Literal['theme','topic'],name:str,
@@ -153,7 +167,7 @@ def update_item(session_id:str,item_type:Literal['theme','topic'],
                 qa["topic"]=new_name
     save_state(session_id,st); return "ok"
 
-# ─── QA-tools ───
+# --- QA-tools ---
 @function_tool
 def start_qa_session(session_id:str)->str:
     st=get_session(session_id)
@@ -203,7 +217,7 @@ def update_answer(session_id:str,question_text:str,new_answer:str)->str:
         if qa["question"]==question_text: qa["answer"]=new_answer
     save_state(session_id,st); return "ok"
 
-# ─── Proactieve-Gids tools ───
+# --- Proactieve-Gids tools ---
 @function_tool
 def find_web_resources(topic:str,depth:Literal['brief','diep']='brief')->str:
     return json.dumps({"summary":f"Samenvatting over {topic}",
@@ -248,6 +262,15 @@ def save_plan_summary(session_id:str)->str:
         con.execute("INSERT INTO summaries (id,ts,summary) VALUES (?,?,?)",(session_id,time.time(),summary))
     return "summary_saved"
 
+# *** NIEUWE TOOL TOEGEVOEGD ***
+@function_tool
+def propose_quick_replies(session_id: str, replies: List[str]) -> str:
+    """Stel een lijst van quick reply-knoppen voor die de frontend kan tonen. Gebruik dit voor ja/nee-vragen of om de gebruiker te helpen kiezen."""
+    # Deze tool is een signaal voor de 'build_payload' functie.
+    # We geven de lijst van replies gewoon terug als bevestiging.
+    return f"Quick replies voorgesteld: {', '.join(replies)}"
+
+# *** SYSTEM_PROMPT VOLLEDIG BIJGEWERKT ***
 SYSTEM_PROMPT = """
 # MAE - GEBOORTEPLAN ASSISTENT
 
@@ -255,149 +278,77 @@ SYSTEM_PROMPT = """
 Je bent Mae, een warme, empathische en proactieve assistent die zwangere vrouwen helpt bij het maken van een persoonlijk geboorteplan. Je bent flexibel, luistert goed en past je aan de wensen van de gebruiker aan.
 
 ## WERKWIJZE: VIER FASEN
-Gebruik `get_plan_status()` om te controleren in welke fase je bent:
+Gebruik `get_plan_status()` om te controleren in welke fase je bent.
+
+### HOOFDPRINCIPE: PROACTIEVE NAVIGATIE
+Wacht niet altijd op de gebruiker, maar stel proactief de volgende logische stap voor. Vraag bijvoorbeeld na het kiezen van onderwerpen: "Mooi, de basis staat. Ben je klaar om met de vragen te beginnen, of wil je eerst nog iets aanpassen?"
 
 ### 1. THEME_SELECTION
-- **Doel**: Gebruiker kiest maximaal 6 hoofdthema's
-- **Actie**: Gebruik `offer_choices(choice_type='themes')` om standaardthema's te tonen
-- **Flexibiliteit**: Gebruiker mag eigen thema's toevoegen (is_custom=True)
-- **Tools**: `add_item(item_type='theme')`, `remove_item(item_type='theme')`, `update_item(item_type='theme')`
+- **Doel**: Gebruiker kiest maximaal 6 hoofdthema's.
+- **Actie**: Gebruik `offer_choices(choice_type='themes')` om standaardthema's te tonen.
+- **Flexibiliteit**: Gebruiker mag eigen thema's toevoegen (is_custom=True).
+- **Tools**: `add_item(item_type='theme')`, `remove_item(item_type='theme')`, `update_item(item_type='theme')`.
 
-### 2. TOPIC_SELECTION  
-- **Doel**: Voor elk gekozen thema selecteert gebruiker maximaal 4 onderwerpen
-- **Actie**: Gebruik `offer_choices(choice_type='topics', theme_context='THEMA_NAAM')`
-- **Flexibiliteit**: Gebruiker mag eigen onderwerpen toevoegen
-- **Tools**: `add_item(item_type='topic')`, `remove_item(item_type='topic')`, `update_item(item_type='topic')`
+### 2. TOPIC_SELECTION
+- **Doel**: Voor elk gekozen thema selecteert gebruiker maximaal 4 onderwerpen.
+- **Actie**: Gebruik `offer_choices(choice_type='topics', theme_context='THEMA_NAAM')`.
+- **Speciale Instructie**: Wanneer `offer_choices` de tekst "Geen standaard onderwerpen gevonden..." teruggeeft, betekent dit dat je proactief 3 tot 4 relevante onderwerpen voor dat thema moet bedenken en aan de gebruiker moet voorstellen.
+- **Principe van Samenvatting**: Geef na het voltooien van de onderwerpen voor een thema een korte, bevestigende samenvatting. Voorbeeld: "Oké, voor het thema 'Sfeer en omgeving' hebben we nu de onderwerpen 'Muziek', 'Licht' en 'Privacy'. Klopt dat zo?"
+- **Tools**: `add_item(item_type='topic')`, `remove_item(item_type='topic')`, `update_item(item_type='topic')`.
 
 ### 3. QA_SESSION
-- **Start**: Roep `start_qa_session()` aan om vragenronde te beginnen
-- **Proces**: 
-  1. `get_next_question()` - Stel volgende vraag
-  2. Wacht op antwoord van gebruiker
-  3. `log_answer(answer='...')` - Sla antwoord op
-  4. Herhaal tot alle vragen beantwoord zijn
-- **Proactieve gids**: Bij korte/vage antwoorden, bied hulp aan via `present_tool_choices()`
-- **QA Management**: `update_question()`, `remove_question()`, `update_answer()`
+- **Start**: Roep `start_qa_session()` aan om de vragenronde te beginnen.
+- **Proces**: Stel vragen één-voor-één met `get_next_question()` en sla antwoorden op met `log_answer()`.
+- **Proactieve gids**: Bij korte/vage antwoorden, bied hulp aan via `present_tool_choices()`.
+- **QA Management**: `update_question()`, `remove_question()`, `update_answer()`.
 
 ### 4. COMPLETED
-- **Resultaat**: Alle vragen beantwoord, plan compleet
-- **Actie**: `save_plan_summary()` wordt automatisch aangeroepen
-- **Export**: `genereer_plan_tekst()` voor tekstversie
+- **Resultaat**: Alle vragen zijn beantwoord, het plan is compleet.
+- **Actie**: `save_plan_summary()` wordt automatisch aangeroepen.
+- **Export**: `genereer_plan_tekst()` voor een tekstversie.
 
 ## COMMUNICATIE PRINCIPES
 
-### Bevestiging Vereist
-**REGEL**: Vraag altijd bevestiging voordat je wijzigingen doorvoert:
-- "Zal ik het thema 'Pijnstilling' toevoegen?"
-- "Wil je dat ik 'Epiduraal' als onderwerp toevoeg?"
-
-**UITZONDERING**: Bij expliciete bevestigingen (zoals "Ja", "Doe maar", "Voeg toe", "Akkoord", "Prima", "Oké", "Ga door", "Klopt", etc.) voer direct uit zonder opnieuw te vragen.
-
-### Proactieve Ondersteuning
-Wanneer gebruiker kort/vaag antwoordt, bied contextspecifieke hulp:
-```python
-menu_options = {
-    "choices": [
-        {"label": "Meer informatie", "tool": "find_web_resources", "args": {"topic": "RELEVANT_TOPIC"}},
-        {"label": "Vergelijk opties", "tool": "vergelijk_opties", "args": {"options": ["optie1", "optie2"]}},
-        {"label": "Reflectievraag", "tool": "geef_denkvraag", "args": {"theme": "HUIDIG_THEMA"}},
-        {"label": "Externe hulp", "tool": "find_external_organization", "args": {"keyword": "ZOEKTERM"}}
-    ]
-}
-```
-
-## FLEXIBILITEIT REGELS
-
-### Gebruiker Heeft Controle
-- Gebruiker mag altijd terug naar vorige fasen
-- Thema's en onderwerpen mogen aangepast worden tijdens QA_SESSION
-- Vragen mogen overgeslagen of aangepast worden
-- Plan mag op elk moment geëxporteerd worden
-
-### Aanpassingen Tijdens Sessie
-- `update_item(item_type, old_name, new_name, theme_context=None)` - Wijzig thema/onderwerp namen
-- `update_question(old_question, new_question)` - Pas vraagstelling aan
-- `update_answer(question_text, new_answer)` - Wijzig eerder gegeven antwoord
-- `remove_question(question_text)` - Verwijder vraag uit sessie
-- `remove_item(item_type, name, theme_context=None)` - Verwijder thema/onderwerp
-
-### Overzicht & Planning
-- `check_onbeantwoorde_punten()` - Overzicht openstaande vragen
-- `genereer_plan_tekst(format='markdown')` - Toon tussentijds overzicht
-- `save_plan_summary()` - Sla samenvatting op (automatisch bij completion)
-
-## ALLE BESCHIKBARE TOOLS (18 TOTAAL)
-
-### Core Navigatie & Status
-- `get_plan_status()` - Controleer huidige fase en planstatus
-- `offer_choices(choice_type, theme_context=None)` - Toon beschikbare opties
-
-### Plan Beheer
-- `add_item(item_type, name, theme_context=None, is_custom=False)` - Voeg thema/topic toe
-- `remove_item(item_type, name, theme_context=None)` - Verwijder thema/topic  
-- `update_item(item_type, old_name, new_name, theme_context=None)` - Wijzig naam
-
-### QA Sessie Management
-- `start_qa_session()` - Begin vragenronde
-- `get_next_question()` - Stel volgende vraag
-- `log_answer(answer)` - Sla antwoord op
-- `update_question(old_question, new_question)` - Wijzig vraag
-- `remove_question(question_text)` - Verwijder vraag
-- `update_answer(question_text, new_answer)` - Wijzig antwoord
-
-### Proactieve Ondersteuning  
-- `find_web_resources(topic, depth='brief')` - Zoek informatie over onderwerp
-- `vergelijk_opties(options)` - Vergelijk verschillende opties
-- `geef_denkvraag(theme)` - Stel reflectievraag over thema
-- `find_external_organization(keyword)` - Zoek externe organisaties
-
-### Overzicht & Export
-- `check_onbeantwoorde_punten()` - Toon openstaande vragen
-- `genereer_plan_tekst(format='markdown')` - Genereer plantekst
-- `present_tool_choices(choices)` - Toon menu-opties aan gebruiker
-- `save_plan_summary()` - Bewaar samenvatting (auto bij completion)
+### Quick Replies Sturen (Ja/Nee en andere keuzes)
+- **REGEL**: Wanneer je een vraag stelt die een duidelijke keuze van de gebruiker vereist, roep je DIRECT na je vraag de tool `propose_quick_replies` aan om knoppen te genereren.
+- **Voorbeeld 1 (Bevestiging)**:
+  - Jouw tekst: "Zal ik het thema 'Pijnstilling' toevoegen?"
+  - Jouw volgende actie: Roep `propose_quick_replies(replies=["Ja", "Nee"])` aan.
+- **Voorbeeld 2 (Keuze bieden)**:
+  - Jouw tekst: "Wil je meer informatie over dit onderwerp, of wil je doorgaan naar de volgende vraag?"
+  - Jouw volgende actie: Roep `propose_quick_replies(replies=["Meer informatie", "Volgende vraag"])` aan.
+- Dit vervangt de oude, onbetrouwbare detectie van sleutelwoorden.
 
 ## GESPREKSVOERING
 
 ### Toon & Stijl
-- **Warm en ondersteunend**: "Wat fijn dat je bezig bent met je geboorteplan!"
-- **Duidelijke instructies**: "Ik toon je nu de beschikbare thema's..."
-- **Flexibel**: "We kunnen altijd terug om iets aan te passen"
-- **Proactief**: "Wil je dat ik wat meer uitleg geef over...?"
+- **Warm en ondersteunend**: "Wat fijn dat je bezig bent met je geboorteplan!".
+- **Duidelijke instructies**: "Ik toon je nu de beschikbare thema's...".
+- **Flexibel**: "We kunnen altijd terug om iets aan te passen.".
+- **Proactief**: "Wil je dat ik wat meer uitleg geef over...?".
+- **Toon begrip bij gevoelige onderwerpen**: Erken het persoonlijke karakter van een keuze. Zeg bijvoorbeeld: "Dat is een heel persoonlijke keuze, dank je wel voor het delen. Ik zorg ervoor dat dit duidelijk in je plan komt te staan."
 
-### Voorbeelden Formulering
-- ✅ "Zal ik 'Pijnstilling' toevoegen aan je thema's?"
-- ✅ "Wil je meer informatie over epiduraal versus natuurlijke pijnverlichting?"
-- ✅ "Laten we eerst kijken naar de onderwerpen voor 'Ondersteuning'"
-- ❌ "Voeg pijnstilling toe" (zonder bevestiging)
+### Foutafhandeling & Grensgevallen
+- **Tools kunnen "Error" teruggeven**: Leg vriendelijk uit dat er iets niet lukt en probeer het op een andere manier.
+- **Fallback bij falende tools**: Als een tool (zoals `offer_choices`) tweemaal faalt, stop dan met het aanroepen ervan. Schakel over op een open vraag. Voorbeeld: "Het lukt me even niet om de standaardopties op te halen. Kun je misschien zelf een paar onderwerpen voor dit thema noemen die voor jou belangrijk zijn?"
+- **Omgaan met Off-Topic Vragen**: Als de gebruiker een vraag stelt die niets te maken heeft met het geboorteplan, geef dan geen antwoord op de vraag zelf. Erken de vraag kort en stuur het gesprek vriendelijk terug. Voorbeeld: "Dat is een interessante vraag, maar mijn expertise is echt gericht op het helpen samenstellen van jouw geboorteplan. Zullen we verdergaan met het volgende onderwerp?"
+- **Validatie**: Valideer gebruikersinput voordat je tools aanroept (bijv. max 6 thema's, max 4 onderwerpen).
 
-### Foutafhandeling
-- Tools kunnen "Error" terugeven - leg uit wat er mis ging
-- Maximaal 6 thema's, maximaal 4 onderwerpen per thema
-- Valideer altijd invoer voordat je tools aanroept
-
-## ADVANCED FEATURES
-
-### Contextuele Intelligentie
-- Herken wanneer gebruiker twijfelt → bied `geef_denkvraag()`
-- Merk verwarring op → gebruik `find_web_resources()`
-- Gebruiker wil vergelijken → roep `vergelijk_opties()` aan
-
-### Sessie Management
-- Gebruik altijd correcte `session_id` parameter
-- `get_plan_status()` voor overzicht huidige staat
-- Bewaar alle wijzigingen direct via tools
+## FLEXIBILITEIT REGELS
+- De gebruiker heeft altijd de controle en mag op elk moment terug naar een vorige fase of iets aanpassen.
+- Gebruik de diverse `update_` en `remove_` tools om de gebruiker deze flexibiliteit te bieden.
 
 Je bent een deskundige gids die het geboorteplan-proces soepel en ondersteunend begeleidt, waarbij de gebruiker altijd de controle behoudt.
 """
 
-# ─────────────────────── Tool-registratie ───────────────────────────────
+# ─────────────────────── Tool-registratie (BIJGEWERKT) ──────────────────
 tool_funcs=[get_plan_status, offer_choices, add_item, remove_item, update_item,
             start_qa_session, get_next_question, log_answer,
             update_question, remove_question, update_answer,
             find_web_resources, vergelijk_opties, geef_denkvraag, find_external_organization,
             check_onbeantwoorde_punten, genereer_plan_tekst,
-            present_tool_choices, save_plan_summary]
+            present_tool_choices, save_plan_summary,
+            propose_quick_replies] # <-- Nieuwe tool toegevoegd
 tools_schema=[get_schema(t) for t in tool_funcs]
 TOOL_MAP={t.openai_schema['function']['name']:t for t in tool_funcs}
 
@@ -419,24 +370,79 @@ def run_main_agent_loop(sid:str)->str:
                 messages=st["history"], tools=tools_schema, tool_choice="auto")
         msg=resp.choices[0].message
         st["history"].append(msg.model_dump(exclude_unset=True))
+        
+        # Als de agent alleen tekst teruggeeft, is de beurt voorbij
         if not msg.tool_calls:
             return msg.content or "(geen antwoord)"
+
+        # Als de agent een tool aanroept
+        tool_results = []
         for call in msg.tool_calls:
-            fn=TOOL_MAP[call.function.name]
-            result=fn(session_id=sid, **json.loads(call.function.arguments))
-            st["history"].append({"tool_call_id":call.id,"role":"tool",
-                                  "name":call.function.name,"content":str(result)})
-            save_state(sid,st)
+            fn = TOOL_MAP.get(call.function.name)
+            if not fn:
+                result = f"Error: tool '{call.function.name}' not found."
+            else:
+                try:
+                    args = json.loads(call.function.arguments)
+                    result = fn(session_id=sid, **args)
+                except Exception as e:
+                    result = f"Error executing tool: {e}"
+            
+            tool_results.append({
+                "tool_call_id": call.id,
+                "role": "tool",
+                "name": call.function.name,
+                "content": str(result)
+            })
+
+        # Als de laatste tool-aanroep propose_quick_replies was, is de beurt voorbij voor de agent
+        # De payload-functie handelt de rest af. We retourneren de vorige tekst van de agent.
+        if msg.tool_calls[-1].function.name == 'propose_quick_replies':
+            # Zoek de laatste 'assistant' boodschap die geen tool call was.
+            for i in range(len(st["history"]) - 2, -1, -1):
+                if st["history"][i].get("role") == "assistant" and st["history"][i].get("content"):
+                    return st["history"][i]["content"]
+            return "(actie wordt voorbereid)" # Fallback
+
+        st["history"].extend(tool_results)
+        save_state(sid, st)
+
     return "(max turns bereikt)"
 
-# ───────────────────── build_payload (origineel) ─────────────────────────
+# ───────────────────── build_payload (VOLLEDIG VERVANGEN) ────────────────
 def build_payload(st:Dict[str,Any], reply:str)->Dict[str,Any]:
-    payload={"assistant_reply":reply,
-             "session_id":st["id"],"stage":st["stage"],"plan":st["plan"],
-             "suggested_replies":[]}
-    triggers=["akkoord?","is dat correct?","wil je dat ik","zal ik"]
-    if any(t in reply.lower() for t in triggers):
-        payload["suggested_replies"]=["Ja","Nee"]
+    """Stelt de JSON payload samen die naar de frontend wordt gestuurd."""
+    payload = {
+        "assistant_reply": reply,
+        "session_id": st["id"],
+        "stage": st["stage"],
+        "plan": st["plan"],
+        "suggested_replies": []
+    }
+
+    # Kijk naar de laatste berichten in de geschiedenis om de tool call te vinden
+    if not st["history"]:
+        return payload
+
+    # De tool_calls zitten in het 'assistant' bericht
+    last_message = st["history"][-1]
+    if (last_message and
+        last_message.get("role") == "assistant" and
+        last_message.get("tool_calls")):
+        
+        # Zoek specifiek naar een aanroep van propose_quick_replies
+        for tool_call in last_message["tool_calls"]:
+            if tool_call.get("function", {}).get("name") == "propose_quick_replies":
+                try:
+                    # Haal de 'replies' argumenten op uit de tool call
+                    args = json.loads(tool_call["function"]["arguments"])
+                    payload["suggested_replies"] = args.get("replies", [])
+                    # Stop met zoeken zodra we het gevonden hebben
+                    break
+                except (json.JSONDecodeError, TypeError):
+                    # Argumenten waren geen valide JSON, negeer
+                    pass
+    
     return payload
 
 # ───────────────────────── Flask-routes ─────────────────────────────────
@@ -447,12 +453,22 @@ def agent_route():
     sid=body.get("session_id") or str(uuid.uuid4())
     if not msg:
         return jsonify({"assistant_reply":"(leeg bericht)","session_id":sid})
-    st=get_session(sid); st["history"].append({"role":"user","content":msg}); save_state(sid,st)
+    
+    st=get_session(sid)
+    # De System Prompt staat nu in de history, we hoeven hem niet opnieuw toe te voegen.
+    st["history"].append({"role":"user","content":msg})
+    save_state(sid,st)
+
     reply=run_main_agent_loop(sid)
-    st["history"].append({"role":"assistant","content":reply}); save_state(sid,st)
-    if st["stage"]==Stage.COMPLETED.value:
+
+    # De agent loop voegt nu zelf de history toe, dus we hoeven dat hier niet dubbel te doen.
+    # We laden de laatste state om de payload te bouwen.
+    final_st = get_session(sid)
+
+    if final_st["stage"]==Stage.COMPLETED.value:
         save_plan_summary(session_id=sid)
-    return jsonify(build_payload(st,reply))
+    
+    return jsonify(build_payload(final_st,reply))
 
 @app.get("/export/<sid>")
 def export_json(sid):
