@@ -3,113 +3,167 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Geboorteplan-agent</title>
+  <title>Geboorteplan-agent (debug)</title>
 
   <!-- Fonts & libs -->
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet" />
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 
-  <!-- ---------- Kleurenpalet & basis stijl ---------- -->
+  <!-- ---------- Kleuren, basisstijl & layout ---------- -->
   <style>
     :root{
-      --rose:#d5848d;--rose-light:#e8a8b0;--sage:#8cbf9d;
-      --sage-light:#cfe6d0;--cream:#fef9f5;--beige:#fdf7f2;
-      --rose-sub:#fbeaec;--text:#2d3436;--text-light:#636e72;
+      --rose:#d5848d; --rose-light:#e8a8b0;
+      --sage:#8cbf9d; --sage-light:#cfe6d0;
+      --cream:#fef9f5; --beige:#fdf7f2;
+      --rose-sub:#fbeaec;
+      --text:#2d3436; --text-light:#636e72;
       --grad-main:linear-gradient(135deg,var(--cream),var(--beige) 50%,var(--rose-sub) 100%);
-      --shadow:0 6px 22px rgba(0,0,0,.1)
+      --shadow:0 6px 22px rgba(0,0,0,.1);
     }
     html,body{
-      height:100%;margin:0;padding:0;font-family:Inter,system-ui,sans-serif;
-      background:var(--grad-main);color:var(--text);line-height:1.55
+      height:100%; margin:0; padding:0;
+      font-family:Inter,system-ui,sans-serif;
+      background:var(--grad-main); color:var(--text); line-height:1.55;
     }
-    /* Layout */
-    #layout{display:flex;gap:24px;height:100%;padding:16px;box-sizing:border-box}
-    #chat-col{flex:2;display:flex;flex-direction:column;max-height:100%}
-    #sidebar-container{flex:1;perspective:1500px}
 
-    /* Chat */
-    #chatbox,#mobile-chatbox{flex:1;overflow-y:auto;padding-right:8px}
-    .bubble{padding:12px 16px;margin:8px 0;border-radius:12px;max-width:80%;
-      line-height:1.4;word-wrap:break-word;box-shadow:var(--shadow)}
-    .bubble.user{background:#fff;margin-left:auto}
-    .bubble.bot{background:var(--rose-sub);margin-right:auto}
-    #quick-replies,#mobile-quick-replies{
-      padding:8px 0;display:flex;flex-wrap:wrap;gap:8px;justify-content:flex-start;
-      overflow-x:auto;white-space:nowrap
+    /* ---------- Hoofdindeling ---------- */
+    #layout{
+      display:flex; gap:24px; height:100%;
+      padding:16px; box-sizing:border-box;
     }
-    #input-area,#mobile-input-area{display:flex;flex-direction:column}
-    #input-wrapper,#mobile-input-wrapper{display:flex;gap:8px;margin-top:auto;
-      border-top:1px solid #ddd;padding:8px 0}
-    #input,#mobile-input{flex:1;border:none;padding:10px;font-size:16px;
-      border-radius:4px;font-family:inherit}
-    #input:focus,#mobile-input:focus{outline:2px solid var(--rose)}
-    #send,#mobile-send{background:var(--rose);color:#fff;border:none;padding:0 16px;
-      font-size:16px;border-radius:4px;cursor:pointer}
-    #send:hover,#mobile-send:hover{background:var(--rose-light)}
+    #chat-col{
+      flex:2; display:flex; flex-direction:column; max-height:100%;
+    }
+    #sidebar-container{ flex:1; perspective:1500px; }
 
-    /* Flip-container & faces */
-    #flip-card{width:100%;height:100%;position:relative;transform-style:preserve-3d;
-      transition:transform .7s}
-    #flip-card.is-flipped{transform:rotateY(180deg)}
-    .sidebar-face{position:absolute;width:100%;height:100%;backface-visibility:hidden;
-      background:#fff;border-radius:16px;padding:20px;box-shadow:var(--shadow);
-      overflow-y:auto;box-sizing:border-box}
-    .face-back{transform:rotateY(180deg)}
+    /* ---------- Chatvenster ---------- */
+    #chatbox, #mobile-chatbox{
+      flex:1; overflow-y:auto; padding-right:8px;
+    }
+    .bubble{
+      padding:12px 16px; margin:8px 0; border-radius:12px;
+      max-width:80%; line-height:1.4; word-wrap:break-word;
+      box-shadow:var(--shadow);
+    }
+    .bubble.user{ background:#fff; margin-left:auto; }
+    .bubble.bot{  background:var(--rose-sub); margin-right:auto; }
 
-    /* Plan-UI */
-    .plan-section h5{margin:16px 0 8px;border-bottom:1px solid #eee;padding-bottom:4px}
-    .chips-container{display:flex;flex-wrap:wrap;gap:8px}
-    .chip{padding:6px 14px;border-radius:9999px;font-size:14px;cursor:pointer;
-      user-select:none;border:1px solid #ddd}
-    .chip.theme{border-color:var(--rose);color:var(--rose)}
-    .chip.topic{border-color:var(--sage);color:var(--sage)}
-    .chip.selected{color:#fff;border-color:transparent}
-    .chip.theme.selected{background:var(--rose)}
-    .chip.topic.selected{background:var(--sage)}
-    .chip.disabled{opacity:.5;cursor:not-allowed}
-    .qa-item{margin-bottom:12px}.qa-item strong{display:block}
-    .back-button{background:none;border:none;font-size:16px;cursor:pointer;
-      color:var(--rose);margin-bottom:12px}
-    .confirm-btn{background:var(--sage);color:#fff;border:none;padding:10px 16px;
-      border-radius:8px;cursor:pointer;font-size:15px;margin-top:16px;width:100%}
-    .confirm-btn:disabled{background:#ccc;cursor:not-allowed}
+    #quick-replies, #mobile-quick-replies{
+      padding:8px 0;
+      display:flex; flex-wrap:wrap; gap:8px;
+      overflow-x:auto; white-space:nowrap;
+    }
 
-    /* Loader */
-    .loader-container{display:none;align-items:center;justify-content:center;margin:20px}
-    .loader{width:32px;height:32px;border:4px solid #ccc;border-top-color:var(--sage);
-      border-radius:50%;animation:spin 1s linear infinite}
-    @keyframes spin{to{transform:rotate(360deg)}}
+    #input-area, #mobile-input-area{ display:flex; flex-direction:column; }
+    #input-wrapper, #mobile-input-wrapper{
+      display:flex; gap:8px; margin-top:auto;
+      border-top:1px solid #ddd; padding:8px 0;
+    }
+    #input, #mobile-input{
+      flex:1; border:none; padding:10px;
+      font-size:16px; border-radius:4px; font-family:inherit;
+    }
+    #input:focus, #mobile-input:focus{ outline:2px solid var(--rose); }
+    #send, #mobile-send{
+      background:var(--rose); color:#fff; border:none;
+      padding:0 16px; font-size:16px;
+      border-radius:4px; cursor:pointer;
+    }
+    #send:hover, #mobile-send:hover{ background:var(--rose-light); }
 
-    /* Mobiel */
-    #mobile-tabs{display:none}
-    .mobile-face{display:none;height:calc(100vh - 50px);overflow-y:auto;padding:16px;
-      box-sizing:border-box;background:#fff}
-    .mobile-face.active{display:block}
-    #mobile-chat-face{display:flex;flex-direction:column;height:100%}
-    @media(max-width:900px){
-      #layout{flex-direction:column;padding:0!important}
-      #chat-col,#sidebar-container{display:none!important}
-      #mobile-tabs{display:flex;border-bottom:1px solid #ddd}
-      #mobile-tabs button{flex:1;padding:12px;background:#f9f9f9;border:none;font-size:16px;cursor:pointer}
-      #mobile-tabs button.active{background:#fff;font-weight:600}
+    /* ---------- Flip-card voor sidebar ---------- */
+    #flip-card{
+      width:100%; height:100%;
+      position:relative; transform-style:preserve-3d;
+      transition:transform .7s;
+    }
+    #flip-card.is-flipped{ transform:rotateY(180deg); }
+    .sidebar-face{
+      position:absolute; width:100%; height:100%;
+      backface-visibility:hidden;
+      background:#fff; border-radius:16px; padding:20px;
+      box-shadow:var(--shadow); overflow-y:auto; box-sizing:border-box;
+    }
+    .face-back{ transform:rotateY(180deg); }
+
+    /* ---------- Planweergave ---------- */
+    .plan-section h5{
+      margin:16px 0 8px; border-bottom:1px solid #eee; padding-bottom:4px;
+    }
+    .chips-container{ display:flex; flex-wrap:wrap; gap:8px; }
+    .chip{
+      padding:6px 14px; border-radius:9999px; font-size:14px;
+      cursor:pointer; user-select:none; border:1px solid #ddd;
+    }
+    .chip.theme{ border-color:var(--rose); color:var(--rose); }
+    .chip.topic{ border-color:var(--sage); color:var(--sage); }
+    .chip.selected{ color:#fff; border-color:transparent; }
+    .chip.theme.selected{ background:var(--rose); }
+    .chip.topic.selected{ background:var(--sage); }
+    .chip.disabled{ opacity:.5; cursor:not-allowed; }
+    .qa-item{ margin-bottom:12px; }
+    .qa-item strong{ display:block; }
+
+    .back-button{
+      background:none; border:none; font-size:16px; cursor:pointer;
+      color:var(--rose); margin-bottom:12px;
+    }
+    .confirm-btn{
+      background:var(--sage); color:#fff; border:none;
+      padding:10px 16px; border-radius:8px; cursor:pointer;
+      font-size:15px; margin-top:16px; width:100%;
+    }
+    .confirm-btn:disabled{ background:#ccc; cursor:not-allowed; }
+
+    /* ---------- Loader ---------- */
+    .loader-container{
+      display:none; align-items:center; justify-content:center; margin:20px;
+    }
+    .loader{
+      width:32px; height:32px;
+      border:4px solid #ccc; border-top-color:var(--sage);
+      border-radius:50%; animation:spin 1s linear infinite;
+    }
+    @keyframes spin{ to{ transform:rotate(360deg); } }
+
+    /* ---------- Mobiel ---------- */
+    #mobile-tabs{ display:none; }
+    .mobile-face{
+      display:none; height:calc(100vh - 50px);
+      overflow-y:auto; padding:16px; box-sizing:border-box; background:#fff;
+    }
+    .mobile-face.active{ display:block; }
+    #mobile-chat-face{ display:flex; flex-direction:column; height:100%; }
+
+    @media (max-width:900px){
+      #layout{ flex-direction:column; padding:0 !important; }
+      #chat-col, #sidebar-container{ display:none !important; }
+      #mobile-tabs{ display:flex; border-bottom:1px solid #ddd; }
+      #mobile-tabs button{
+        flex:1; padding:12px; background:#f9f9f9; border:none;
+        font-size:16px; cursor:pointer;
+      }
+      #mobile-tabs button.active{ background:#fff; font-weight:600; }
     }
   </style>
 </head>
 
 <body>
-  <!-- Mobiele navigatie -->
+  <!-- ---------- Mobiele tabknoppen ---------- -->
   <div id="mobile-tabs">
     <button id="tab-chat" class="active">Chat</button>
-    <button id="tab-plan">Jouw Plan</button>
+    <button id="tab-plan">Jouw&nbsp;Plan</button>
   </div>
 
   <main id="layout">
-    <!-- Chatkolom -->
+    <!-- ---------- Chat kolom ---------- -->
     <div id="chat-col">
       <div id="chatbox"></div>
+
       <div id="input-area">
         <div id="quick-replies" class="chips-container"></div>
         <div class="loader-container" id="chat-loader"><div class="loader"></div></div>
+
         <div id="input-wrapper">
           <textarea id="input" placeholder="Typ je bericht…" rows="1"></textarea>
           <button id="send">Verstuur</button>
@@ -117,7 +171,7 @@
       </div>
     </div>
 
-    <!-- Sidebar met flip-animatie -->
+    <!-- ---------- Sidebar (flip-card) ---------- -->
     <div id="sidebar-container">
       <div id="flip-card">
         <div class="sidebar-face face-front" id="plan-front"></div>
@@ -125,298 +179,449 @@
       </div>
     </div>
 
-    <!-- Mobiel -->
+    <!-- ---------- Mobiele weergave ---------- -->
     <div id="mobile-container" style="display:none;">
       <div class="mobile-face active" id="mobile-chat-face">
         <div id="mobile-chatbox"></div>
+
         <div id="mobile-input-area">
           <div id="mobile-quick-replies" class="chips-container"></div>
           <div class="loader-container" id="mobile-chat-loader"><div class="loader"></div></div>
+
           <div id="mobile-input-wrapper">
             <textarea id="mobile-input" placeholder="Typ je bericht…" rows="1"></textarea>
             <button id="mobile-send">Verstuur</button>
           </div>
         </div>
       </div>
+
       <div class="mobile-face" id="mobile-plan-face"></div>
     </div>
   </main>
 
+<!-- ===================== SCRIPT ===================== -->
 <script>
-window.addEventListener('DOMContentLoaded', () => {
-  /* ───── 1. Globals ───────────────────────────────────── */
-  const API_URL   = window.__BACKEND_URL__ || "/agent";
-  let sessionId   = sessionStorage.getItem("agentSession") || null;
-  let localSelections = { themes: new Set(), topics: {} };
+/* -------------------------------------------------- *
+ * 1. Debug-hulpmiddelen                              *
+ * -------------------------------------------------- */
+const DEBUG = true;                     // zet op false in productie
+window.$debug = { events:[], lastReq:null, lastRes:null };
+
+function dlog(lvl, ...msg){
+  if(!DEBUG) return;
+  console[lvl](...msg);
+  window.$debug.events.push({ ts: Date.now(), lvl, msg });
+}
+
+/* Fetch-wrapper om al het verkeer te loggen */
+if(DEBUG){
+  const _fetch = window.fetch;
+  window.fetch = async (...args) => {
+    const [resource, options] = args;
+    const id = Math.random().toString(36).slice(2,7);
+    dlog('groupCollapsed', `fetch[${id}] →`, resource, options);
+    console.time(`fetch[${id}]`);
+    try{
+      const res = await _fetch(...args);
+      window.$debug.lastReq = { resource, options };
+      window.$debug.lastRes = res.clone();
+
+      /* lees body (best effort) */
+      let bodySnippet = "";
+      try{ bodySnippet = await res.clone().text(); }
+      catch(_){ bodySnippet = "[body read error]"; }
+
+      console.timeEnd(`fetch[${id}]`);
+      dlog('log', `fetch[${id}] ← status ${res.status}`, bodySnippet.slice(0,400));
+      console.groupEnd();
+      return res;
+    }catch(err){
+      dlog('error',`fetch[${id}] ERR`,err);
+      console.groupEnd();
+      throw err;
+    }
+  };
+}
+
+/* Globale error-handlers */
+window.addEventListener("error",   e => dlog('error', '[window.error]', e.message, e.filename+':'+e.lineno));
+window.addEventListener("unhandledrejection", e => dlog('error', '[unhandledrejection]', e.reason));
+
+/* -------------------------------------------------- *
+ * 2. Applicatielogica                                *
+ * -------------------------------------------------- */
+window.addEventListener("DOMContentLoaded", () => {
+  dlog('log', '[Init] DOM loaded');
+
+  /* ---------- 2.1 Globals & state ---------- */
+  const API_URL = window.__BACKEND_URL__ || "/agent";
+  let sessionId = sessionStorage.getItem("agentSession") || null;
+
+  const localSelections = {
+    themes : new Set(),
+    topics : {}     // { themeName: [topic1, …] }
+  };
   let currentThemeForTopics = null;
 
+  /* ---------- 2.2 UI-referenties ---------- */
   const ui = {
     chatbox           : document.getElementById("chatbox"),
     mobileChatbox     : document.getElementById("mobile-chatbox"),
+
     quickReplies      : document.getElementById("quick-replies"),
     mobileQuickReplies: document.getElementById("mobile-quick-replies"),
+
     input             : document.getElementById("input"),
     mobileInput       : document.getElementById("mobile-input"),
+
     sendBtn           : document.getElementById("send"),
     mobileSendBtn     : document.getElementById("mobile-send"),
+
     chatLoader        : document.getElementById("chat-loader"),
     mobileChatLoader  : document.getElementById("mobile-chat-loader"),
+
     planFront         : document.getElementById("plan-front"),
     planBack          : document.getElementById("plan-back"),
     mobilePlanFace    : document.getElementById("mobile-plan-face"),
+
     flipCard          : document.getElementById("flip-card"),
+
     sidebarContainer  : document.getElementById("sidebar-container"),
     chatCol           : document.getElementById("chat-col"),
+
     mobileContainer   : document.getElementById("mobile-container"),
     mobileTabs        : document.getElementById("mobile-tabs"),
   };
 
-  /* ───── 2. Helpers ───────────────────────────────────── */
+  /* ---------- 2.3 Kleine helpers ---------- */
   const addMsg = (role, md, box) => {
-    const bubble   = document.createElement("div");
+    dlog('log', `[addMsg] ${role}`, md);
+    const bubble = document.createElement("div");
     bubble.className = `bubble ${role === "bot" ? "bot" : "user"}`;
     bubble.innerHTML = marked.parse(md);
     box.appendChild(bubble);
     box.scrollTop = box.scrollHeight;
   };
+
   const showLoader = isMobile => (isMobile ? ui.mobileChatLoader : ui.chatLoader).style.display = "flex";
   const hideLoader = isMobile => (isMobile ? ui.mobileChatLoader : ui.chatLoader).style.display = "none";
 
-  /* ───── 3. API-call ───────────────────────────────────── */
-  async function callAgent(message,sid){
-    const isMobile = window.innerWidth<=900;
-    const payload  = {message,session_id:sid};
+  /* ---------- 2.4 Server-call ---------- */
+  async function callAgent(message, sid){
+    const isMobile = window.innerWidth <= 900;
     showLoader(isMobile);
 
+    const payload = { message, session_id: sid };
+    dlog('log', '[API →] payload', payload);
+    window.$debug.lastPayload = payload;
+
     try{
-      const res = await fetch(API_URL,{
-        method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)
+      const res = await fetch(API_URL, {
+        method:"POST",
+        headers:{ "Content-Type":"application/json" },
+        body: JSON.stringify(payload)
       });
       if(!res.ok) throw new Error(`HTTP ${res.status}`);
-      return await res.json();
+      const data = await res.json();
+      dlog('log', '[API ←] data', data);
+      return data;
     }catch(err){
-      console.error("[API]",err);
-      addMsg("bot","⚠️ Er ging iets mis. Probeer het later opnieuw.", isMobile?ui.mobileChatbox:ui.chatbox);
+      dlog('error', '[API error]', err);
+      const box = isMobile ? ui.mobileChatbox : ui.chatbox;
+      addMsg("bot", "⚠️ Er ging iets mis bij de server-aanroep.", box);
       throw err;
-    }finally{ hideLoader(isMobile); }
+    }finally{
+      hideLoader(isMobile);
+    }
   }
 
-  /* ───── 4. Rendering ─────────────────────────────────── */
+  /* ---------- 2.5 Render-engine ---------- */
   function renderUI(data){
-    if(!data||!data.plan) return;
+    if(!data || !data.plan){ dlog('warn','[renderUI] Geen plan in payload'); return; }
 
-    // sync locale state
-    localSelections.themes = new Set((data.plan.themes||[]).map(t=>t.name));
-    localSelections.topics = data.plan.topics||{};
+    dlog('groupCollapsed','[renderUI] start render');
+    localSelections.themes = new Set((data.plan.themes || []).map(t => t.name));
+    localSelections.topics = data.plan.topics || {};
 
-    // ❶ parse eventueel present_tool_choices-menu
-    let menuChoices=[];
-    if(typeof data.assistant_reply==="string" && data.assistant_reply.trim().startsWith("{")){
+    /* ❶ JSON-menu uit present_tool_choices? */
+    let menuChoices = [];
+    if(typeof data.assistant_reply === "string" && data.assistant_reply.trim().startsWith("{")){
       try{
-        const m=JSON.parse(data.assistant_reply);
-        if(m.choices) menuChoices = m.choices.map(c=>c.label||c);
-      }catch(_){}
+        const menuObj = JSON.parse(data.assistant_reply);
+        if(menuObj.choices) menuChoices = menuObj.choices.map(c => c.label || c);
+      }catch(_){ /* not a menu */ }
     }
 
     renderFrontFace(data.plan);
     renderBackFace();
     renderMobilePlan();
-    renderQuickReplies([...(data.suggested_replies||[]), ...menuChoices]);
+    renderQuickReplies([ ...(data.suggested_replies || []), ...menuChoices ]);
+    console.groupEnd();
   }
 
+  /* ----- voor-kant van flip-card ----- */
   function renderFrontFace(plan){
     let html = '<h4>Jouw Geboorteplan</h4>';
 
-    /* Thema-sectie */
+    /* Thema-blokken */
     html += '<div class="plan-section"><h5>Thema\'s (kies max 6)</h5><div class="chips-container">';
-    const allThemes = [...new Set([...DEFAULT_THEME_LIST, ...Array.from(localSelections.themes)])];
-    allThemes.forEach(name=>{
+    const allThemes = [ ...new Set([ ...DEFAULT_THEME_LIST, ...localSelections.themes ]) ];
+    allThemes.forEach(name => {
       const sel = localSelections.themes.has(name);
-      const dis = !sel && localSelections.themes.size>=6;
-      html += `<div class="chip theme ${sel?'selected':''} ${dis?'disabled':''}"
-                onclick="handleThemeChipClick('${name}')">${name}</div>`;
+      const dis = !sel && localSelections.themes.size >= 6;
+      html += `
+        <div class="chip theme ${sel ? 'selected' : ''} ${dis ? 'disabled' : ''}"
+             onclick="handleThemeChipClick('${name}')">${name}</div>`;
     });
-    html += '</div><button class="confirm-btn" onclick="confirmThemeSelections()"'
-          + (localSelections.themes.size? '' : ' disabled') +'>Bevestig Thema\'s</button></div>';
+    html += '</div>';
+    html += `<button class="confirm-btn" onclick="confirmThemeSelections()" ${localSelections.themes.size ? '' : 'disabled'}>
+               Bevestig Thema's
+             </button></div>`;
 
-    /* Antwoorden */
+    /* QA-items */
     html += '<div class="plan-section"><h5>Jouw Antwoorden</h5>';
-    if(plan.qa_items?.length){
-      plan.qa_items.forEach(q=>{ html += `<div class="qa-item"><strong>${q.question}</strong><em>${q.answer||'Nog geen antwoord'}</em></div>`; });
+    if(plan.qa_items && plan.qa_items.length){
+      plan.qa_items.forEach(qa => {
+        html += `<div class="qa-item"><strong>${qa.question}</strong><em>${qa.answer || 'Nog geen antwoord'}</em></div>`;
+      });
     }else{
-      html += '<p style="font-style:italic;color:#666;">Nog geen vragen beantwoord.</p>';
+      html += '<p style="font-style:italic; color:#666;">Nog geen vragen beantwoord.</p>';
     }
     html += '</div>';
 
     ui.planFront.innerHTML = html;
   }
 
+  /* ----- achter-kant (topics) ----- */
   function renderBackFace(){
-    if(!currentThemeForTopics){ ui.planBack.innerHTML=''; return; }
+    if(!currentThemeForTopics){
+      ui.planBack.innerHTML = '';
+      return;
+    }
 
-    const selTopics = new Set(localSelections.topics[currentThemeForTopics]||[]);
-    const allTopics = [...new Set([...(DEFAULT_TOPICS_PER_THEME[currentThemeForTopics]||[]), ...selTopics])];
+    const selectedTopics = new Set(localSelections.topics[currentThemeForTopics] || []);
+    const allTopics = [
+      ...new Set([ ...(DEFAULT_TOPICS_PER_THEME[currentThemeForTopics] || []), ...selectedTopics ])
+    ];
 
-    let html = `<button class="back-button" onclick="flipToFront()">← Terug naar overzicht</button>`;
-    html += `<h4>Onderwerpen voor “${currentThemeForTopics}”</h4><div class="chips-container">`;
+    let html = `
+      <button class="back-button" onclick="flipToFront()">← Terug naar overzicht</button>
+      <h4>Onderwerpen voor “${currentThemeForTopics}”</h4>
+      <div class="chips-container">
+    `;
 
     if(!allTopics.length){
-      html += '<p style="font-style:italic;color:#666;">Vraag de agent om suggesties voor dit thema.</p>';
+      html += '<p style="font-style:italic; color:#666;">Vraag de agent om suggesties voor dit thema.</p>';
     }else{
-      allTopics.forEach(t=>{
-        const sel = selTopics.has(t);
-        const dis = !sel && selTopics.size>=4;
-        html += `<div class="chip topic ${sel?'selected':''} ${dis?'disabled':''}"
-                  onclick="handleTopicChipClick('${currentThemeForTopics}','${t}')">${t}</div>`;
+      allTopics.forEach(topicName => {
+        const sel = selectedTopics.has(topicName);
+        const dis = !sel && selectedTopics.size >= 4;
+        html += `
+          <div class="chip topic ${sel ? 'selected' : ''} ${dis ? 'disabled' : ''}"
+               onclick="handleTopicChipClick('${currentThemeForTopics}','${topicName}')">${topicName}</div>`;
       });
     }
-    html += '</div><button class="confirm-btn" onclick="confirmTopicSelections(\''
-          + currentThemeForTopics + '\')"'
-          + (selTopics.size ? '' : ' disabled') + '>Bevestig Onderwerpen</button>';
+
+    html += '</div>';
+    html += `<button class="confirm-btn"
+                    onclick="confirmTopicSelections('${currentThemeForTopics}')"
+                    ${selectedTopics.size ? '' : 'disabled'}>
+               Bevestig Onderwerpen
+             </button>`;
 
     ui.planBack.innerHTML = html;
   }
 
-  const renderMobilePlan = () => { ui.mobilePlanFace.innerHTML = ui.planFront.innerHTML; };
+  /* ----- mobiele plan-pane kopie ----- */
+  function renderMobilePlan(){
+    ui.mobilePlanFace.innerHTML = ui.planFront.innerHTML;
+  }
 
-  function renderQuickReplies(arr){
-    const isMob = window.innerWidth<=900;
-    const cont  = isMob ? ui.mobileQuickReplies : ui.quickReplies;
-    cont.innerHTML='';
-    if(!arr.length) return;
-    arr.forEach(txt=>{
+  /* ----- quick replies ----- */
+  function renderQuickReplies(replies){
+    const isMobile = window.innerWidth <= 900;
+    const container = isMobile ? ui.mobileQuickReplies : ui.quickReplies;
+    container.innerHTML = '';
+
+    if(!replies || !replies.length) return;
+    dlog('log','[renderQuickReplies]',replies);
+
+    replies.forEach(txt => {
       const btn = document.createElement('button');
-      btn.className='chip';
-      btn.textContent=txt;
-      btn.onclick=()=> handleSend(txt);
-      cont.appendChild(btn);
+      btn.className = 'chip';
+      btn.textContent = txt;
+      btn.onclick = () => handleSend(txt);
+      container.appendChild(btn);
     });
   }
 
-  /* ───── 5. Interactie-handlers ───────────────────────── */
-  window.handleThemeChipClick = themeName=>{
-    const selected = localSelections.themes.has(themeName);
+  /* -------------------------------------------------- *
+   * 2.6 Gebruikers-interactie                          *
+   * -------------------------------------------------- */
 
-    if(selected){
+  /* Thema-chip */
+  window.handleThemeChipClick = (themeName) => {
+    dlog('log', `[click] theme ${themeName}`);
+    const alreadySelected = localSelections.themes.has(themeName);
+
+    if(alreadySelected){
       localSelections.themes.delete(themeName);
-    }else if(localSelections.themes.size<6){
+    }else if(localSelections.themes.size < 6){
       localSelections.themes.add(themeName);
     }else{
-      console.log('[Chip] Limiet thema’s bereikt');
+      dlog('warn', '[theme] limiet 6 bereikt');
       return;
     }
 
-    currentThemeForTopics = themeName;            // om meteen door te gaan naar topics…
-    renderFrontFace({themes:[...localSelections.themes].map(n=>({name:n})),
-                     topics:localSelections.topics, qa_items:[]});
+    currentThemeForTopics = themeName;
+    renderFrontFace({ themes:[...localSelections.themes].map(n=>({name:n})), topics:localSelections.topics, qa_items:[] });
     renderBackFace();
-    setTimeout(()=> ui.flipCard.classList.add('is-flipped'),50);
+    setTimeout(() => ui.flipCard.classList.add('is-flipped'), 50);
   };
 
-  window.handleTopicChipClick = (themeName,topicName)=>{
-    const set = new Set(localSelections.topics[themeName]||[]);
+  /* Topic-chip */
+  window.handleTopicChipClick = (themeName, topicName) => {
+    dlog('log', `[click] topic ${topicName} in ${themeName}`);
+    const set = new Set(localSelections.topics[themeName] || []);
+
     if(set.has(topicName)){ set.delete(topicName); }
-    else if(set.size<4){ set.add(topicName); }
-    localSelections.topics[themeName]=[...set];
+    else if(set.size < 4){ set.add(topicName); }
 
+    localSelections.topics[themeName] = [...set];
     renderBackFace();
-    renderFrontFace({themes:[...localSelections.themes].map(n=>({name:n})),
-                     topics:localSelections.topics, qa_items:[]});
-  };
-
-  window.flipToFront = () => ui.flipCard.classList.remove('is-flipped');
-
-  window.confirmThemeSelections = ()=>{
-    const names=[...localSelections.themes];
-    if(!names.length) return;
-    const msg=`Ik heb mijn thema's gekozen. Dit zijn ze: ${names.join(', ')}.`;
-    handleSend(msg,true);
-  };
-
-  window.confirmTopicSelections = theme=>{
-    const topics=localSelections.topics[theme]||[];
-    if(!topics.length) return;
-    const msg=`Voor het thema '${theme}' heb ik de volgende onderwerpen gekozen: ${topics.join(', ')}.`;
-    handleSend(msg,true);
-    flipToFront();
-  };
-
-  /* ───── 6. Thema- & topic-defaults ───────────────────── */
-  const DEFAULT_THEME_LIST = [
-    "Ondersteuning","Bevalling & medisch beleid","Sfeer en omgeving","Voeding na de geboorte",
-    "Kraamtijd","Communicatie","Speciale wensen","Fotografie en video","Comfortmaatregelen","Partnerbetrokkenheid"
-  ];
-  const DEFAULT_TOPICS_PER_THEME = {
-    "Ondersteuning":["Aanwezigheid partner","Rol van de partner","Aanwezigheid doula","Communicatie met zorgverleners"],
-    "Bevalling & medisch beleid":["Pijnbestrijding opties","Houding tijdens bevallen","Medische interventies","Keizersnede voorkeuren"],
-    "Sfeer en omgeving":["Muziek en geluid","Licht en temperatuur","Gebruik van water (douche/bad)","Privacy wensen"],
-    "Voeding na de geboorte":["Borstvoeding of flesvoeding","Voedingshoudingen","Kolven","Hulp bij voeding"],
-  };
-
-  /* ───── 7. Setup & init ───────────────────────────────── */
-  const setupEvents = () => {
-    const keyHandler = e=>{ if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();handleSend(e.target.value);} };
-    ui.sendBtn.onclick   = ()=> handleSend(ui.input.value);
-    ui.mobileSendBtn.onclick = ()=> handleSend(ui.mobileInput.value);
-    ui.input.addEventListener("keydown",keyHandler);
-    ui.mobileInput.addEventListener("keydown",keyHandler);
-
-    document.getElementById("tab-chat").onclick = ()=> switchMobileFace("chat");
-    document.getElementById("tab-plan").onclick = ()=> switchMobileFace("plan");
-  };
-
-  const switchMobileFace = face=>{
-    ["chat","plan"].forEach(f=>{
-      document.getElementById(`mobile-${f}-face`).classList.toggle("active",f===face);
-      document.getElementById(`tab-${f}`).classList.toggle("active",f===face);
+    renderFrontFace({
+      themes:[...localSelections.themes].map(n=>({name:n})),
+      topics:localSelections.topics,
+      qa_items:[]
     });
   };
 
-  const updateLayout = ()=>{
-    const mob = window.innerWidth<=900;
-    ui.chatCol.style.display       = mob?"none":"flex";
-    ui.sidebarContainer.style.display = mob?"none":"flex";
-    ui.mobileContainer.style.display  = mob?"block":"none";
-    ui.mobileTabs.style.display       = mob?"flex":"none";
+  /* Flip-helper */
+  window.flipToFront = () => ui.flipCard.classList.remove('is-flipped');
+
+  /* Bevestig-knoppen */
+  window.confirmThemeSelections = () => {
+    const names = [...localSelections.themes];
+    if(!names.length) return;
+    const msg = `Ik heb mijn thema's gekozen. Dit zijn ze: ${names.join(', ')}.`;
+    handleSend(msg, true);
+  };
+  window.confirmTopicSelections = (themeName) => {
+    const topicNames = localSelections.topics[themeName] || [];
+    if(!topicNames.length) return;
+    const msg = `Voor het thema '${themeName}' heb ik de volgende onderwerpen gekozen: ${topicNames.join(', ')}.`;
+    handleSend(msg, true);
+    flipToFront();
   };
 
-  updateLayout();
-  window.addEventListener("resize",updateLayout);
-  setupEvents();
+  /* -------------------------------------------------- *
+   * 2.7 Statische defaults (kan later via backend)     *
+   * -------------------------------------------------- */
+  const DEFAULT_THEME_LIST = [
+    "Ondersteuning","Bevalling & medisch beleid",
+    "Sfeer en omgeving","Voeding na de geboorte",
+    "Kraamtijd","Communicatie","Speciale wensen",
+    "Fotografie en video","Comfortmaatregelen","Partnerbetrokkenheid"
+  ];
+  const DEFAULT_TOPICS_PER_THEME = {
+    "Ondersteuning": [
+      "Aanwezigheid partner","Rol van de partner",
+      "Aanwezigheid doula","Communicatie met zorgverleners"
+    ],
+    "Bevalling & medisch beleid": [
+      "Pijnbestrijding opties","Houding tijdens bevallen",
+      "Medische interventies","Keizersnede voorkeuren"
+    ],
+    "Sfeer en omgeving": [
+      "Muziek en geluid","Licht en temperatuur",
+      "Gebruik van water (douche/bad)","Privacy wensen"
+    ],
+    "Voeding na de geboorte": [
+      "Borstvoeding of flesvoeding","Voedingshoudingen",
+      "Kolven","Hulp bij voeding"
+    ],
+  };
 
-  /* Start-groet / herstel sessie */
+  /* -------------------------------------------------- *
+   * 2.8 Device-layout & events                         *
+   * -------------------------------------------------- */
+  function updateLayoutForDevice(){
+    const mob = window.innerWidth <= 900;
+    ui.chatCol.style.display       = mob ? "none" : "flex";
+    ui.sidebarContainer.style.display = mob ? "none" : "flex";
+    ui.mobileContainer.style.display  = mob ? "block" : "none";
+    ui.mobileTabs.style.display       = mob ? "flex" : "none";
+  }
+  updateLayoutForDevice();
+  window.addEventListener("resize", updateLayoutForDevice);
+
+  /* Invoer-events & mobiele tabjes */
+  const sendOnEnter = e => { if(e.key === "Enter" && !e.shiftKey){ e.preventDefault(); handleSend(e.target.value); } };
+  ui.sendBtn.onclick       = () => handleSend(ui.input.value);
+  ui.mobileSendBtn.onclick = () => handleSend(ui.mobileInput.value);
+  ui.input.addEventListener("keydown", sendOnEnter);
+  ui.mobileInput.addEventListener("keydown", sendOnEnter);
+
+  document.getElementById("tab-chat").onclick = () => switchMobileFace("chat");
+  document.getElementById("tab-plan").onclick = () => switchMobileFace("plan");
+
+  function switchMobileFace(faceName){
+    dlog('log', `[mobile] switch to ${faceName}`);
+    document.getElementById("mobile-chat-face").classList.toggle("active", faceName === "chat");
+    document.getElementById("mobile-plan-face").classList.toggle("active", faceName === "plan");
+    document.getElementById("tab-chat").classList.toggle("active", faceName === "chat");
+    document.getElementById("tab-plan").classList.toggle("active", faceName === "plan");
+  }
+
+  /* -------------------------------------------------- *
+   * 2.9 Chat-verzending (centrale functie)             *
+   * -------------------------------------------------- */
+  async function handleSend(txt, silent = false){
+    if(!txt.trim()) return;
+
+    const isMobile = window.innerWidth <= 900;
+    const chatBox = isMobile ? ui.mobileChatbox : ui.chatbox;
+    const inputEl = isMobile ? ui.mobileInput : ui.input;
+
+    if(!silent){
+      addMsg("user", txt, chatBox);
+    }else{
+      dlog('log', '[silent send]', txt);
+    }
+
+    inputEl.value = "";
+    renderQuickReplies([]);            // oude opties weg
+
+    try{
+      const data = await callAgent(txt, sessionId);
+      if(!data) return;
+
+      sessionId = data.session_id;
+      sessionStorage.setItem("agentSession", sessionId);
+
+      /* als assistant_reply puur JSON-menu is, niet in bubble tonen */
+      let isJsonMenu = false;
+      try{ isJsonMenu = JSON.parse(data.assistant_reply).choices ? true : false; }
+      catch(_){ /* not JSON */ }
+
+      if(data.assistant_reply && !isJsonMenu){
+        addMsg("bot", data.assistant_reply, chatBox);
+      }
+
+      renderUI(data);
+
+    }catch(err){
+      addMsg("bot","⚠️ Onbekende fout. Probeer opnieuw.", chatBox);
+    }
+  }
+
+  /* -------------------------------------------------- *
+   * 3. Init-prompt of sessie herstellen                *
+   * -------------------------------------------------- */
   if(!sessionId){
     handleSend("Hallo, ik wil graag een geboorteplan opstellen.");
   }else{
     handleSend("Hallo, ik ben terug. Kun je me laten zien waar we gebleven waren?");
-  }
-
-  /* ───── core send ────────────────────────────────────── */
-  async function handleSend(txt,isSilent=false){
-    if(!txt.trim()) return;
-
-    const mob = window.innerWidth<=900;
-    const chatBox = mob?ui.mobileChatbox:ui.chatbox;
-    const inputEl = mob?ui.mobileInput:ui.input;
-
-    if(!isSilent) addMsg("user",txt,chatBox);
-    else console.log("[Silent]→",txt);
-
-    inputEl.value="";
-    renderQuickReplies([]);
-
-    const data = await callAgent(txt,sessionId);
-    if(!data) return;
-
-    sessionId=data.session_id;
-    sessionStorage.setItem("agentSession",sessionId);
-
-    /* toon bot-antwoord tenzij het een pure JSON-menu is */
-    let isJsonMenu=false;
-    try{ const m=JSON.parse(data.assistant_reply); if(m.choices) isJsonMenu=true; }catch(_){}
-    if(data.assistant_reply && !isJsonMenu) addMsg("bot",data.assistant_reply,chatBox);
-
-    renderUI(data);
   }
 });
 </script>
