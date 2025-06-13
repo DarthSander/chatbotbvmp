@@ -450,78 +450,85 @@ TOOL_MAP={t.openai_schema['function']['name']:t for t in tool_funcs}
 log.info(f"{len(tool_funcs)} tools geregistreerd: {[name for name in TOOL_MAP.keys()]}")
 
 # ───────────────────────── Agent-loop ────────────────────────────────────
-def run_main_agent_loop(sid:str)->str:
-    st=get_session(sid)
-    log.info(f"Start main agent loop voor sessie {sid}. Aantal history berichten: {len(st['history'])}")
+def run_main_agent_loop(sid: str) -> str:
+    """Hoofdloop: stuurt de conversatie naar OpenAI, voert tool-calls uit
+    en bewaart de bijgewerkte sessiestate.  Sleutel-fix: na elke batch
+    tool-calls wordt de state opnieuw ingelezen, zodat we de wijzigingen
+    van de tools niet overschrijven met een verouderde kopie."""
+    st = get_session(sid)
+    log.info(f"Start main agent loop voor sessie {sid}. History-len: {len(st['history'])}")
 
-    # Guardrail vóór de OpenAI-call
-    last_user_message = st["history"][-1]["content"]
-    if detect_sentiment(last_user_message) == "needs_menu":
-        log.warning(f"Sentiment 'needs_menu' gedetecteerd voor sessie {sid}. Activeren van proactieve gids.")
-        menu=json.dumps({"choices":[
-            {"label":"Meer info","tool":"find_web_resources","args":{"topic":"pijnstilling"}},
-            {"label":"Vergelijk opties","tool":"vergelijk_opties","args":{"options":["epiduraal","badbevalling"]}},
-            {"label":"Reflectie","tool":"geef_denkvraag","args":{"theme":"pijnstilling"}}
-        ]})
-        return present_tool_choices(session_id=sid,choices=menu)
+    # ­­­— simpele guardrail -------------------------------------------------
+    if detect_sentiment(st["history"][-1]["content"]) == "needs_menu":
+        menu = json.dumps({
+            "choices": [
+                {"label": "Meer info",
+                 "tool":  "find_web_resources",
+                 "args":  {"topic": "pijnstilling"}},
+                {"label": "Vergelijk opties",
+                 "tool":  "vergelijk_opties",
+                 "args":  {"options": ["epiduraal", "badbevalling"]}},
+                {"label": "Reflectie",
+                 "tool":  "geef_denkvraag",
+                 "args":  {"theme": "pijnstilling"}}
+            ]
+        })
+        return present_tool_choices(session_id=sid, choices=menu)
+    # -----------------------------------------------------------------------
 
-    for turn_count in range(5):  # MAX_TURNS
-        log.info(f"Agent-loop beurt {turn_count + 1}/5 voor sessie {sid}.")
-        log.debug(f"Versturen van history naar OpenAI voor sessie {sid}:\n{json.dumps(st['history'], indent=2, ensure_ascii=False)}")
-        resp=client.chat.completions.create(model=MODEL_CHOICE,
-            messages=st["history"], tools=tools_schema, tool_choice="auto")
-        msg=resp.choices[0].message
+    for turn in range(5):                              # MAX_TURNS = 5
+        log.info(f"Agent-beurt {turn + 1}/5 voor sessie {sid}")
+
+        resp = client.chat.completions.create(
+            model       = MODEL_CHOICE,
+            messages    = st["history"],
+            tools       = tools_schema,
+            tool_choice = "auto"
+        )
+        msg = resp.choices[0].message
         st["history"].append(msg.model_dump(exclude_unset=True))
-        log.debug(f"Antwoord van OpenAI ontvangen voor sessie {sid}:\n{msg}")
 
-        # Als de agent alleen tekst teruggeeft, is de beurt voorbij
+        # — geen tool-calls → klaar
         if not msg.tool_calls:
-            log.info(f"Agent {sid} gaf een tekstueel antwoord. Loop wordt beëindigd.")
+            save_state(sid, st)
             return msg.content or "(geen antwoord)"
 
-        # Als de agent een tool aanroept
-        log.info(f"Agent {sid} wil {len(msg.tool_calls)} tool(s) aanroepen: {[call.function.name for call in msg.tool_calls]}")
-        tool_results = []
+        # — tool-calls uitvoeren
+        tool_results: List[Dict[str, Any]] = []
         for call in msg.tool_calls:
             fn = TOOL_MAP.get(call.function.name)
-            log.info(f"Uitvoeren van tool '{call.function.name}' voor sessie {sid}")
-            if not fn:
-                result = f"Error: tool '{call.function.name}' not found."
-                log.error(f"Tool '{call.function.name}' niet gevonden voor sessie {sid}.")
-            else:
-                try:
-                    args = json.loads(call.function.arguments)
-                    log.debug(f"Argumenten voor tool '{call.function.name}': {args}")
-                    result = fn(session_id=sid, **args)
-                    log.info(f"Resultaat van tool '{call.function.name}': {str(result)[:100]}...")
-                except Exception as e:
-                    result = f"Error executing tool: {e}"
-                    log.error(f"Fout bij uitvoeren tool '{call.function.name}' voor sessie {sid}: {e}", exc_info=True)
+            try:
+                args   = json.loads(call.function.arguments)
+                result = fn(session_id=sid, **args) if fn else f"Error: tool '{call.function.name}' not found."
+            except Exception as e:
+                result = f"Error executing tool: {e}"
+                log.error(result, exc_info=True)
 
             tool_results.append({
                 "tool_call_id": call.id,
-                "role": "tool",
-                "name": call.function.name,
-                "content": str(result)
+                "role"       : "tool",
+                "name"       : call.function.name,
+                "content"    : str(result)
             })
 
-        # Als de laatste tool-aanroep propose_quick_replies was, is de beurt voorbij voor de agent
-        # De payload-functie handelt de rest af. We retourneren de vorige tekst van de agent.
-        if msg.tool_calls[-1].function.name == 'propose_quick_replies':
-            log.info(f"Tool 'propose_quick_replies' was de laatste aanroep. Agent-loop pauzeert en geeft controle terug.")
-            # Zoek de laatste 'assistant' boodschap die content heeft.
+        # — short-circuit wanneer laatste tool quick-replies plaatst
+        if msg.tool_calls[-1].function.name == "propose_quick_replies":
             for i in range(len(st["history"]) - 2, -1, -1):
-                if st["history"][i].get("role") == "assistant" and st["history"][i].get("content"):
-                    log.debug(f"Vorig assistentbericht gevonden om terug te sturen naar frontend: '{st['history'][i]['content'][:50]}...'")
-                    return st["history"][i]["content"]
-            log.warning("Geen vorig assistentbericht gevonden na 'propose_quick_replies'.")
-            return "(actie wordt voorbereid)" # Fallback
+                hist = st["history"][i]
+                if hist.get("role") == "assistant" and hist.get("content"):
+                    return hist["content"]
+            return "(actie wordt voorbereid)"
 
-        st["history"].extend(tool_results)
-        save_state(sid, st)
+        # —❰FIX START❱—  *state veilig bijwerken*
+        local_history = st["history"] + tool_results   # voeg tool-output lokaal toe
+        st            = get_session(sid)               # laad **verse** state (met plan-updates)
+        st["history"] = local_history                  # merge history
+        save_state(sid, st)                            # sla nu pas alles op
+        # —❰FIX END❱—
 
-    log.warning(f"Maximum aantal beurten (5) bereikt in agent-loop voor sessie {sid}.")
+    log.warning(f"MAX_TURNS bereikt voor sessie {sid}")
     return "(max turns bereikt)"
+
 
 # ───────────────────── build_payload (VOLLEDIG VERVANGEN) ────────────────
 def build_payload(st:Dict[str,Any], reply:str)->Dict[str,Any]:
