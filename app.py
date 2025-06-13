@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # app.py – Geboorteplan-agent • Volledige versie 13-06-2025
+# VERSIE MET UITGEBREIDE LOGGING
 
 from __future__ import annotations
 import os, json, uuid, sqlite3, time, logging, inspect, pathlib
@@ -15,10 +16,16 @@ DB_FILE = ROOT / "sessions.db"
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
 MODEL_CHOICE = os.getenv("MODEL_CHOICE", "gpt-4o")
 
+# Uitgebreide logging configuratie
 logging.basicConfig(level=LOG_LEVEL,
-    format="%(asctime)s [%(levelname)s] %(name)s – %(message)s",
-    datefmt="%H:%M:%S")
+    format="%(asctime)s [%(levelname)s] %(name)s:%(funcName)s:%(lineno)d – %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S")
 log = logging.getLogger("mae-backend")
+
+log.info("Mae-backend applicatie start...")
+log.info(f"Log level ingesteld op: {LOG_LEVEL}")
+log.info(f"Gebruikt OpenAI model: {MODEL_CHOICE}")
+log.info(f"Database bestandslocatie: {DB_FILE}")
 
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
@@ -30,6 +37,7 @@ ALLOWED_ORIGINS = [
 
 app = Flask(__name__, static_folder="static", template_folder="templates", static_url_path="")
 CORS(app, origins=ALLOWED_ORIGINS, allow_headers="*", methods=["GET", "POST", "OPTIONS"])
+log.info(f"CORS ingeschakeld voor origins: {ALLOWED_ORIGINS}")
 
 # ─────────────────── Helper: decorator → function-schema ───────────────────
 def function_tool(fn: Any) -> Any:
@@ -74,24 +82,37 @@ DEFAULT_TOPICS_PER_THEME={
 
 # ─────────────────────────── DB-initialisatie ────────────────────────────
 if not DB_FILE.exists():
+    log.warning(f"Databasebestand {DB_FILE} niet gevonden. Nieuwe database wordt aangemaakt.")
     with sqlite3.connect(DB_FILE) as con:
         con.execute("CREATE TABLE sessions (id TEXT PRIMARY KEY, state TEXT NOT NULL)")
         con.execute("CREATE TABLE summaries (id TEXT, ts REAL, summary TEXT)")
+    log.info("Database en tabellen (sessions, summaries) succesvol aangemaakt.")
 
 def load_state(sid:str)->Optional[Dict[str,Any]]:
+    log.debug(f"Pogen state te laden voor session_id: {sid}")
     with sqlite3.connect(DB_FILE) as con:
         row = con.execute("SELECT state FROM sessions WHERE id=?",(sid,)).fetchone()
-        return json.loads(row[0]) if row else None
+        if row:
+            log.debug(f"State gevonden en geladen voor session_id: {sid}")
+            return json.loads(row[0])
+        else:
+            log.debug(f"Geen state gevonden voor session_id: {sid}")
+            return None
 def save_state(sid:str, st:Dict[str,Any]):
+    log.debug(f"State opslaan voor session_id: {sid}")
     with sqlite3.connect(DB_FILE) as con:
         con.execute("REPLACE INTO sessions (id,state) VALUES (?,?)",(sid,json.dumps(st)))
+    log.debug(f"State succesvol opgeslagen voor session_id: {sid}")
 
 # ─────────────────────────── Sessions ────────────────────────────────────
 def get_session(sid:str)->Dict[str,Any]:
     st=load_state(sid)
-    if st: return st
+    if st:
+        log.info(f"Bestaande sessie {sid} geladen. Huidige fase: {st.get('stage', 'ONBEKEND')}")
+        return st
+    log.info(f"Nieuwe sessie gestart met id: {sid}")
     st={"id":sid,
-        "history":[{"role":"system","content":"SYSTEM_PROMPT"}],
+        "history":[{"role":"system","content":SYSTEM_PROMPT}],
         "stage":Stage.THEME_SELECTION.value,
         "plan":{"themes":[], "topics":{}, "qa_items":[]},
         "qa_queue":[], "current_question":None}
@@ -100,101 +121,152 @@ def get_session(sid:str)->Dict[str,Any]:
 # ───────────────────── Guardrail-sentiment ───────────────────────────────
 def detect_sentiment(text:str)->Literal["ok","needs_menu"]:
     vague=["weet niet","geen idee","idk"]
-    return "needs_menu" if len(text.split())<4 or any(v in text.lower() for v in vague) else "ok"
+    result = "needs_menu" if len(text.split())<4 or any(v in text.lower() for v in vague) else "ok"
+    log.debug(f"Sentimentanalyse voor tekst '{text[:50]}...': {result}")
+    return result
 
 # ─────────────────────────── Tools ───────────────────────────────────────
 @function_tool
 def get_plan_status(session_id:str)->str:
-    st=get_session(session_id); return json.dumps({"stage":st["stage"],"plan":st["plan"]})
+    """Geeft de huidige status van het geboorteplan terug."""
+    log.info(f"Tool 'get_plan_status' aangeroepen voor sessie: {session_id}")
+    st=get_session(session_id)
+    status = json.dumps({"stage":st["stage"],"plan":st["plan"]})
+    log.debug(f"Plan status voor {session_id}: {status}")
+    return status
 
 @function_tool
 def offer_choices(session_id:str,choice_type:Literal['themes','topics'],theme_context:Optional[str]=None)->str:
     """Biedt een lijst van keuzes voor thema's of onderwerpen."""
+    log.info(f"Tool 'offer_choices' aangeroepen voor sessie: {session_id}. Type: {choice_type}, Context: {theme_context}")
     if choice_type == 'themes':
-        return ", ".join(t["name"] for t in DEFAULT_THEMES)
+        choices = ", ".join(t["name"] for t in DEFAULT_THEMES)
+        log.debug("Beschikbare thema's worden aangeboden.")
+        return choices
 
     if choice_type == 'topics':
         if not theme_context:
+            log.warning(f"Aanroep 'offer_choices' voor topics zonder theme_context in sessie {session_id}.")
             return "Error: theme_context is verplicht voor het opvragen van topics."
-        
-        # Case-insensitive lookup
+
+        log.debug(f"Zoeken naar onderwerpen voor thema: {theme_context}")
         for key, topics in DEFAULT_TOPICS_PER_THEME.items():
             if key.lower() == theme_context.lower():
+                log.debug(f"Onderwerpen gevonden voor '{theme_context}': {topics}")
                 return ", ".join(topics)
-        
-        # Geef geen lege string terug, maar een expliciete instructie voor de agent.
+
+        log.warning(f"Geen standaard onderwerpen gevonden voor thema '{theme_context}' in sessie {session_id}.")
         return "Geen standaard onderwerpen gevonden. Bedenk zelf 4 tot 5 relevante suggesties voor dit thema."
 
+    log.error(f"Ongeldig choice_type '{choice_type}' in 'offer_choices' voor sessie {session_id}.")
     return "Error: Ongeldig choice_type."
 
 @function_tool
 def add_item(session_id:str,item_type:Literal['theme','topic'],name:str,
              theme_context:Optional[str]=None,is_custom:bool=False)->str:
+    """Voegt een thema of onderwerp toe aan het plan."""
+    log.info(f"Tool 'add_item' voor sessie {session_id}: Type={item_type}, Naam='{name}', Context='{theme_context}', Custom={is_custom}")
     st=get_session(session_id); plan=st["plan"]
     if item_type=='theme':
-        if len(plan["themes"])>=6: return "Error:max 6 thema's."
+        if len(plan["themes"])>=6:
+            log.warning(f"Poging om meer dan 6 thema's toe te voegen in sessie {session_id}.")
+            return "Error:max 6 thema's."
         if name not in [t["name"] for t in plan["themes"]]:
-            plan["themes"].append({"name":name,"is_custom":is_custom}); st["stage"]=Stage.TOPIC_SELECTION.value
+            plan["themes"].append({"name":name,"is_custom":is_custom})
+            st["stage"]=Stage.TOPIC_SELECTION.value
+            log.info(f"Thema '{name}' toegevoegd aan plan voor sessie {session_id}. Nieuwe fase: {st['stage']}")
     elif item_type=='topic' and theme_context:
         plan["topics"].setdefault(theme_context,[])
         if len(plan["topics"][theme_context])<4 and name not in plan["topics"][theme_context]:
             plan["topics"][theme_context].append(name)
+            log.info(f"Onderwerp '{name}' toegevoegd aan thema '{theme_context}' voor sessie {session_id}.")
     save_state(session_id,st); return "ok"
 
 @function_tool
 def remove_item(session_id:str,item_type:Literal['theme','topic'],name:str,
                 theme_context:Optional[str]=None)->str:
+    """Verwijdert een thema of onderwerp uit het plan."""
+    log.info(f"Tool 'remove_item' voor sessie {session_id}: Type={item_type}, Naam='{name}', Context='{theme_context}'")
     st=get_session(session_id); plan=st["plan"]
     if item_type=='theme':
-        plan["themes"]=[t for t in plan["themes"] if t["name"]!=name]; plan["topics"].pop(name,None)
+        plan["themes"]=[t for t in plan["themes"] if t["name"]!=name]
+        plan["topics"].pop(name,None)
+        log.info(f"Thema '{name}' en bijbehorende topics verwijderd voor sessie {session_id}.")
     elif item_type=='topic' and theme_context:
-        plan["topics"].get(theme_context,[]).remove(name)
+        if name in plan["topics"].get(theme_context,[]):
+             plan["topics"].get(theme_context,[]).remove(name)
+             log.info(f"Onderwerp '{name}' van thema '{theme_context}' verwijderd voor sessie {session_id}.")
     save_state(session_id,st); return "ok"
 
 @function_tool
 def update_item(session_id:str,item_type:Literal['theme','topic'],
                 old_name:str,new_name:str,theme_context:Optional[str]=None)->str:
+    """Werkt de naam van een thema of onderwerp bij."""
+    log.info(f"Tool 'update_item' voor sessie {session_id}: Type={item_type}, Oud='{old_name}', Nieuw='{new_name}', Context='{theme_context}'")
     st=get_session(session_id); plan=st["plan"]
     if item_type=='theme':
         for t in plan["themes"]:
             if t["name"]==old_name: t["name"]=new_name
         if old_name in plan["topics"]:
             plan["topics"][new_name]=plan["topics"].pop(old_name)
+        log.info(f"Thema hernoemd van '{old_name}' naar '{new_name}' in sessie {session_id}.")
     elif item_type=='topic' and theme_context:
         plan["topics"][theme_context]=[new_name if x==old_name else x for x in plan["topics"].get(theme_context,[])]
-        for qa in plan["plan"]["qa_items"]:
+        for qa in plan["qa_items"]:
             if qa["theme"]==theme_context and qa["topic"]==old_name:
                 qa["topic"]=new_name
+        log.info(f"Onderwerp in thema '{theme_context}' hernoemd van '{old_name}' naar '{new_name}' in sessie {session_id}.")
     save_state(session_id,st); return "ok"
 
 # --- QA-tools ---
 @function_tool
 def start_qa_session(session_id:str)->str:
+    """Start de vragenronde (QA-sessie)."""
     st=get_session(session_id)
-    if st["stage"]==Stage.QA_SESSION.value: return "We zijn al in de vragenronde."
+    log.info(f"Tool 'start_qa_session' aangeroepen voor sessie {session_id}.")
+    if st["stage"]==Stage.QA_SESSION.value:
+        log.warning(f"Poging om QA-sessie te starten die al bezig is in sessie {session_id}.")
+        return "We zijn al in de vragenronde."
     st["qa_queue"]=[]
     for theme,topics in st["plan"]["topics"].items():
         for t in topics:
             st["qa_queue"].append({"theme":theme,"topic":t,"question":f"Wat zijn je wensen rondom {t}?"})
-    st["stage"]=Stage.QA_SESSION.value; save_state(session_id,st); return "ok"
+    st["stage"]=Stage.QA_SESSION.value
+    log.info(f"QA-sessie gestart voor sessie {session_id}. {len(st['qa_queue'])} vragen in wachtrij. Nieuwe fase: {st['stage']}")
+    save_state(session_id,st); return "ok"
 
 @function_tool
 def get_next_question(session_id:str)->str:
+    """Haalt de volgende vraag op uit de wachtrij."""
     st=get_session(session_id)
+    log.info(f"Tool 'get_next_question' aangeroepen voor sessie {session_id}.")
     if not st["qa_queue"]:
-        st["stage"]=Stage.COMPLETED.value; save_state(session_id,st); return "Alle vragen zijn beantwoord!"
-    st["current_question"]=st["qa_queue"].pop(0); save_state(session_id,st)
-    return f"Vraag over '{st['current_question']['topic']}': {st['current_question']['question']}"
+        st["stage"]=Stage.COMPLETED.value
+        save_state(session_id,st)
+        log.info(f"Geen vragen meer in de wachtrij voor sessie {session_id}. Fase naar COMPLETED gezet.")
+        return "Alle vragen zijn beantwoord!"
+    st["current_question"]=st["qa_queue"].pop(0)
+    save_state(session_id,st)
+    question_text = f"Vraag over '{st['current_question']['topic']}': {st['current_question']['question']}"
+    log.info(f"Volgende vraag voor sessie {session_id}: {question_text}")
+    return question_text
 
 @function_tool
 def log_answer(session_id:str,answer:str)->str:
+    """Slaat het antwoord op een vraag op."""
     st=get_session(session_id); cq=st["current_question"]
-    if not cq: return "Error:Geen actieve vraag."
+    log.info(f"Tool 'log_answer' aangeroepen voor sessie {session_id} met antwoord: '{answer[:50]}...'")
+    if not cq:
+        log.error(f"Poging om antwoord op te slaan zonder actieve vraag in sessie {session_id}.")
+        return "Error:Geen actieve vraag."
     st["plan"]["qa_items"].append({**cq,"answer":answer}); st["current_question"]=None
+    log.info(f"Antwoord op vraag over '{cq['topic']}' opgeslagen voor sessie {session_id}.")
     save_state(session_id,st); return "Antwoord opgeslagen."
 
 @function_tool
 def update_question(session_id:str,old_question:str,new_question:str)->str:
+    """Werkt een bestaande vraag bij."""
+    log.info(f"Tool 'update_question' aangeroepen voor sessie {session_id}. Oud: '{old_question[:30]}...', Nieuw: '{new_question[:30]}...'")
     st=get_session(session_id)
     st["qa_queue"]=[{**q,"question":new_question} if q["question"]==old_question else q for q in st["qa_queue"]]
     for qa in st["plan"]["qa_items"]:
@@ -205,6 +277,8 @@ def update_question(session_id:str,old_question:str,new_question:str)->str:
 
 @function_tool
 def remove_question(session_id:str,question_text:str)->str:
+    """Verwijdert een vraag."""
+    log.info(f"Tool 'remove_question' aangeroepen voor sessie {session_id} voor vraag: '{question_text[:50]}...'")
     st=get_session(session_id)
     st["qa_queue"]=[q for q in st["qa_queue"] if q["question"]!=question_text]
     st["plan"]["qa_items"]=[q for q in st["plan"]["qa_items"] if q["question"]!=question_text]
@@ -212,6 +286,8 @@ def remove_question(session_id:str,question_text:str)->str:
 
 @function_tool
 def update_answer(session_id:str,question_text:str,new_answer:str)->str:
+    """Werkt een gegeven antwoord bij."""
+    log.info(f"Tool 'update_answer' aangeroepen voor sessie {session_id} voor vraag '{question_text[:30]}...' met nieuw antwoord: '{new_answer[:30]}...'")
     st=get_session(session_id)
     for qa in st["plan"]["qa_items"]:
         if qa["question"]==question_text: qa["answer"]=new_answer
@@ -220,52 +296,72 @@ def update_answer(session_id:str,question_text:str,new_answer:str)->str:
 # --- Proactieve-Gids tools ---
 @function_tool
 def find_web_resources(topic:str,depth:Literal['brief','diep']='brief')->str:
+    """Zoekt naar webbronnen over een bepaald onderwerp."""
+    log.info(f"Tool 'find_web_resources' aangeroepen. Topic: {topic}, Depth: {depth}")
     return json.dumps({"summary":f"Samenvatting over {topic}",
                        "links":[f"https://example.com/{topic}"]})
 
 @function_tool
 def vergelijk_opties(options:List[str])->str:
+    """Vergelijkt verschillende opties."""
+    log.info(f"Tool 'vergelijk_opties' aangeroepen. Opties: {options}")
     return f"Vergelijking: {', '.join(options)}"
 
 @function_tool
 def geef_denkvraag(theme:str)->str:
+    """Geeft een reflectievraag over een thema."""
+    log.info(f"Tool 'geef_denkvraag' aangeroepen. Thema: {theme}")
     return f"Hoe voel je je over {theme}?"
 
 @function_tool
 def find_external_organization(keyword:str)->str:
+    """Zoekt naar externe organisaties."""
+    log.info(f"Tool 'find_external_organization' aangeroepen. Keyword: {keyword}")
     return json.dumps({"organisaties":[f"{keyword} support groep"]})
 
 @function_tool
 def check_onbeantwoorde_punten(session_id:str)->str:
-    st=get_session(session_id); return json.dumps({"missing":st["qa_queue"]})
+    """Controleert of er nog onbeantwoorde vragen zijn."""
+    log.info(f"Tool 'check_onbeantwoorde_punten' aangeroepen voor sessie {session_id}.")
+    st=get_session(session_id)
+    return json.dumps({"missing":st["qa_queue"]})
 
 @function_tool
 def genereer_plan_tekst(session_id:str,format:Literal['markdown','plain']='markdown')->str:
+    """Genereert de tekst van het geboorteplan."""
+    log.info(f"Tool 'genereer_plan_tekst' aangeroepen voor sessie {session_id} in formaat: {format}")
     st=get_session(session_id)
     return "# Geboorteplan\n"+json.dumps(st["plan"],ensure_ascii=False,indent=2)
 
 @function_tool
 def present_tool_choices(choices:str)->str:
     """Geeft JSON-string terug zodat de frontend dit als quick-replies kan tonen."""
+    log.info(f"Tool 'present_tool_choices' aangeroepen met keuzes: {choices}")
     return choices
 
 @function_tool
 def save_plan_summary(session_id:str)->str:
+    """Slaat een samenvatting van het plan op in de database."""
     st=get_session(session_id)
+    log.info(f"Tool 'save_plan_summary' aangeroepen voor sessie {session_id}.")
     prompt="Vat dit geboorteplan samen in 5 bulletpoints:"+json.dumps(st["plan"],ensure_ascii=False)
     try:
         resp=client.chat.completions.create(model="gpt-3.5-turbo",messages=[{"role":"user","content":prompt}])
         summary=resp.choices[0].message.content.strip()
+        log.info(f"Samenvatting succesvol gegenereerd voor sessie {session_id}.")
     except Exception as e:
+        log.error(f"Genereren van samenvatting mislukt voor sessie {session_id}: {e}", exc_info=True)
         summary=f"(samenvatting mislukt: {e})"
     with sqlite3.connect(DB_FILE) as con:
         con.execute("INSERT INTO summaries (id,ts,summary) VALUES (?,?,?)",(session_id,time.time(),summary))
+    log.info(f"Samenvatting opgeslagen in database voor sessie {session_id}.")
     return "summary_saved"
 
 # *** NIEUWE TOOL TOEGEVOEGD ***
 @function_tool
 def propose_quick_replies(session_id: str, replies: List[str]) -> str:
     """Stel een lijst van quick reply-knoppen voor die de frontend kan tonen. Gebruik dit voor ja/nee-vragen of om de gebruiker te helpen kiezen."""
+    log.info(f"Tool 'propose_quick_replies' aangeroepen voor sessie {session_id} met replies: {replies}")
     # Deze tool is een signaal voor de 'build_payload' functie.
     # We geven de lijst van replies gewoon terug als bevestiging.
     return f"Quick replies voorgesteld: {', '.join(replies)}"
@@ -335,7 +431,7 @@ Wacht niet altijd op de gebruiker, maar stel proactief de volgende logische stap
 - **Validatie**: Valideer gebruikersinput voordat je tools aanroept (bijv. max 6 thema's, max 4 onderwerpen).
 
 ## FLEXIBILITEIT REGELS
-- De gebruiker heeft altijd de controle en mag op elk moment terug naar een vorige fase of iets aanpassen.
+- De gebruiker heeft altijd de controle en mag op elk moment terug naar een vorige fase of iets aan te passen.
 - Gebruik de diverse `update_` en `remove_` tools om de gebruiker deze flexibiliteit te bieden.
 
 Je bent een deskundige gids die het geboorteplan-proces soepel en ondersteunend begeleidt, waarbij de gebruiker altijd de controle behoudt.
@@ -351,13 +447,17 @@ tool_funcs=[get_plan_status, offer_choices, add_item, remove_item, update_item,
             propose_quick_replies] # <-- Nieuwe tool toegevoegd
 tools_schema=[get_schema(t) for t in tool_funcs]
 TOOL_MAP={t.openai_schema['function']['name']:t for t in tool_funcs}
+log.info(f"{len(tool_funcs)} tools geregistreerd: {[name for name in TOOL_MAP.keys()]}")
 
 # ───────────────────────── Agent-loop ────────────────────────────────────
 def run_main_agent_loop(sid:str)->str:
     st=get_session(sid)
+    log.info(f"Start main agent loop voor sessie {sid}. Aantal history berichten: {len(st['history'])}")
 
     # Guardrail vóór de OpenAI-call
-    if detect_sentiment(st["history"][-1]["content"])=="needs_menu":
+    last_user_message = st["history"][-1]["content"]
+    if detect_sentiment(last_user_message) == "needs_menu":
+        log.warning(f"Sentiment 'needs_menu' gedetecteerd voor sessie {sid}. Activeren van proactieve gids.")
         menu=json.dumps({"choices":[
             {"label":"Meer info","tool":"find_web_resources","args":{"topic":"pijnstilling"}},
             {"label":"Vergelijk opties","tool":"vergelijk_opties","args":{"options":["epiduraal","badbevalling"]}},
@@ -365,29 +465,39 @@ def run_main_agent_loop(sid:str)->str:
         ]})
         return present_tool_choices(session_id=sid,choices=menu)
 
-    for _ in range(5):  # MAX_TURNS
+    for turn_count in range(5):  # MAX_TURNS
+        log.info(f"Agent-loop beurt {turn_count + 1}/5 voor sessie {sid}.")
+        log.debug(f"Versturen van history naar OpenAI voor sessie {sid}:\n{json.dumps(st['history'], indent=2, ensure_ascii=False)}")
         resp=client.chat.completions.create(model=MODEL_CHOICE,
-                messages=st["history"], tools=tools_schema, tool_choice="auto")
+            messages=st["history"], tools=tools_schema, tool_choice="auto")
         msg=resp.choices[0].message
         st["history"].append(msg.model_dump(exclude_unset=True))
-        
+        log.debug(f"Antwoord van OpenAI ontvangen voor sessie {sid}:\n{msg}")
+
         # Als de agent alleen tekst teruggeeft, is de beurt voorbij
         if not msg.tool_calls:
+            log.info(f"Agent {sid} gaf een tekstueel antwoord. Loop wordt beëindigd.")
             return msg.content or "(geen antwoord)"
 
         # Als de agent een tool aanroept
+        log.info(f"Agent {sid} wil {len(msg.tool_calls)} tool(s) aanroepen: {[call.function.name for call in msg.tool_calls]}")
         tool_results = []
         for call in msg.tool_calls:
             fn = TOOL_MAP.get(call.function.name)
+            log.info(f"Uitvoeren van tool '{call.function.name}' voor sessie {sid}")
             if not fn:
                 result = f"Error: tool '{call.function.name}' not found."
+                log.error(f"Tool '{call.function.name}' niet gevonden voor sessie {sid}.")
             else:
                 try:
                     args = json.loads(call.function.arguments)
+                    log.debug(f"Argumenten voor tool '{call.function.name}': {args}")
                     result = fn(session_id=sid, **args)
+                    log.info(f"Resultaat van tool '{call.function.name}': {str(result)[:100]}...")
                 except Exception as e:
                     result = f"Error executing tool: {e}"
-            
+                    log.error(f"Fout bij uitvoeren tool '{call.function.name}' voor sessie {sid}: {e}", exc_info=True)
+
             tool_results.append({
                 "tool_call_id": call.id,
                 "role": "tool",
@@ -398,20 +508,25 @@ def run_main_agent_loop(sid:str)->str:
         # Als de laatste tool-aanroep propose_quick_replies was, is de beurt voorbij voor de agent
         # De payload-functie handelt de rest af. We retourneren de vorige tekst van de agent.
         if msg.tool_calls[-1].function.name == 'propose_quick_replies':
-            # Zoek de laatste 'assistant' boodschap die geen tool call was.
+            log.info(f"Tool 'propose_quick_replies' was de laatste aanroep. Agent-loop pauzeert en geeft controle terug.")
+            # Zoek de laatste 'assistant' boodschap die content heeft.
             for i in range(len(st["history"]) - 2, -1, -1):
                 if st["history"][i].get("role") == "assistant" and st["history"][i].get("content"):
+                    log.debug(f"Vorig assistentbericht gevonden om terug te sturen naar frontend: '{st['history'][i]['content'][:50]}...'")
                     return st["history"][i]["content"]
+            log.warning("Geen vorig assistentbericht gevonden na 'propose_quick_replies'.")
             return "(actie wordt voorbereid)" # Fallback
 
         st["history"].extend(tool_results)
         save_state(sid, st)
 
+    log.warning(f"Maximum aantal beurten (5) bereikt in agent-loop voor sessie {sid}.")
     return "(max turns bereikt)"
 
 # ───────────────────── build_payload (VOLLEDIG VERVANGEN) ────────────────
 def build_payload(st:Dict[str,Any], reply:str)->Dict[str,Any]:
     """Stelt de JSON payload samen die naar de frontend wordt gestuurd."""
+    log.info(f"Samenstellen van payload voor sessie {st.get('id', 'onbekend')}.")
     payload = {
         "assistant_reply": reply,
         "session_id": st["id"],
@@ -420,75 +535,96 @@ def build_payload(st:Dict[str,Any], reply:str)->Dict[str,Any]:
         "suggested_replies": []
     }
 
-    # Kijk naar de laatste berichten in de geschiedenis om de tool call te vinden
     if not st["history"]:
+        log.warning(f"build_payload aangeroepen met lege history voor sessie {st.get('id')}")
         return payload
 
-    # De tool_calls zitten in het 'assistant' bericht
     last_message = st["history"][-1]
     if (last_message and
         last_message.get("role") == "assistant" and
         last_message.get("tool_calls")):
-        
-        # Zoek specifiek naar een aanroep van propose_quick_replies
+
+        log.debug(f"Laatste bericht in history bevat tool calls. Controleren op 'propose_quick_replies'.")
         for tool_call in last_message["tool_calls"]:
             if tool_call.get("function", {}).get("name") == "propose_quick_replies":
                 try:
-                    # Haal de 'replies' argumenten op uit de tool call
                     args = json.loads(tool_call["function"]["arguments"])
                     payload["suggested_replies"] = args.get("replies", [])
-                    # Stop met zoeken zodra we het gevonden hebben
+                    log.info(f"Quick replies gevonden en toegevoegd aan payload: {payload['suggested_replies']}")
                     break
-                except (json.JSONDecodeError, TypeError):
-                    # Argumenten waren geen valide JSON, negeer
+                except (json.JSONDecodeError, TypeError) as e:
+                    log.error(f"Fout bij parsen van 'propose_quick_replies' argumenten: {e}", exc_info=True)
                     pass
-    
+
+    log.debug(f"Finale payload voor sessie {st.get('id')}:\n{json.dumps(payload, indent=2, ensure_ascii=False)}")
     return payload
 
 # ───────────────────────── Flask-routes ─────────────────────────────────
 @app.post("/agent")
 def agent_route():
-    body=request.get_json(force=True) or {}
-    msg=body.get("message","").strip()
-    sid=body.get("session_id") or str(uuid.uuid4())
-    if not msg:
-        return jsonify({"assistant_reply":"(leeg bericht)","session_id":sid})
-    
-    st=get_session(sid)
-    # De System Prompt staat nu in de history, we hoeven hem niet opnieuw toe te voegen.
-    st["history"].append({"role":"user","content":msg})
-    save_state(sid,st)
+    log.info(f"Binnenkomend verzoek op /agent van IP: {request.remote_addr}")
+    try:
+        body=request.get_json(force=True) or {}
+        msg=body.get("message","").strip()
+        sid=body.get("session_id") or str(uuid.uuid4())
+        log.info(f"Sessie ID: {sid}, Bericht: '{msg}'")
 
-    reply=run_main_agent_loop(sid)
+        if not msg:
+            log.warning("Leeg bericht ontvangen.")
+            return jsonify({"assistant_reply":"(leeg bericht)","session_id":sid})
 
-    # De agent loop voegt nu zelf de history toe, dus we hoeven dat hier niet dubbel te doen.
-    # We laden de laatste state om de payload te bouwen.
-    final_st = get_session(sid)
+        st=get_session(sid)
+        st["history"].append({"role":"user","content":msg})
+        save_state(sid,st)
+        log.debug(f"Gebruikersbericht toegevoegd aan history voor sessie {sid}.")
 
-    if final_st["stage"]==Stage.COMPLETED.value:
-        save_plan_summary(session_id=sid)
-    
-    return jsonify(build_payload(final_st,reply))
+        reply=run_main_agent_loop(sid)
+        log.info(f"Agent-loop voltooid voor sessie {sid}. Antwoord: '{reply[:100]}...'")
+
+        final_st = get_session(sid)
+
+        if final_st["stage"]==Stage.COMPLETED.value:
+            log.info(f"Sessie {sid} is in COMPLETED fase. Samenvatting wordt opgeslagen.")
+            save_plan_summary(session_id=sid)
+
+        response_payload = build_payload(final_st,reply)
+        return jsonify(response_payload)
+    except Exception as e:
+        log.critical(f"Onverwachte fout in /agent route: {e}", exc_info=True)
+        return jsonify({"error": "Er is een interne serverfout opgetreden."}), 500
 
 @app.get("/export/<sid>")
 def export_json(sid):
-    st=load_state(sid); 
-    if not st: abort(404)
+    log.info(f"Exportverzoek voor sessie {sid} (JSON).")
+    st=load_state(sid);
+    if not st:
+        log.warning(f"Exportverzoek voor onbekende sessie {sid}.")
+        abort(404)
     path=ROOT/f"geboorteplan_{sid}.json"
     path.write_text(json.dumps(st["plan"],ensure_ascii=False,indent=2),"utf-8")
+    log.info(f"Geboorteplan voor {sid} geëxporteerd naar {path}")
     return send_file(path,as_attachment=True,download_name=path.name)
 
 # iframe- en statische bestanden (oorspronkelijk)
 @app.route("/", defaults={"path":""})
 @app.route("/<path:path>")
 def serve_frontend(path):
+    log.debug(f"Frontend verzoek voor pad: '{path}'")
     if path=="iframe":
-        return render_template("iframe_page.html",
-            backend_url=os.getenv("RENDER_EXTERNAL_URL","http://127.0.0.1:10000"))
-    full=os.path.join(app.static_folder,path)
-    if path and os.path.exists(full):
-        return send_from_directory(app.static_folder,path)
-    return send_from_directory(app.static_folder,"index.html")
+        backend_url = os.getenv("RENDER_EXTERNAL_URL","http://127.0.0.1:10000")
+        log.info(f"Iframe pagina wordt geserveerd met backend_url: {backend_url}")
+        return render_template("iframe_page.html", backend_url=backend_url)
+
+    full_path = os.path.join(app.static_folder, path)
+    if path and os.path.exists(full_path):
+        log.debug(f"Statisch bestand '{path}' wordt geserveerd.")
+        return send_from_directory(app.static_folder, path)
+
+    log.debug("Geen specifiek pad gevonden, 'index.html' wordt geserveerd.")
+    return send_from_directory(app.static_folder, "index.html")
 
 if __name__=="__main__":
-    app.run("0.0.0.0", int(os.getenv("PORT",10000)), debug=True)
+    port = int(os.getenv("PORT", 10000))
+    debug_mode = os.getenv("FLASK_DEBUG", "False").lower() in ("true", "1", "t")
+    log.info(f"Flask applicatie wordt gestart op 0.0.0.0:{port} (Debug modus: {debug_mode})")
+    app.run("0.0.0.0", port, debug=debug_mode)
