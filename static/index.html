@@ -5,9 +5,11 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Geboorteplan-agent (debug)</title>
 
+  <!-- Fonts & libs -->
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet" />
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 
+  <!-- ---------- Kleuren, basisstijl & layout ---------- -->
   <style>
     :root{
       --rose:#d5848d; --rose-light:#e8a8b0;
@@ -124,15 +126,6 @@
     }
     @keyframes spin{ to{ transform:rotate(360deg); } }
 
-    /* ---------- Animatie ---------- */
-    @keyframes flash {
-      from { background-color: var(--sage-light); }
-      to { background-color: transparent; }
-    }
-    .chip.new-item {
-      animation: flash 1.5s ease-out;
-    }
-
     /* ---------- Mobiel ---------- */
     #mobile-tabs{ display:none; }
     .mobile-face{
@@ -156,12 +149,14 @@
 </head>
 
 <body>
+  <!-- ---------- Mobiele tabknoppen ---------- -->
   <div id="mobile-tabs">
     <button id="tab-chat" class="active">Chat</button>
     <button id="tab-plan">Jouw&nbsp;Plan</button>
   </div>
 
   <main id="layout">
+    <!-- ---------- Chat kolom ---------- -->
     <div id="chat-col">
       <div id="chatbox"></div>
 
@@ -176,6 +171,7 @@
       </div>
     </div>
 
+    <!-- ---------- Sidebar (flip-card) ---------- -->
     <div id="sidebar-container">
       <div id="flip-card">
         <div class="sidebar-face face-front" id="plan-front"></div>
@@ -183,6 +179,7 @@
       </div>
     </div>
 
+    <!-- ---------- Mobiele weergave ---------- -->
     <div id="mobile-container" style="display:none;">
       <div class="mobile-face active" id="mobile-chat-face">
         <div id="mobile-chatbox"></div>
@@ -202,11 +199,12 @@
     </div>
   </main>
 
+<!-- ===================== SCRIPT ===================== -->
 <script>
 /* -------------------------------------------------- *
  * 1. Debug-hulpmiddelen                              *
  * -------------------------------------------------- */
-const DEBUG = true;
+const DEBUG = true;                     // zet op false in productie
 window.$debug = { events:[], lastReq:null, lastRes:null };
 
 function dlog(lvl, ...msg){
@@ -308,7 +306,7 @@ window.addEventListener("DOMContentLoaded", () => {
   const showLoader = isMobile => (isMobile ? ui.mobileChatLoader : ui.chatLoader).style.display = "flex";
   const hideLoader = isMobile => (isMobile ? ui.mobileChatLoader : ui.chatLoader).style.display = "none";
 
-  /* ---------- 2.4 Server-call (AANGEPAST) ---------- */
+  /* ---------- 2.4 Server-call ---------- */
   async function callAgent(message, sid){
     const isMobile = window.innerWidth <= 900;
     showLoader(isMobile);
@@ -327,17 +325,17 @@ window.addEventListener("DOMContentLoaded", () => {
       const data = await res.json();
       dlog('log', '[API ←] data', data);
       return data;
-    } catch(err) {
+    }catch(err){
       dlog('error', '[API error]', err);
       const box = isMobile ? ui.mobileChatbox : ui.chatbox;
-      addMsg("bot", "⚠️ Er ging iets mis bij de server-aanroep. Controleer de verbinding en probeer het opnieuw.", box);
-      return null; // Geef null terug bij een fout, gooi de error niet door
-    } finally {
+      addMsg("bot", "⚠️ Er ging iets mis bij de server-aanroep.", box);
+      throw err;
+    }finally{
       hideLoader(isMobile);
     }
   }
 
-  /* ---------- 2.5 Render-engine (AANGEPAST) ---------- */
+  /* ---------- 2.5 Render-engine ---------- */
   function renderUI(data){
     if(!data || !data.plan){ dlog('warn','[renderUI] Geen plan in payload'); return; }
 
@@ -345,6 +343,7 @@ window.addEventListener("DOMContentLoaded", () => {
     localSelections.themes = new Set((data.plan.themes || []).map(t => t.name));
     localSelections.topics = data.plan.topics || {};
 
+    /* ❶ JSON-menu uit present_tool_choices? */
     let menuChoices = [];
     if(typeof data.assistant_reply === "string" && data.assistant_reply.trim().startsWith("{")){
       try{
@@ -353,16 +352,15 @@ window.addEventListener("DOMContentLoaded", () => {
       }catch(_){ /* not a menu */ }
     }
 
-    renderFrontFace(data.plan); // Aanroep aangepast
+    renderFrontFace(data.plan);
     renderBackFace();
     renderMobilePlan();
     renderQuickReplies([ ...(data.suggested_replies || []), ...menuChoices ]);
     console.groupEnd();
   }
 
-  /* ----- voor-kant van flip-card (AANGEPAST) ----- */
-  function renderFrontFace(plan){ // Accepteert nu direct het plan-object
-    if (!plan) return; // Veiligheidscheck
+  /* ----- voor-kant van flip-card ----- */
+  function renderFrontFace(plan){
     let html = '<h4>Jouw Geboorteplan</h4>';
 
     /* Thema-blokken */
@@ -458,80 +456,58 @@ window.addEventListener("DOMContentLoaded", () => {
   }
 
   /* -------------------------------------------------- *
-   * 2.6 Gebruikers-interactie (AANGEPAST)              *
+   * 2.6 Gebruikers-interactie                          *
    * -------------------------------------------------- */
 
   /* Thema-chip */
   window.handleThemeChipClick = (themeName) => {
     dlog('log', `[click] theme ${themeName}`);
     const alreadySelected = localSelections.themes.has(themeName);
-    const operation = alreadySelected ? 'remove' : 'add';
-    const originalThemes = new Set(localSelections.themes);
 
-    // Optimistische UI-update
-    if (alreadySelected) {
-        localSelections.themes.delete(themeName);
-    } else if (localSelections.themes.size < 6) {
-        localSelections.themes.add(themeName);
-    } else {
+    /* ---------- FIX 1 ---------- */
+    if(!alreadySelected){
+      if(localSelections.themes.size >= 6){
         dlog('warn', '[theme] limiet 6 bereikt');
         return;
+      }
+      localSelections.themes.add(themeName);
     }
-    
-    // Stuur de wijziging direct en stil naar de backend
-    const msg = `Gebruiker heeft thema '${themeName}' ${operation === 'add' ? 'toegevoegd' : 'verwijderd'}.`;
-    handleSend(msg, true).then(success => {
-        if (success) {
-            if (operation === 'add') {
-                currentThemeForTopics = themeName;
-                renderBackFace();
-                setTimeout(() => ui.flipCard.classList.add('is-flipped'), 50);
-            }
-        } else {
-            // Zet UI terug als de servercall mislukt
-            localSelections.themes = originalThemes;
-        }
-        // Herteken de voorkant om de staat te corrigeren
-        const currentPlanState = {
-            themes: [...localSelections.themes].map(name => ({name})),
-            topics: localSelections.topics,
-            qa_items: [] // Gebruik lege array of haal uit laatste succesvolle response
-        };
-        renderFrontFace(currentPlanState);
-    });
+    /* --------------------------- */
+
+    currentThemeForTopics = themeName;
+    renderFrontFace({ themes:[...localSelections.themes].map(n=>({name:n})), topics:localSelections.topics, qa_items:[] });
+    renderBackFace();
+    setTimeout(() => ui.flipCard.classList.add('is-flipped'), 50);
   };
 
   /* Topic-chip */
   window.handleTopicChipClick = (themeName, topicName) => {
     dlog('log', `[click] topic ${topicName} in ${themeName}`);
     const set = new Set(localSelections.topics[themeName] || []);
-    const operation = set.has(topicName) ? 'remove' : 'add';
 
-    if (operation === 'add' && set.size >= 4) {
-        dlog('warn', `[topic] limiet 4 bereikt voor ${themeName}`);
-        return;
-    }
-    
-    const msg = `Voor thema '${themeName}', onderwerp '${topicName}' ${operation === 'add' ? 'toegevoegd' : 'verwijderd'}.`;
-    handleSend(msg, true);
-    
-    if (operation === 'add') {
-        set.add(topicName);
-    } else {
-        set.delete(topicName);
-    }
+    if(set.has(topicName)){ set.delete(topicName); }
+    else if(set.size < 4){ set.add(topicName); }
+
     localSelections.topics[themeName] = [...set];
     renderBackFace();
+    renderFrontFace({
+      themes:[...localSelections.themes].map(n=>({name:n})),
+      topics:localSelections.topics,
+      qa_items:[]
+    });
   };
 
   /* Flip-helper */
-  window.flipToFront = () => ui.flipCard.classList.remove('is-flipped');
+  window.flipToFront = () => {
+    ui.flipCard.classList.remove('is-flipped');
+    currentThemeForTopics = null;      /* FIX 2 */
+  };
 
   /* Bevestig-knoppen */
   window.confirmThemeSelections = () => {
     const names = [...localSelections.themes];
     if(!names.length) return;
-    const msg = `Ik heb mijn thema's gekozen. Dit zijn ze: ${names.join(', ')}. Laten we nu onderwerpen kiezen.`;
+    const msg = `Ik heb mijn thema's gekozen. Dit zijn ze: ${names.join(', ')}.`;
     handleSend(msg, true);
   };
   window.confirmTopicSelections = (themeName) => {
@@ -568,6 +544,33 @@ window.addEventListener("DOMContentLoaded", () => {
       "Borstvoeding of flesvoeding","Voedingshoudingen",
       "Kolven","Hulp bij voeding"
     ],
+
+    /* ---------- FIX 3 : nieuw toegevoegde thema’s ---------- */
+    "Kraamtijd": [
+      "Kraamzorg schema","Bezoekregeling",
+      "Rustmomenten","Voeding moeder"
+    ],
+    "Communicatie": [
+      "Taal voorkeur","Informatie overdracht",
+      "Beslissingsproces","Contactpersonen"
+    ],
+    "Speciale wensen": [
+      "Religieuze rituelen","Muziekkeuze",
+      "Aromatherapie","Geboorte affirmaties"
+    ],
+    "Fotografie en video": [
+      "Wel/geen fotograaf","Privacy afspraken",
+      "Social media","Momenten vastleggen"
+    ],
+    "Comfortmaatregelen": [
+      "Warmte/koude therapie","Massage",
+      "Bewegingsoefeningen","Ademtechnieken"
+    ],
+    "Partnerbetrokkenheid": [
+      "Navelstreng doorknippen","Huid-op-huidcontact",
+      "Ondersteunende rol","Beslissingen samen"
+    ]
+    /* ------------------------------------------------------- */
   };
 
   /* -------------------------------------------------- *
@@ -602,10 +605,10 @@ window.addEventListener("DOMContentLoaded", () => {
   }
 
   /* -------------------------------------------------- *
-   * 2.9 Chat-verzending (centrale functie, AANGEPAST)  *
+   * 2.9 Chat-verzending (centrale functie)             *
    * -------------------------------------------------- */
   async function handleSend(txt, silent = false){
-    if(!txt.trim()) return false;
+    if(!txt.trim()) return;
 
     const isMobile = window.innerWidth <= 900;
     const chatBox = isMobile ? ui.mobileChatbox : ui.chatbox;
@@ -618,15 +621,16 @@ window.addEventListener("DOMContentLoaded", () => {
     }
 
     inputEl.value = "";
-    renderQuickReplies([]);
+    renderQuickReplies([]);            // oude opties weg
 
     try{
       const data = await callAgent(txt, sessionId);
-      if(!data) return false;
+      if(!data) return;
 
       sessionId = data.session_id;
       sessionStorage.setItem("agentSession", sessionId);
 
+      /* als assistant_reply puur JSON-menu is, niet in bubble tonen */
       let isJsonMenu = false;
       try{ isJsonMenu = JSON.parse(data.assistant_reply).choices ? true : false; }
       catch(_){ /* not JSON */ }
@@ -636,12 +640,9 @@ window.addEventListener("DOMContentLoaded", () => {
       }
 
       renderUI(data);
-      return true; // Geef true terug bij succes
 
     }catch(err){
-      // Deze catch is nu een extra vangnet, de meeste fouten worden in callAgent afgehandeld
-      addMsg("bot","⚠️ Onbekende fout in de verwerking. Probeer opnieuw.", chatBox);
-      return false;
+      addMsg("bot","⚠️ Onbekende fout. Probeer opnieuw.", chatBox);
     }
   }
 
