@@ -5,11 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Geboorteplan-agent (debug)</title>
 
-  <!-- Fonts & libs -->
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet" />
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 
-  <!-- ---------- Kleuren, basisstijl & layout ---------- -->
   <style>
     :root{
       --rose:#d5848d; --rose-light:#e8a8b0;
@@ -126,6 +124,15 @@
     }
     @keyframes spin{ to{ transform:rotate(360deg); } }
 
+    /* ---------- NIEUWE ANIMATIE ---------- */
+    @keyframes flash {
+      from { background-color: var(--sage-light); }
+      to { background-color: transparent; }
+    }
+    .chip.new-item {
+      animation: flash 1.5s ease-out;
+    }
+
     /* ---------- Mobiel ---------- */
     #mobile-tabs{ display:none; }
     .mobile-face{
@@ -149,14 +156,12 @@
 </head>
 
 <body>
-  <!-- ---------- Mobiele tabknoppen ---------- -->
   <div id="mobile-tabs">
     <button id="tab-chat" class="active">Chat</button>
     <button id="tab-plan">Jouw&nbsp;Plan</button>
   </div>
 
   <main id="layout">
-    <!-- ---------- Chat kolom ---------- -->
     <div id="chat-col">
       <div id="chatbox"></div>
 
@@ -171,7 +176,6 @@
       </div>
     </div>
 
-    <!-- ---------- Sidebar (flip-card) ---------- -->
     <div id="sidebar-container">
       <div id="flip-card">
         <div class="sidebar-face face-front" id="plan-front"></div>
@@ -179,7 +183,6 @@
       </div>
     </div>
 
-    <!-- ---------- Mobiele weergave ---------- -->
     <div id="mobile-container" style="display:none;">
       <div class="mobile-face active" id="mobile-chat-face">
         <div id="mobile-chatbox"></div>
@@ -199,12 +202,11 @@
     </div>
   </main>
 
-<!-- ===================== SCRIPT ===================== -->
 <script>
 /* -------------------------------------------------- *
  * 1. Debug-hulpmiddelen                              *
  * -------------------------------------------------- */
-const DEBUG = true;                     // zet op false in productie
+const DEBUG = true;
 window.$debug = { events:[], lastReq:null, lastRes:null };
 
 function dlog(lvl, ...msg){
@@ -352,7 +354,7 @@ window.addEventListener("DOMContentLoaded", () => {
       }catch(_){ /* not a menu */ }
     }
 
-    renderFrontFace(data.plan);
+    renderFrontFace({plan: data.plan});
     renderBackFace();
     renderMobilePlan();
     renderQuickReplies([ ...(data.suggested_replies || []), ...menuChoices ]);
@@ -360,8 +362,9 @@ window.addEventListener("DOMContentLoaded", () => {
   }
 
   /* ----- voor-kant van flip-card ----- */
-  function renderFrontFace(plan){
-    let html = '<h4>Jouw Geboorteplan</h4>';
+  function renderFrontFace(data){
+      const plan = data.plan; // Zorg ervoor dat 'plan' correct wordt doorgegeven
+      let html = '<h4>Jouw Geboorteplan</h4>';
 
     /* Thema-blokken */
     html += '<div class="plan-section"><h5>Thema\'s (kies max 6)</h5><div class="chips-container">';
@@ -456,44 +459,68 @@ window.addEventListener("DOMContentLoaded", () => {
   }
 
   /* -------------------------------------------------- *
-   * 2.6 Gebruikers-interactie                          *
+   * 2.6 Gebruikers-interactie (AANGEPAST)              *
    * -------------------------------------------------- */
 
   /* Thema-chip */
   window.handleThemeChipClick = (themeName) => {
     dlog('log', `[click] theme ${themeName}`);
     const alreadySelected = localSelections.themes.has(themeName);
+    const operation = alreadySelected ? 'remove' : 'add';
+    const originalThemes = new Set(localSelections.themes);
 
-    if(alreadySelected){
-      localSelections.themes.delete(themeName);
-    }else if(localSelections.themes.size < 6){
-      localSelections.themes.add(themeName);
-    }else{
-      dlog('warn', '[theme] limiet 6 bereikt');
-      return;
+    // Optimistische UI-update
+    if (alreadySelected) {
+        localSelections.themes.delete(themeName);
+    } else if (localSelections.themes.size < 6) {
+        localSelections.themes.add(themeName);
+    } else {
+        dlog('warn', '[theme] limiet 6 bereikt');
+        return;
     }
-
-    currentThemeForTopics = themeName;
-    renderFrontFace({ themes:[...localSelections.themes].map(n=>({name:n})), topics:localSelections.topics, qa_items:[] });
-    renderBackFace();
-    setTimeout(() => ui.flipCard.classList.add('is-flipped'), 50);
+    
+    // Stuur de wijziging direct en stil naar de backend
+    const msg = `Gebruiker heeft thema '${themeName}' ${operation === 'add' ? 'toegevoegd' : 'verwijderd'}.`;
+    handleSend(msg, true).then(success => {
+        if (success) {
+            // Als het succesvol was, toon de achterkant (indien een thema is toegevoegd)
+            if (operation === 'add') {
+                currentThemeForTopics = themeName;
+                renderBackFace(); // Render de achterkant met de juiste topics
+                setTimeout(() => ui.flipCard.classList.add('is-flipped'), 50);
+            }
+        } else {
+            // Als er iets misging, zet de UI terug naar de vorige staat
+            localSelections.themes = originalThemes;
+        }
+        // Herteken de voorkant om de knopstatus bij te werken
+        renderFrontFace({ plan: { themes: [...localSelections.themes].map(name => ({name})), topics: localSelections.topics, qa_items: (window.$debug.lastRes?.plan?.qa_items || []) } });
+    });
   };
 
   /* Topic-chip */
   window.handleTopicChipClick = (themeName, topicName) => {
     dlog('log', `[click] topic ${topicName} in ${themeName}`);
     const set = new Set(localSelections.topics[themeName] || []);
+    const operation = set.has(topicName) ? 'remove' : 'add';
 
-    if(set.has(topicName)){ set.delete(topicName); }
-    else if(set.size < 4){ set.add(topicName); }
-
+    if (operation === 'add' && set.size >= 4) {
+        dlog('warn', `[topic] limiet 4 bereikt voor ${themeName}`);
+        return;
+    }
+    
+    // Stuur een stille update naar de backend
+    const msg = `Voor thema '${themeName}', onderwerp '${topicName}' ${operation === 'add' ? 'toegevoegd' : 'verwijderd'}.`;
+    handleSend(msg, true);
+    
+    // Lokale update voor directe feedback (wordt gecorrigeerd door renderUI na de call)
+    if (operation === 'add') {
+        set.add(topicName);
+    } else {
+        set.delete(topicName);
+    }
     localSelections.topics[themeName] = [...set];
     renderBackFace();
-    renderFrontFace({
-      themes:[...localSelections.themes].map(n=>({name:n})),
-      topics:localSelections.topics,
-      qa_items:[]
-    });
   };
 
   /* Flip-helper */
@@ -503,7 +530,7 @@ window.addEventListener("DOMContentLoaded", () => {
   window.confirmThemeSelections = () => {
     const names = [...localSelections.themes];
     if(!names.length) return;
-    const msg = `Ik heb mijn thema's gekozen. Dit zijn ze: ${names.join(', ')}.`;
+    const msg = `Ik heb mijn thema's gekozen. Dit zijn ze: ${names.join(', ')}. Laten we nu onderwerpen kiezen.`;
     handleSend(msg, true);
   };
   window.confirmTopicSelections = (themeName) => {
@@ -574,10 +601,10 @@ window.addEventListener("DOMContentLoaded", () => {
   }
 
   /* -------------------------------------------------- *
-   * 2.9 Chat-verzending (centrale functie)             *
+   * 2.9 Chat-verzending (centrale functie, AANGEPAST)  *
    * -------------------------------------------------- */
   async function handleSend(txt, silent = false){
-    if(!txt.trim()) return;
+    if(!txt.trim()) return false;
 
     const isMobile = window.innerWidth <= 900;
     const chatBox = isMobile ? ui.mobileChatbox : ui.chatbox;
@@ -590,11 +617,11 @@ window.addEventListener("DOMContentLoaded", () => {
     }
 
     inputEl.value = "";
-    renderQuickReplies([]);            // oude opties weg
+    renderQuickReplies([]); // oude opties weg
 
     try{
       const data = await callAgent(txt, sessionId);
-      if(!data) return;
+      if(!data) return false;
 
       sessionId = data.session_id;
       sessionStorage.setItem("agentSession", sessionId);
@@ -609,9 +636,11 @@ window.addEventListener("DOMContentLoaded", () => {
       }
 
       renderUI(data);
+      return true; // Geef true terug bij succes
 
     }catch(err){
       addMsg("bot","⚠️ Onbekende fout. Probeer opnieuw.", chatBox);
+      return false; // Geef false terug bij een fout
     }
   }
 
