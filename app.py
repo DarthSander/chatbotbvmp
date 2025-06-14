@@ -128,8 +128,13 @@ def get_session(sid:str)->Dict[str,Any]:
 
 # ───────────────────── Guardrail-sentiment ───────────────────────────────
 def detect_sentiment(text:str)->Literal["ok","needs_menu"]:
+    """
+    FIX: The length check `len < 4` was too aggressive and incorrectly
+    triggered for valid short answers like "ja graag". Changing it to `< 2`
+    makes it only catch very short, single-word, potentially ambiguous inputs.
+    """
     vague=["weet niet","geen idee","idk"]
-    result = "needs_menu" if len(text.split())<4 or any(v in text.lower() for v in vague) else "ok"
+    result = "needs_menu" if len(text.split()) < 2 or any(v in text.lower() for v in vague) else "ok"
     log.debug(f"Sentimentanalyse voor tekst '{text[:50]}...': {result}")
     return result
 
@@ -444,6 +449,7 @@ Wacht niet altijd op de gebruiker, maar stel proactief de volgende logische stap
 - **Actie**: Gebruik `offer_choices(choice_type='topics', theme_context='THEMA_NAAM')`.
 - **Speciale Instructie**: Wanneer `offer_choices` de tekst "Geen standaard onderwerpen gevonden..." teruggeeft, betekent dit dat je proactief 3 tot 4 relevante onderwerpen voor dat thema moet bedenken en aan de gebruiker moet voorstellen.
 - **Principe van Samenvatting**: Geef na het voltooien van de onderwerpen voor een thema een korte, bevestigende samenvatting. Voorbeeld: "Oké, voor het thema 'Sfeer en omgeving' hebben we nu de onderwerpen 'Muziek', 'Licht' en 'Privacy'. Klopt dat zo?"
+- **Navigatie na Topic-selectie**: Nadat een gebruiker onderwerpen voor een thema heeft bevestigd, keer je terug naar de themaselectie. Stel de gebruiker gerust en vraag wat de volgende stap is. Voorbeeld: "Prima, de onderwerpen voor 'Kraamtijd' zijn opgeslagen. Je kunt nu een volgend thema kiezen om uit te werken, of we kunnen doorgaan naar de vragenronde als je klaar bent."
 - **Tools**: `add_item(item_type='topic')`, `remove_item(item_type='topic')`, `update_item(item_type='topic')`.
 
 ### 3. QA_SESSION
@@ -460,13 +466,16 @@ Wacht niet altijd op de gebruiker, maar stel proactief de volgende logische stap
 ## COMMUNICATIE PRINCIPES
 
 ### Quick Replies Sturen (Ja/Nee en andere keuzes)
-- **REGEL**: Wanneer je een vraag stelt die een duidelijke keuze van de gebruiker vereist, roep je DIRECT na je vraag de tool `propose_quick_replies` aan om knoppen te genereren.
+- **REGEL**: Wanneer je een vraag stelt die een duidelijke (ja/nee) keuze of een keuze uit een paar opties van de gebruiker vereist, MOET je de tool `propose_quick_replies` aanroepen. Formuleer je vraag altijd als een directe vraag die eindigt met een vraagteken.
 - **Voorbeeld 1 (Bevestiging)**:
   - Jouw tekst: "Zal ik het thema 'Pijnstilling' toevoegen?"
   - Jouw volgende actie: Roep `propose_quick_replies(replies=["Ja", "Nee"])` aan.
 - **Voorbeeld 2 (Keuze bieden)**:
   - Jouw tekst: "Wil je meer informatie over dit onderwerp, of wil je doorgaan naar de volgende vraag?"
   - Jouw volgende actie: Roep `propose_quick_replies(replies=["Meer informatie", "Volgende vraag"])` aan.
+- **Voorbeeld 3 (Suggesties aanbieden)**:
+  - Jouw tekst: "Ik heb het nieuwe thema 'Papa' toegevoegd. Wil je dat ik een paar onderwerpen voor dit thema suggereer?"
+  - Jouw volgende actie: Roep `propose_quick_replies(replies=["Ja, graag", "Nee, bedankt"])` aan.
 - Dit vervangt de oude, onbetrouwbare detectie van sleutelwoorden.
 
 ## GESPREKSVOERING
