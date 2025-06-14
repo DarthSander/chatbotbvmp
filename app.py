@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 # app.py – Geboorteplan-agent • Volledige versie 15-06-2025
-# FINALE VERSIE MET STRIKTE, UI-GEBONDEN SYSTEM_PROMPT
 
 from __future__ import annotations
 import os, json, uuid, sqlite3, time, logging, inspect, pathlib
@@ -11,21 +10,18 @@ from flask import Flask, request, jsonify, abort, send_file, send_from_directory
 from flask_cors import CORS
 from openai import OpenAI
 
-# ─────────────────────────── Basisconfiguratie ───────────────────────────
 ROOT = pathlib.Path(__file__).parent
 DB_FILE = ROOT / "sessions.db"
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
 MODEL_CHOICE = os.getenv("MODEL_CHOICE", "gpt-4.1")
-CLASSIFIER_MODEL = "gpt-3.5-turbo" # Apart, snel model voor de Keuze-Extractor
+CLASSIFIER_MODEL = "gpt-3.5-turbo"
 
-# Uitgebreide logging configuratie
 logging.basicConfig(
-    level   = LOG_LEVEL,
-    format  = "%(asctime)s [%(levelname)s] %(name)s:%(funcName)s:%(lineno)d – %(message)s",
-    datefmt = "%Y-%m-%d %H:%M:%S"
+    level=LOG_LEVEL,
+    format="%(asctime)s [%(levelname)s] %(name)s:%(funcName)s:%(lineno)d – %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S"
 )
 log = logging.getLogger("mae-backend")
-
 log.info("Mae-backend applicatie start...")
 log.info(f"Hoofd-model: {MODEL_CHOICE}, Classifier-model: {CLASSIFIER_MODEL}")
 
@@ -41,7 +37,7 @@ app = Flask(__name__, static_folder="static", template_folder="templates", stati
 CORS(app, origins=ALLOWED_ORIGINS, allow_headers="*", methods=["GET", "POST", "OPTIONS"])
 log.info(f"CORS ingeschakeld voor origins: {ALLOWED_ORIGINS}")
 
-# ─────────────────── Helper: decorator → function-schema ───────────────────
+# ─────────────────── Decorator om schema aan tools toe te voegen ───────────────────
 def function_tool(fn: Any) -> Any:
     sig = inspect.signature(fn)
     schema = {"type": "object", "properties": {}, "required": []}
@@ -61,8 +57,10 @@ def get_schema(f): return f.openai_schema
 
 # ─────────────────────────── Domein-state ────────────────────────────────
 class Stage(str,Enum):
-    THEME_SELECTION="THEME_SELECTION"; TOPIC_SELECTION="TOPIC_SELECTION"
-    QA_SESSION="QA_SESSION"; COMPLETED="COMPLETED"
+    THEME_SELECTION="THEME_SELECTION"
+    TOPIC_SELECTION="TOPIC_SELECTION"
+    QA_SESSION="QA_SESSION"
+    COMPLETED="COMPLETED"
 
 DEFAULT_THEMES=[{"name":"Ondersteuning","description":"Wie je erbij wilt en wat hun rol is."},
 {"name":"Bevalling & medisch beleid","description":"Wensen rondom pijnstilling en interventies."},
@@ -97,12 +95,12 @@ def load_state(sid:str)->Optional[Dict[str,Any]]:
         if row:
             return json.loads(row[0])
         return None
+
 def save_state(sid:str, st:Dict[str,Any]):
     log.debug(f"State opslaan voor session_id: {sid}")
     with sqlite3.connect(DB_FILE) as con:
         con.execute("REPLACE INTO sessions (id,state) VALUES (?,?)",(sid,json.dumps(st)))
 
-# ─────────────────────────── Sessions ────────────────────────────────────
 def get_session(sid:str)->Dict[str,Any]:
     st=load_state(sid)
     if st:
@@ -111,15 +109,16 @@ def get_session(sid:str)->Dict[str,Any]:
         return st
     log.info(f"Nieuwe sessie gestart met id: {sid}")
     st = {
-        "id"      : sid,
+        "id" : sid,
         "history" : [{"role": "system", "content": SYSTEM_PROMPT}],
-        "stage"   : Stage.THEME_SELECTION.value,
-        "plan"    : {"themes": [], "topics": {}, "qa_items": []},
+        "stage" : Stage.THEME_SELECTION.value,
+        "plan" : {"themes": [], "topics": {}, "qa_items": []},
         "qa_queue": [],
         "current_question": None,
         "topic_suggestions": {}
     }
-    save_state(sid,st); return st
+    save_state(sid,st)
+    return st
 
 # ─────────────────────────── Alle Tools ───────────────────────────
 @function_tool
@@ -158,16 +157,6 @@ def add_item(session_id: str, item_type: Literal['theme', 'topic'], name: str, t
     return f"{item_type.capitalize()} '{name}' is succesvol toegevoegd."
 
 @function_tool
-def confirm_themes(session_id: str) -> str:
-    """Bevestigt dat de gebruiker klaar is met het kiezen van thema's en zet de fase naar de vragenronde."""
-    st = get_session(session_id)
-    st["stage"] = Stage.QA_SESSION.value
-    st["qa_queue"]=[{"theme":theme,"topic":t["name"],"question":f"Wat zijn je wensen rondom {t['name']}?"} for theme,topics in st["plan"]["topics"].items() for t in topics if "name" in t]
-    save_state(session_id, st)
-    log.info(f"Fase gewijzigd naar QA_SESSION. {len(st['qa_queue'])} vragen in wachtrij.")
-    return "Oké, we gaan nu beginnen met de vragen over de door jou gekozen onderwerpen."
-
-@function_tool
 def remove_item(session_id:str,item_type:Literal['theme','topic'],name:str, theme_context:Optional[str]=None)->str:
     """Verwijdert een thema of onderwerp uit het plan."""
     st=get_session(session_id); plan=st["plan"]
@@ -193,6 +182,16 @@ def update_item(session_id:str,item_type:Literal['theme','topic'], old_name:str,
         for qa in plan["qa_items"]:
             if qa["theme"]==theme_context and qa["topic"]==old_name: qa["topic"]=new_name
     save_state(session_id,st); return "ok"
+
+@function_tool
+def confirm_themes(session_id: str) -> str:
+    """Bevestigt dat de gebruiker klaar is met het kiezen van thema's en zet de fase naar de vragenronde."""
+    st = get_session(session_id)
+    st["stage"] = Stage.QA_SESSION.value
+    st["qa_queue"]=[{"theme":theme,"topic":t["name"],"question":f"Wat zijn je wensen rondom {t['name']}?"} for theme,topics in st["plan"]["topics"].items() for t in topics if "name" in t]
+    save_state(session_id, st)
+    log.info(f"Fase gewijzigd naar QA_SESSION. {len(st['qa_queue'])} vragen in wachtrij.")
+    return "Oké, we gaan nu beginnen met de vragen over de door jou gekozen onderwerpen."
 
 @function_tool
 def start_qa_session(session_id:str)->str:
@@ -222,21 +221,6 @@ def log_answer(session_id:str,answer:str)->str:
     if not cq: return "Error:Geen actieve vraag."
     st["plan"]["qa_items"].append({**cq,"answer":answer}); st["current_question"]=None
     save_state(session_id,st); return "Antwoord opgeslagen."
-
-@function_tool
-def update_question(session_id:str,old_question:str,new_question:str)->str:
-    """Werkt een bestaande vraag bij."""
-    return "ok"
-
-@function_tool
-def remove_question(session_id:str,question_text:str)->str:
-    """Verwijdert een vraag."""
-    return "ok"
-
-@function_tool
-def update_answer(session_id:str,question_text:str,new_answer:str)->str:
-    """Werkt een gegeven antwoord bij."""
-    return "ok"
 
 @function_tool
 def find_web_resources(session_id: str, topic: str, depth: Literal['brief', 'diep'] = 'brief') -> str:
@@ -301,149 +285,10 @@ def propose_topics(session_id: str, theme: str, suggestions: List[str]) -> str:
     save_state(session_id, st)
     return f"Topics voorgesteld voor '{theme}'."
 
-# ─────────────────────────── PROMPTS ────────────────────────────────────
-# ╭───────────────────────────────╮
-# │  ✨  MAE – MASTER SYSTEM PROMPT │
-# ╰───────────────────────────────╯
-# ───────────────────────────  MAE MASTER PROMPT  ───────────────────────────
-SYSTEM_PROMPT = r"""
-╔══════════════════════════════════════════════════════════════════════╗
-║ MAE –  COMPACT ALL-SCENARIO PROMPT  (UI ⇄ BACKEND ⇄ CHAT)            ║
-╚══════════════════════════════════════════════════════════════════════╝
-
-────────────────  1 · IDENTITEIT  ────────────────
-• Mae = warme, empathische assistent, géén arts.
-• Doel: gebruiker begeleiden naar compleet geboorteplan.
-
-────────────────  2 · BASISREGELS  ───────────────
-• Taal NL, korte variërende bevestigingen.  
-• Geen medisch advies → verwijs verloskundige.  
-• Eén tool-call per stap; bevestig pas na succes.  
-• Sidebar-fases: stel géén extra vragen.  
-• Quick-replies uitsluitend via Extractor-prompt.  
-• Uitzonderings-bubbles (⛔ gemarkeerd) krijgen nooit chips.
-
-────────────────  3 · UI → BACKEND MATRIX  ───────
-Formaat: UI│payload│pad│tool│Mae│chips  
-(“—” = none)
-
-0│Init│Hallo-auto│A│—│Welkom! … selecteer max 6 thema’s.│—  
-1│Thema-chip│—│—│—│—│—  
-2│Topic-chip│—│—│—│—│—  
-3│✔︎Bevestig topics│Voor … Aanwezigheid doula.│B│—│Oké, genoteerd… Wil je nog meer onderwerpen … of ander thema?│⛔  
-4│Flip terug│—│—│—│—│—  
-5│Extra thema chip│—│—│—│—│—  
-6│✔︎Bevestig thema’s│Ik heb mijn thema’s gekozen…│B5│confirm_themes│Mooi, de basis staat…│—  
-7│(intern) Start QA│—│C1│get_next_question│Wat zijn je wensen rondom Aanwezigheid doula?│—  
-8│Normaal antwoord│Ik wil graag…│C2│log_answer│Antwoord opgeslagen.│—  
-9│Onzeker “weet ik niet”│Weet ik niet│D3│find_web_resources + propose_quick_replies[Ja/Nee]│Geen probleem. Zal ik info zoeken …?│Ja / Nee  
-10│Klik chip “Ja, zoek info”│Ja, zoek info│D3-cont.│find_web_resources(depth=diep)│Hier is een samenvatting …│—  
-11│Cmd: “Voeg thema Papa toe”│idem│D1│add_item(theme,“Papa”,is_custom=True)│Thema ‘Papa’ toegevoegd.│—  
-12│Cmd: “Verwijder onderwerp Doula”│idem│D1│remove_item(topic,“Doula”,theme_context=“Ondersteuning”)│Onderwerp ‘Doula’ verwijderd.│—  
-13│“Waar staan we nu?”│idem│D2│get_plan_status│We zitten in de vragenfase …│—  
-14│“Onbeantwoorde punten?”│idem│D2│check_onbeantwoorde_punten│Je hebt nog 3 vragen open: …│—  
-15│“Plan exporteren”│idem│D2│genereer_plan_tekst(format=markdown)│Hier is je plan in Markdown-vorm …│—  
-16│QA-queue leeg│—│C3│save_plan_summary│Gefeliciteerd! Je plan is compleet …│—  
-17│4× onzin “asdf”│asdf│E│propose_quick_replies[Extra hulp/Hoofdmenu]│We lijken vast te lopen …│Extra hulp / Hoofdmenu
-
-────────────────  4 · UITZONDERINGEN NO-CHIPS  ───
-⛔ “Oké, genoteerd. … Wil je nog meer onderwerpen toevoegen … of gaan we verder …?”  
-⛔ “Kies maximaal 4 onderwerpen voor ‘{thema}'. Heb je vragen over een onderwerp? Laat het me weten.”
-
-────────────────  5 · TOOL-SNELGIDS + VOORBEELDEN  ──
-• add_item            – “Voeg onderwerp Waterbevalling toe aan Sfeer.”  
-  call: add_item(topic,“Waterbevalling”,theme_context=“Sfeer”,is_custom=True)  
-  Mae: “Onderwerp ‘Waterbevalling’ toegevoegd.” (— chips)
-
-• remove_item         – “Verwijder thema Sfeer.”  
-  call: remove_item(theme,“Sfeer”)  
-  Mae: “Thema ‘Sfeer’ verwijderd.”
-
-• update_item         – “Hernoem thema Sfeer naar Omgeving.”  
-  call: update_item(theme,“Sfeer”,“Omgeving”)  
-  Mae: “Hernoemd.”
-
-• confirm_themes      – Trigger: #6 payload  
-  Mae: overgangstekst, geen chips.
-
-• get_next_question   – altijd interne, vraag eindigt op “?”.
-
-• log_answer          – bevestiging “Antwoord opgeslagen.”
-
-• find_web_resources  – gebruikt in onzekerheids-scenario, met Ja/Nee chips.
-
-• vergelijk_opties    – “Geen idee welke pijnstilling.”  
-  call: vergelijk_opties([“Epiduraal”,“Pethidine”])  
-  Mae vat verschil samen + Ja/Nee chips.
-
-• geef_denkvraag      – persoonlijke twijfel, levert reflectievraag.
-
-• propose_quick_replies – alleen via extractor of fail-safe.
-
-• save_plan_summary   – fase COMPLETED; Mae feliciteert.
-
-• check_onbeantwoorde_punten – geeft lijst open QA-items.
-
-• genereer_plan_tekst – export Markdown of plain.
-
-(Overige helper-tools present_tool_choices, present_topics, update_answer, … worden alleen gebruikt als de gebruiker daar expliciet om vraagt en volgen hetzelfde patroon: call + korte bevestiging, geen chips.)
-
-────────────────  6 · FAIL-SAFE  ────────────────
-• 1-2× onzin → “Sorry, ik begrijp het niet helemaal …”  
-• ≥3× onzin → propose_quick_replies[Extra hulp/Hoofdmenu]
-
-EINDE PROMPT
-"""
-
-
-# ╭──────────────────────────────────────────────╮
-# │  ✨  QUICK-REPLY EXTRACTOR – VOLLEDIG PROMPT   │
-# ╰──────────────────────────────────────────────╯
-EXTRACTOR_PROMPT = r"""
-╔══════════════════════════════════════════════════════════════════════╗
-║ QUICK-REPLY CLASSIFIER · VOLLEDIGE INSTRUCTIE                        ║
-╚══════════════════════════════════════════════════════════════════════╝
-
-DOEL  
-Bepaal of een ASSISTENT-tekst quick-reply-knoppen moet krijgen.
-
-BESLIS-REGELS  
-1. Tekst eindigt NIET op “?”  →  geen knoppen   (`{"keuzes": null}`)  
-2. Pure ja/nee-vraag          →  `["Ja","Nee"]`  
-   • Regex voorbeelden:  
-     “Wil je doorgaan?”  “Zal ik verdergaan?”  “Mag ik starten?”  
-3. Exact twee opties          →  `["Optie A","Optie B"]`  
-   • Detecteer patronen “A of B”, “A / B”, “Kies A of B?”  
-4. Lijsten met >2 opties      →  geen knoppen  
-5. Open/reflectieve vraag     →  geen knoppen  
-6. Fallback                   →  geen knoppen
-
-ANTWOORD-FORMAAT  
-Altijd JSON-object met sleutel `keuzes`.
-
-VOORBEELDEN  
-Tex​t: “Wil je verder?”  
-→ `{"keuzes":["Ja","Nee"]}`  
-
-Tex​t: “Wil je een kort verslag of een uitgebreide versie?”  
-→ `{"keuzes":["Kort verslag","Uitgebreide versie"]}`  
-
-Tex​t: “Welke kleuren spreken je aan: blauw, groen of paars?”  
-→ `{"keuzes": null}`   (meer dan twee opties)  
-
-Tex​t: “Hoe voel je je hierover?”  
-→ `{"keuzes": null}`  
-
-Tex​t: “Prima, staat erin.”  
-→ `{"keuzes": null}`
-"""
-
-
 # ─────────────────────── Tool-registratie ──────────────────────────────
 tool_funcs = [
     get_plan_status, offer_choices, add_item, remove_item, update_item,
     start_qa_session, get_next_question, log_answer,
-    update_question, remove_question, update_answer,
     find_web_resources, vergelijk_opties, geef_denkvraag, find_external_organization,
     check_onbeantwoorde_punten, genereer_plan_tekst,
     present_tool_choices, save_plan_summary,
@@ -462,7 +307,7 @@ def get_quick_reply_options(text: str) -> Optional[List[str]]:
         response = client.chat.completions.create(
             model=CLASSIFIER_MODEL,
             messages=[
-                {"role": "system", "content": EXTRACTOR_PROMPT},
+                {"role": "system", "content": "Bepaal of deze tekst eindigt met een ja/nee vraag. Als ja: geef ['Ja','Nee'] terug. Anders: null"},
                 {"role": "user", "content": text}
             ],
             temperature=0,
@@ -471,7 +316,6 @@ def get_quick_reply_options(text: str) -> Optional[List[str]]:
         result = json.loads(response.choices[0].message.content)
         choices = result.get("keuzes")
         if isinstance(choices, list) and len(choices) > 0:
-            log.info(f"Keuze-Extractor vond opties: {choices}")
             return choices
         return None
     except Exception as e:
@@ -484,13 +328,12 @@ def run_main_agent_loop(sid: str) -> str:
     log.info(f"Start main agent loop voor sessie {sid}. History-len: {len(st['history'])}")
 
     if len(st["history"]) == 2 and st["history"][1]["role"] == "user":
-        welcome_message = "Welkom! Ik ben Mae, je assistent voor het samenstellen van je geboorteplan. Aan de rechterkant in de sidebar kun je beginnen met het selecteren van maximaal 6 thema's. Klik op een thema om de bijbehorende onderwerpen te kiezen. Als je een eigen thema of onderwerp wilt toevoegen, kun je dat hier in de chat typen."
+        welcome_message = "Welkom! Ik ben Mae, je assistent voor het samenstellen van je geboorteplan. Klik op thema's om te starten."
         st["history"].insert(1, {"role": "assistant", "content": welcome_message})
         save_state(sid, st)
         return welcome_message
 
     for turn in range(5):
-        log.info(f"Agent-beurt {turn + 1}/5 voor sessie {sid}")
         resp = client.chat.completions.create(
             model=MODEL_CHOICE, messages=st["history"], tools=tools_schema, tool_choice="auto"
         )
@@ -505,40 +348,41 @@ def run_main_agent_loop(sid: str) -> str:
                     args = json.loads(call.function.arguments or "{}")
                     result = fn(session_id=sid, **args)
                 except Exception as e:
-                    result = f"Error executing tool: {e}"; log.error(result, exc_info=True)
+                    result = f"Error executing tool: {e}"
+                    log.error(result, exc_info=True)
                 tool_results.append({"tool_call_id": call.id, "role": "tool", "name": call.function.name, "content": str(result)})
             st["history"].extend(tool_results)
             save_state(sid, st)
-            if len(tool_results) == 1 and tool_results[0]['name'] == 'confirm_themes':
-                return tool_results[0]['content']
             continue
 
         if msg.content:
             options = get_quick_reply_options(msg.content)
             if options:
                 tool_call_id = f"call_{uuid.uuid4()}"
-                tool_call_payload = {"role": "assistant", "tool_calls": [{"id": tool_call_id, "type": "function", "function": {"name": "propose_quick_replies", "arguments": json.dumps({"replies": options})}}]}
+                tool_call_payload = {
+                    "role": "assistant",
+                    "tool_calls": [{
+                        "id": tool_call_id,
+                        "type": "function",
+                        "function": {
+                            "name": "propose_quick_replies",
+                            "arguments": json.dumps({"replies": options})
+                        }
+                    }]
+                }
                 st["history"].append(tool_call_payload)
-                st["history"].append({"tool_call_id": tool_call_id, "role": "tool", "name": "propose_quick_replies", "content": f"Quick replies voorgesteld: {', '.join(options)}"})
+                st["history"].append({
+                    "tool_call_id": tool_call_id,
+                    "role": "tool",
+                    "name": "propose_quick_replies",
+                    "content": f"Quick replies voorgesteld: {', '.join(options)}"
+                })
 
         save_state(sid, st)
         return msg.content or "(geen antwoord)"
     return "(max turns bereikt)"
 
-# ───────────────── FLASK ROUTES & PAYLOAD ──────────────────────
-def build_payload(st: Dict[str, Any], reply: str) -> Dict[str, Any]:
-    payload = {"assistant_reply": reply, "session_id": st["id"], "stage": st["stage"], "plan": st["plan"], "suggested_replies": [], "suggested_topics": st.get("topic_suggestions", {})}
-    for message in reversed(st["history"]):
-        if message.get("role") == "assistant" and message.get("tool_calls"):
-            for tc in message.get("tool_calls"):
-                if tc.get("function", {}).get("name") == "propose_quick_replies":
-                    try:
-                        args = json.loads(tc["function"]["arguments"])
-                        payload["suggested_replies"] = args.get("replies", [])
-                        return payload
-                    except (json.JSONDecodeError, TypeError): pass
-    return payload
-
+# ───────────────── FLASK ROUTES ──────────────────────
 @app.post("/agent")
 def agent_route():
     try:
@@ -551,14 +395,21 @@ def agent_route():
         reply = run_main_agent_loop(sid)
         final_st = get_session(sid)
         if final_st["stage"] == Stage.COMPLETED.value: save_plan_summary(session_id=sid)
-        return jsonify(build_payload(final_st, reply))
+        return jsonify({
+            "assistant_reply": reply,
+            "session_id": final_st["id"],
+            "stage": final_st["stage"],
+            "plan": final_st["plan"],
+            "suggested_replies": [],
+            "suggested_topics": final_st.get("topic_suggestions", {})
+        })
     except Exception as e:
         log.critical(f"Onverwachte fout in /agent route: {e}", exc_info=True)
         return jsonify({"error": "Er is een interne serverfout opgetreden."}), 500
 
 @app.get("/export/<sid>")
 def export_json(sid):
-    st=load_state(sid);
+    st=load_state(sid)
     if not st: abort(404)
     path=ROOT/f"geboorteplan_{sid}.json"
     path.write_text(json.dumps(st["plan"],ensure_ascii=False,indent=2),"utf-8")
@@ -576,7 +427,4 @@ def serve_frontend(path):
     return send_from_directory(app.static_folder, "index.html")
 
 if __name__=="__main__":
-    port = int(os.getenv("PORT", 10000))
-    debug_mode = os.getenv("FLASK_DEBUG", "False").lower() in ("true", "1", "t")
-    log.info(f"Flask applicatie wordt gestart op 0.0.0.0:{port} (Debug modus: {debug_mode})")
-    app.run("0.0.0.0", port, debug=debug_mode)
+  
