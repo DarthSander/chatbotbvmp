@@ -5,11 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Geboorteplan-agent (debug)</title>
 
-  <!-- Fonts & libs -->
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet" />
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 
-  <!-- ---------- Kleuren, basisstijl & layout ---------- -->
   <style>
     :root{
       --rose:#d5848d; --rose-light:#e8a8b0;
@@ -163,14 +161,12 @@
 </head>
 
 <body>
-  <!-- ---------- Mobiele tabknoppen ---------- -->
   <div id="mobile-tabs">
     <button id="tab-chat" class="active">Chat</button>
     <button id="tab-plan">Jouw&nbsp;Plan</button>
   </div>
 
   <main id="layout">
-    <!-- ---------- Chat kolom ---------- -->
     <div id="chat-col">
       <div id="chatbox"></div>
 
@@ -185,7 +181,6 @@
       </div>
     </div>
 
-    <!-- ---------- Sidebar (flip-card) ---------- -->
     <div id="sidebar-container">
       <div id="flip-card">
         <div class="sidebar-face face-front" id="plan-front"></div>
@@ -193,7 +188,6 @@
       </div>
     </div>
 
-    <!-- ---------- Mobiele weergave ---------- -->
     <div id="mobile-container" style="display:none;">
       <div class="mobile-face active" id="mobile-chat-face">
         <div id="mobile-chatbox"></div>
@@ -213,7 +207,6 @@
     </div>
   </main>
 
-<!-- ===================== SCRIPT ===================== -->
 <script>
 /* -------------------------------------------------- *
  * 1. Debug-hulpmiddelen                              *
@@ -273,7 +266,7 @@ window.addEventListener("DOMContentLoaded", () => {
 
   const localSelections = {
     themes : new Set(),
-    topics : {}     // { themeName: [topic1, …] }
+    topics : {}     // { themeName: [topicName1, …] }
   };
   let currentThemeForTopics = null;
 
@@ -354,8 +347,26 @@ window.addEventListener("DOMContentLoaded", () => {
     if(!data || !data.plan){ dlog('warn','[renderUI] Geen plan in payload'); return; }
 
     dlog('groupCollapsed','[renderUI] start render');
+    
+    // Sla geselecteerde thema's op
     localSelections.themes = new Set((data.plan.themes || []).map(t => t.name));
-    localSelections.topics = data.plan.topics || {};
+
+    /*
+     * FIX: Converteer de topic-structuur van de backend (lijst van objecten)
+     * naar een frontend-vriendelijke structuur (lijst van strings).
+     * Dit voorkomt de '[object Object]' bug.
+    */
+    const newTopics = {};
+    if (data.plan && data.plan.topics) {
+        for (const theme in data.plan.topics) {
+            if (Array.isArray(data.plan.topics[theme])) {
+                // We mappen de array van {name: "..."} objecten naar een array van "..." strings
+                newTopics[theme] = data.plan.topics[theme].map(topic => topic.name);
+            }
+        }
+    }
+    localSelections.topics = newTopics;
+
 
     /* ❶ JSON-menu uit present_tool_choices? */
     let menuChoices = [];
