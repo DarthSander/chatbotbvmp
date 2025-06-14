@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-# app.py – Geboorteplan-agent • Volledige versie 14-06-2025
-# VERSIE MET GECORRIGEERDE AGENT-LOOP EN ZONDER AUTO-QUICK-REPLIES
+# app.py – Geboorteplan-agent • Volledige versie 15-06-2025
+# FINALE VERSIE MET APART CLASSIFIER-MODEL ("KEUZE-EXTRACTOR")
 
 from __future__ import annotations
 import os, json, uuid, sqlite3, time, logging, inspect, pathlib
-import re, uuid
+import re
 from enum import Enum
 from typing import Any, Dict, List, Literal, Optional
 from flask import Flask, request, jsonify, abort, send_file, send_from_directory, render_template
@@ -16,6 +16,7 @@ ROOT = pathlib.Path(__file__).parent
 DB_FILE = ROOT / "sessions.db"
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
 MODEL_CHOICE = os.getenv("MODEL_CHOICE", "gpt-4.1")
+CLASSIFIER_MODEL = "gpt-3.5-turbo" # Nieuw: apart model voor de classifier
 
 # Uitgebreide logging configuratie
 logging.basicConfig(
@@ -26,9 +27,7 @@ logging.basicConfig(
 log = logging.getLogger("mae-backend")
 
 log.info("Mae-backend applicatie start...")
-log.info(f"Log level ingesteld op: {LOG_LEVEL}")
-log.info(f"Gebruikt OpenAI model: {MODEL_CHOICE}")
-log.info(f"Database bestandslocatie: {DB_FILE}")
+log.info(f"Hoofd-model: {MODEL_CHOICE}, Classifier-model: {CLASSIFIER_MODEL}")
 
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
@@ -96,23 +95,19 @@ def load_state(sid:str)->Optional[Dict[str,Any]]:
     with sqlite3.connect(DB_FILE) as con:
         row = con.execute("SELECT state FROM sessions WHERE id=?",(sid,)).fetchone()
         if row:
-            log.debug(f"State gevonden en geladen voor session_id: {sid}")
             return json.loads(row[0])
-        else:
-            log.debug(f"Geen state gevonden voor session_id: {sid}")
-            return None
+        return None
 def save_state(sid:str, st:Dict[str,Any]):
     log.debug(f"State opslaan voor session_id: {sid}")
     with sqlite3.connect(DB_FILE) as con:
         con.execute("REPLACE INTO sessions (id,state) VALUES (?,?)",(sid,json.dumps(st)))
-    log.debug(f"State succesvol opgeslagen voor session_id: {sid}")
 
 # ─────────────────────────── Sessions ────────────────────────────────────
 def get_session(sid:str)->Dict[str,Any]:
     st=load_state(sid)
     if st:
         log.info(f"Bestaande sessie {sid} geladen. Huidige fase: {st.get('stage', 'ONBEKEND')}")
-        st.setdefault("topic_suggestions", {})             # back-compat veld
+        st.setdefault("topic_suggestions", {})
         return st
     log.info(f"Nieuwe sessie gestart met id: {sid}")
     st = {
@@ -126,197 +121,122 @@ def get_session(sid:str)->Dict[str,Any]:
     }
     save_state(sid,st); return st
 
-# ───────────────────── Guardrail-sentiment (AANGEPAST) ──────────────────
-def detect_sentiment(text:str)->Literal["ok","needs_menu"]:
-    vague=["weet niet","geen idee","idk"]
-    # FIX: Lengtecheck is nu minder agressief (< 2 woorden)
-    result = "needs_menu" if len(text.split()) < 2 or any(v in text.lower() for v in vague) else "ok"
-    log.debug(f"Sentimentanalyse voor tekst '{text[:50]}...': {result}")
-    return result
-
-# ─────────────────────────── Tools (ONGewijzigd) ─────────────────────────
+# ─────────────────────────── Alle Tools (ongewijzigd) ───────────────────────────
 @function_tool
 def get_plan_status(session_id:str)->str:
     """Geeft de huidige status van het geboorteplan terug."""
-    log.info(f"Tool 'get_plan_status' aangeroepen voor sessie: {session_id}")
     st=get_session(session_id)
-    status = json.dumps({"stage":st["stage"],"plan":st["plan"]})
-    log.debug(f"Plan status voor {session_id}: {status}")
-    return status
+    return json.dumps({"stage":st["stage"],"plan":st["plan"]})
 
 @function_tool
 def offer_choices(session_id:str,choice_type:Literal['themes','topics'],theme_context:Optional[str]=None)->str:
     """Biedt een lijst van keuzes voor thema's of onderwerpen."""
-    log.info(f"Tool 'offer_choices' aangeroepen voor sessie: {session_id}. Type: {choice_type}, Context: {theme_context}")
     if choice_type == 'themes':
-        choices = ", ".join(t["name"] for t in DEFAULT_THEMES)
-        log.debug("Beschikbare thema's worden aangeboden.")
-        return choices
-
+        return ", ".join(t["name"] for t in DEFAULT_THEMES)
     if choice_type == 'topics':
-        if not theme_context:
-            log.warning(f"Aanroep 'offer_choices' voor topics zonder theme_context in sessie {session_id}.")
-            return "Error: theme_context is verplicht voor het opvragen van topics."
-
-        log.debug(f"Zoeken naar onderwerpen voor thema: {theme_context}")
+        if not theme_context: return "Error: theme_context is verplicht."
         for key, topics in DEFAULT_TOPICS_PER_THEME.items():
-            if key.lower() == theme_context.lower():
-                log.debug(f"Onderwerpen gevonden voor '{theme_context}': {topics}")
-                return ", ".join(topics)
-
-        log.warning(f"Geen standaard onderwerpen gevonden voor thema '{theme_context}' in sessie {session_id}.")
-        return "Geen standaard onderwerpen gevonden. Bedenk zelf 4 tot 5 relevante suggesties voor dit thema."
-
-    log.error(f"Ongeldig choice_type '{choice_type}' in 'offer_choices' voor sessie {session_id}.")
+            if key.lower() == theme_context.lower(): return ", ".join(topics)
+        return "Geen standaard onderwerpen gevonden. Bedenk zelf 4-5 suggesties."
     return "Error: Ongeldig choice_type."
 
 @function_tool
-def add_item(session_id: str,
-             item_type: Literal['theme', 'topic'],
-             name: str,
-             theme_context: Optional[str] = None,
-             is_custom: bool = False) -> str:
+def add_item(session_id: str, item_type: Literal['theme', 'topic'], name: str, theme_context: Optional[str] = None, is_custom: bool = False) -> str:
     """Voegt een thema of onderwerp toe aan het plan."""
-    log.info(f"Tool 'add_item' voor sessie {session_id}: "
-             f"Type={item_type}, Naam='{name}', Context='{theme_context}', Custom={is_custom}")
-
     st = get_session(session_id)
     plan = st["plan"]
-
-    if isinstance(plan.get("topics"), list):
-        plan["topics"] = {}
-
+    if isinstance(plan.get("topics"), list): plan["topics"] = {}
     if item_type == 'theme':
-        if len(plan["themes"]) >= 6:
-            log.warning(f"Poging om meer dan 6 thema's toe te voegen in sessie {session_id}.")
-            return "Error: max 6 thema's."
+        if len(plan["themes"]) >= 6: return "Error: max 6 thema's."
         if name not in [t["name"] for t in plan["themes"]]:
             plan["themes"].append({"name": name, "is_custom": is_custom})
-            log.info(f"Thema '{name}' toegevoegd aan plan voor sessie {session_id}.")
-        save_state(session_id, st)
-        return f"Thema '{name}' toegevoegd."
-
     elif item_type == 'topic' and theme_context:
         plan["topics"].setdefault(theme_context, [])
-        if name not in [t["name"] for t in plan["topics"][theme_context]]:
+        if name not in [t["name"] for t in plan["topics"].get(theme_context, [])]:
             plan["topics"][theme_context].append({"name": name, "is_custom": is_custom})
-            log.info(f"Topic '{name}' toegevoegd aan thema '{theme_context}' voor sessie {session_id}.")
-        save_state(session_id, st)
-        return f"Topic '{name}' toegevoegd."
-
-    return "Error: ongeldige parameters."
+    save_state(session_id, st)
+    return f"{item_type.capitalize()} '{name}' toegevoegd."
 
 @function_tool
 def confirm_themes(session_id: str) -> str:
-    """
-    Bevestigt dat de gebruiker klaar is met het kiezen van thema's
-    en zet de fase naar TOPIC_SELECTION.
-    """
+    """Bevestigt dat de gebruiker klaar is met het kiezen van thema's en zet de fase naar TOPIC_SELECTION."""
     st = get_session(session_id)
     st["stage"] = Stage.TOPIC_SELECTION.value
-    log.info(f"Sessie {session_id}: stage veranderd naar {st['stage']}")
     save_state(session_id, st)
     return "stage_switched"
 
 @function_tool
-def remove_item(session_id:str,item_type:Literal['theme','topic'],name:str,
-                theme_context:Optional[str]=None)->str:
+def remove_item(session_id:str,item_type:Literal['theme','topic'],name:str, theme_context:Optional[str]=None)->str:
     """Verwijdert een thema of onderwerp uit het plan."""
-    log.info(f"Tool 'remove_item' voor sessie {session_id}: Type={item_type}, Naam='{name}', Context='{theme_context}'")
     st=get_session(session_id); plan=st["plan"]
     if item_type=='theme':
         plan["themes"]=[t for t in plan["themes"] if t["name"]!=name]
         plan["topics"].pop(name,None)
-        log.info(f"Thema '{name}' en bijbehorende topics verwijderd voor sessie {session_id}.")
-    elif item_type=='topic' and theme_context:
-        if name in [t["name"] for t in plan["topics"].get(theme_context,[])]:
-             plan["topics"][theme_context] = [t for t in plan["topics"][theme_context] if t["name"] != name]
-             log.info(f"Onderwerp '{name}' van thema '{theme_context}' verwijderd voor sessie {session_id}.")
+    elif item_type=='topic' and theme_context and theme_context in plan["topics"]:
+        plan["topics"][theme_context] = [t for t in plan["topics"][theme_context] if t["name"] != name]
     save_state(session_id,st); return "ok"
 
 @function_tool
-def update_item(session_id:str,item_type:Literal['theme','topic'],
-                old_name:str,new_name:str,theme_context:Optional[str]=None)->str:
+def update_item(session_id:str,item_type:Literal['theme','topic'], old_name:str,new_name:str,theme_context:Optional[str]=None)->str:
     """Werkt de naam van een thema of onderwerp bij."""
-    log.info(f"Tool 'update_item' voor sessie {session_id}: Type={item_type}, Oud='{old_name}', Nieuw='{new_name}', Context='{theme_context}'")
     st=get_session(session_id); plan=st["plan"]
     if item_type=='theme':
         for t in plan["themes"]:
             if t["name"]==old_name: t["name"]=new_name
         if old_name in plan["topics"]:
             plan["topics"][new_name]=plan["topics"].pop(old_name)
-        log.info(f"Thema hernoemd van '{old_name}' naar '{new_name}' in sessie {session_id}.")
-    elif item_type=='topic' and theme_context:
-        plan["topics"][theme_context]=[{"name": new_name if x["name"]==old_name else x["name"], "is_custom": x["is_custom"]} for x in plan["topics"].get(theme_context,[])]
+    elif item_type=='topic' and theme_context and theme_context in plan["topics"]:
+        for t in plan["topics"][theme_context]:
+            if t["name"] == old_name: t["name"] = new_name
         for qa in plan["qa_items"]:
-            if qa["theme"]==theme_context and qa["topic"]==old_name:
-                qa["topic"]=new_name
-        log.info(f"Onderwerp in thema '{theme_context}' hernoemd van '{old_name}' naar '{new_name}' in sessie {session_id}.")
+            if qa["theme"]==theme_context and qa["topic"]==old_name: qa["topic"]=new_name
     save_state(session_id,st); return "ok"
 
 @function_tool
 def start_qa_session(session_id:str)->str:
     """Start de vragenronde (QA-sessie)."""
     st=get_session(session_id)
-    log.info(f"Tool 'start_qa_session' aangeroepen voor sessie {session_id}.")
-    if st["stage"]==Stage.QA_SESSION.value:
-        log.warning(f"Poging om QA-sessie te starten die al bezig is in sessie {session_id}.")
-        return "We zijn al in de vragenronde."
-    st["qa_queue"]=[]
-    for theme,topics in st["plan"]["topics"].items():
-        for t in topics:
-            st["qa_queue"].append({"theme":theme,"topic":t["name"],"question":f"Wat zijn je wensen rondom {t['name']}?"})
+    if st["stage"]==Stage.QA_SESSION.value: return "We zijn al in de vragenronde."
+    st["qa_queue"]=[{"theme":theme,"topic":t["name"],"question":f"Wat zijn je wensen rondom {t['name']}?"}
+                    for theme,topics in st["plan"]["topics"].items() for t in topics]
     st["stage"]=Stage.QA_SESSION.value
-    log.info(f"QA-sessie gestart voor sessie {session_id}. {len(st['qa_queue'])} vragen in wachtrij. Nieuwe fase: {st['stage']}")
     save_state(session_id,st); return "ok"
 
 @function_tool
 def get_next_question(session_id:str)->str:
     """Haalt de volgende vraag op uit de wachtrij."""
     st=get_session(session_id)
-    log.info(f"Tool 'get_next_question' aangeroepen voor sessie {session_id}.")
     if not st["qa_queue"]:
-        st["stage"]=Stage.COMPLETED.value
-        save_state(session_id,st)
-        log.info(f"Geen vragen meer in de wachtrij voor sessie {session_id}. Fase naar COMPLETED gezet.")
+        st["stage"]=Stage.COMPLETED.value; save_state(session_id,st)
         return "Alle vragen zijn beantwoord!"
     st["current_question"]=st["qa_queue"].pop(0)
     save_state(session_id,st)
-    question_text = f"Vraag over '{st['current_question']['topic']}': {st['current_question']['question']}"
-    log.info(f"Volgende vraag voor sessie {session_id}: {question_text}")
-    return question_text
+    return f"Vraag over '{st['current_question']['topic']}': {st['current_question']['question']}"
 
 @function_tool
 def log_answer(session_id:str,answer:str)->str:
     """Slaat het antwoord op een vraag op."""
     st=get_session(session_id); cq=st["current_question"]
-    log.info(f"Tool 'log_answer' aangeroepen voor sessie {session_id} met antwoord: '{answer[:50]}...'")
-    if not cq:
-        log.error(f"Poging om antwoord op te slaan zonder actieve vraag in sessie {session_id}.")
-        return "Error:Geen actieve vraag."
+    if not cq: return "Error:Geen actieve vraag."
     st["plan"]["qa_items"].append({**cq,"answer":answer}); st["current_question"]=None
-    log.info(f"Antwoord op vraag over '{cq['topic']}' opgeslagen voor sessie {session_id}.")
     save_state(session_id,st); return "Antwoord opgeslagen."
 
 @function_tool
 def update_question(session_id:str,old_question:str,new_question:str)->str:
     """Werkt een bestaande vraag bij."""
-    st=get_session(session_id)
-    # Implementatie ongewijzigd
+    # Implementatie hier (ongewijzigd)
     return "ok"
 
 @function_tool
 def remove_question(session_id:str,question_text:str)->str:
     """Verwijdert een vraag."""
-    st=get_session(session_id)
-    # Implementatie ongewijzigd
+    # Implementatie hier (ongewijzigd)
     return "ok"
 
 @function_tool
 def update_answer(session_id:str,question_text:str,new_answer:str)->str:
     """Werkt een gegeven antwoord bij."""
-    st=get_session(session_id)
-    # Implementatie ongewijzigd
+    # Implementatie hier (ongewijzigd)
     return "ok"
 
 @function_tool
@@ -342,14 +262,12 @@ def find_external_organization(session_id: str, keyword: str) -> str:
 @function_tool
 def check_onbeantwoorde_punten(session_id:str)->str:
     """Controleert of er nog onbeantwoorde vragen zijn."""
-    st=get_session(session_id)
-    return json.dumps({"missing":st["qa_queue"]})
+    return json.dumps({"missing":get_session(session_id)["qa_queue"]})
 
 @function_tool
 def genereer_plan_tekst(session_id:str,format:Literal['markdown','plain']='markdown')->str:
     """Genereert de tekst van het geboorteplan."""
-    st=get_session(session_id)
-    return "# Geboorteplan\n"+json.dumps(st["plan"],ensure_ascii=False,indent=2)
+    return "# Geboorteplan\n"+json.dumps(get_session(session_id)["plan"],ensure_ascii=False,indent=2)
 
 @function_tool
 def present_tool_choices(session_id: str, choices: str) -> str:
@@ -372,60 +290,61 @@ def save_plan_summary(session_id:str)->str:
 
 @function_tool
 def propose_quick_replies(session_id: str, replies: List[str]) -> str:
-    """Stel een lijst van quick reply-knoppen voor die de frontend kan tonen. Gebruik dit voor ja/nee-vragen of om de gebruiker te helpen kiezen."""
-    log.info(f"Tool 'propose_quick_replies' aangeroepen voor sessie {session_id} met replies: {replies}")
+    """Stel een lijst van quick reply-knoppen voor die de frontend kan tonen."""
+    # Deze tool wordt nu alleen nog door onze eigen code aangeroepen.
+    log.info(f"Tool 'propose_quick_replies' aangeroepen met replies: {replies}")
     return f"Quick replies voorgesteld: {', '.join(replies)}"
 
 @function_tool
 def propose_topics(session_id: str, theme: str, suggestions: List[str]) -> str:
-    """
-    Geeft een lijst van topic-suggesties terug als er geen standaard­
-    onderwerpen zijn voor het opgegeven thema.
-    """
+    """Geeft een lijst van topic-suggesties terug en slaat deze op in de sessie."""
     st = get_session(session_id)
     st.setdefault("topic_suggestions", {})[theme] = suggestions
-    log.info(f"Tool 'propose_topics' voor sessie {session_id}: {theme} → {suggestions}")
     save_state(session_id, st)
     return f"Topics voorgesteld voor '{theme}'."
 
-# *** SYSTEM_PROMPT (AANGEPAST) ***
+# ─────────────────────────── PROMPTS ────────────────────────────────────
 SYSTEM_PROMPT = """
-# MAE - GEBOORTEPLAN ASSISTENT
-
-## IDENTITEIT
-Je bent Mae, een warme, empathische en proactieve assistent die zwangere vrouwen helpt bij het maken van een persoonlijk geboorteplan.
-
-## WERKWIJZE: VIER FASEN
-Gebruik `get_plan_status()` om je huidige fase te bepalen.
-
-### 1. THEME_SELECTION
-- **Doel**: Gebruiker kiest max 6 thema's.
-- **Actie**: Gebruik `offer_choices(choice_type='themes')` voor suggesties. Gebruiker mag eigen thema's toevoegen.
-- **Tools**: `add_item`, `remove_item`, `update_item` (met `item_type='theme'`).
-
-### 2. TOPIC_SELECTION
-- **Doel**: Per thema max 4 onderwerpen kiezen.
-- **Actie**: Gebruik `offer_choices(choice_type='topics', theme_context='THEMA_NAAM')`. Als de tool "Geen standaard onderwerpen gevonden" teruggeeft, bedenk je zelf proactief 3-4 suggesties en stelt deze voor met `propose_topics`.
-- **Navigatie**: Na het bevestigen van onderwerpen voor een thema, keer je terug naar de themaselectie. Vraag wat de volgende stap is. Voorbeeld: "Prima, de onderwerpen voor 'Kraamtijd' zijn opgeslagen. Je kunt nu een volgend thema kiezen, of we kunnen doorgaan naar de vragenronde als je klaar bent."
-- **Tools**: `add_item`, `remove_item`, `update_item` (met `item_type='topic'`).
-
-### 3. QA_SESSION
-- **Start**: Roep `start_qa_session()` aan.
-- **Proces**: Stel vragen met `get_next_question()` en sla antwoorden op met `log_answer()`.
-
-### 4. COMPLETED
-- **Actie**: `save_plan_summary()` en `genereer_plan_tekst()`.
-
-## COMMUNICATIE & OPDRACHTEN
-- **Quick Replies Regel**: Als je de gebruiker een directe keuze of opdracht geeft (ja/nee, of een keuze uit opties), MOET je de `propose_quick_replies` tool aanroepen. Formuleer je verzoek als een duidelijke vraag die eindigt met een vraagteken.
-- **Voorbeeld (Opdracht)**:
-  - Jouw tekst: "Ik heb het nieuwe thema 'Papa' toegevoegd. Wil je dat ik een paar onderwerpen voor dit thema suggereer?"
-  - Jouw tool-actie: Roep `propose_quick_replies(replies=["Ja, graag", "Nee, bedankt"])` aan.
-- **Toon & Stijl**: Wees warm, ondersteunend en duidelijk.
-- **Foutafhandeling**: Leg vriendelijk uit als een tool een "Error" geeft en probeer een alternatief.
+Je bent Mae, een warme, empathische en proactieve assistent die zwangere vrouwen helpt bij het maken van een persoonlijk geboorteplan. Je focust op de inhoud en het proces. Stel duidelijke, open vragen. De beslissing om quick-replies te tonen wordt door een ander, apart systeem genomen. Je hoeft de `propose_quick_replies` tool dus NIET zelf aan te roepen.
 """
 
-# ─────────────────────── Tool-registratie ──────────────────
+EXTRACTOR_PROMPT = """
+Jij bent een expert in gebruikersinterfaces. Jouw taak is om de tekst van een chatbot te analyseren en te bepalen of er quick reply-knoppen getoond moeten worden.
+
+De vraag moet een DIRECTE, EENVOUDIGE keuze zijn voor de gebruiker. Denk aan ja/nee, of een duidelijke A/B-keuze. Open vragen, informatieve teksten of vragen met te veel opties krijgen GEEN quick replies.
+
+Je MOET ALTIJD antwoorden met een JSON-object met één sleutel: "keuzes".
+- Als quick replies nodig zijn, vul je "keuzes" met een array van de twee knop-teksten.
+- Als er GEEN quick replies nodig zijn, vul je "keuzes" met `null`.
+
+--- VOORBEELDEN ---
+
+Tekst: "Oké, het thema 'Ondersteuning' is toegevoegd."
+Jouw JSON-antwoord:
+{
+  "keuzes": null
+}
+
+Tekst: "Wil je uit deze lijst kiezen, of heb je zelf nog een thema dat je graag wilt toevoegen?"
+Jouw JSON-antwoord:
+{
+  "keuzes": null
+}
+
+Tekst: "Ik heb het nieuwe thema 'Papa' toegevoegd. Wil je dat ik een paar onderwerpen voor dit thema suggereer?"
+Jouw JSON-antwoord:
+{
+  "keuzes": ["Ja, graag", "Nee, bedankt"]
+}
+
+Tekst: "Wil je meer informatie over dit onderwerp, of wil je doorgaan naar de volgende vraag?"
+Jouw JSON-antwoord:
+{
+  "keuzes": ["Meer informatie", "Volgende vraag"]
+}
+"""
+
+# ─────────────────────── Tool-registratie ──────────────────────────────
 tool_funcs = [
     get_plan_status, offer_choices, add_item, remove_item, update_item,
     start_qa_session, get_next_question, log_answer,
@@ -437,162 +356,161 @@ tool_funcs = [
 ]
 tools_schema = [get_schema(t) for t in tool_funcs]
 TOOL_MAP = {t.openai_schema['function']['name']: t for t in tool_funcs}
-log.info(f"{len(tool_funcs)} tools geregistreerd: {[name for name in TOOL_MAP.keys()]}")
+log.info(f"{len(tool_funcs)} tools geregistreerd.")
 
+# ─────────────────── NIEUWE KEUZE-EXTRACTOR FUNCTIE ───────────────────
+def get_quick_reply_options(text: str) -> Optional[List[str]]:
+    """
+    Gebruikt een snel model (GPT-3.5-Turbo) om te bepalen OF er quick replies
+    nodig zijn, en zo ja, WELKE opties getoond moeten worden.
+    Retourneert een lijst met opties of None.
+    """
+    if not text or not text.strip().endswith('?'):
+        return None # Sla de check over als het geen vraag is.
 
-# ───────────────────────── Agent-loop (AANGEPAST & VEREENVOUDIGD) ──────────────────────
+    log.info(f"Keuze-Extractor checkt tekst: '{text[:75]}...'")
+    try:
+        response = client.chat.completions.create(
+            model=CLASSIFIER_MODEL,
+            messages=[
+                {"role": "system", "content": EXTRACTOR_PROMPT},
+                {"role": "user", "content": text}
+            ],
+            temperature=0,
+            response_format={"type": "json_object"}
+        )
+        
+        result = json.loads(response.choices[0].message.content)
+        choices = result.get("keuzes")
+
+        if isinstance(choices, list) and len(choices) > 0:
+            log.info(f"Keuze-Extractor vond opties: {choices}")
+            return choices
+        else:
+            log.info("Keuze-Extractor vond geen quick replies nodig.")
+            return None
+
+    except Exception as e:
+        log.error(f"Keuze-Extractor fout: {e}", exc_info=True)
+        return None
+
+# ───────────────── AGENT LOOP MET KEUZE-EXTRACTOR ───────────────────
 def run_main_agent_loop(sid: str) -> str:
     """
-    Hoofdloop: stuurt de conversatie naar OpenAI, voert tool-calls uit en bewaart sessiestate.
-    De automatische quick-reply functie is verwijderd om fouten te voorkomen.
+    Hoofdloop die de Keuze-Extractor gebruikt om te bepalen of quick replies nodig zijn.
     """
     st = get_session(sid)
     log.info(f"Start main agent loop voor sessie {sid}. History-len: {len(st['history'])}")
 
-    if detect_sentiment(st["history"][-1]["content"]) == "needs_menu":
-        menu = json.dumps({"choices": [
-            {"label": "Meer info", "tool": "find_web_resources", "args": {"topic": "pijnstilling"}},
-            {"label": "Vergelijk opties", "tool": "vergelijk_opties", "args": {"options": ["epiduraal", "badbevalling"]}}
-        ]})
-        return present_tool_choices(session_id=sid, choices=menu)
-
-    for turn in range(5):  # MAX_TURNS = 5
+    for turn in range(5):
         log.info(f"Agent-beurt {turn + 1}/5 voor sessie {sid}")
 
         resp = client.chat.completions.create(
-            model=MODEL_CHOICE,
-            messages=st["history"],
-            tools=tools_schema,
-            tool_choice="auto"
+            model=MODEL_CHOICE, messages=st["history"], tools=tools_schema, tool_choice="auto"
         )
         msg = resp.choices[0].message
-        st["history"].append(msg.model_dump(exclude_unset=True))
+        st["history"].append(msg.model_dump(exclude_unset=True, warnings=False))
 
-        if not msg.tool_calls:
+        if msg.tool_calls:
+            tool_results = []
+            for call in msg.tool_calls:
+                fn = TOOL_MAP.get(call.function.name, lambda **_: "Error: onbekende tool")
+                try:
+                    args = json.loads(call.function.arguments or "{}")
+                    result = fn(session_id=sid, **args)
+                except Exception as e:
+                    result = f"Error executing tool: {e}"; log.error(result, exc_info=True)
+                tool_results.append({
+                    "tool_call_id": call.id, "role": "tool", "name": call.function.name, "content": str(result)
+                })
+            st["history"].extend(tool_results)
             save_state(sid, st)
-            return msg.content or "(geen antwoord)"
+            continue
 
-        tool_results: List[Dict[str, Any]] = []
-        for call in msg.tool_calls:
-            fn = TOOL_MAP.get(call.function.name)
-            try:
-                args = json.loads(call.function.arguments or "{}")
-                result = fn(session_id=sid, **args) if fn else f"Error: tool '{call.function.name}' not found."
-            except Exception as e:
-                result = f"Error executing tool: {e}"
-                log.error(result, exc_info=True)
+        if msg.content:
+            options = get_quick_reply_options(msg.content)
+            if options:
+                tool_call_id = f"call_{uuid.uuid4()}"
+                tool_call_payload = {
+                    "role": "assistant",
+                    "tool_calls": [{"id": tool_call_id, "type": "function", "function": {
+                            "name": "propose_quick_replies", "arguments": json.dumps({"replies": options})
+                    }}]
+                }
+                st["history"].append(tool_call_payload)
+                st["history"].append({
+                    "tool_call_id": tool_call_id, "role": "tool", "name": "propose_quick_replies",
+                    "content": f"Quick replies voorgesteld: {', '.join(options)}"
+                })
 
-            tool_results.append({
-                "tool_call_id": call.id,
-                "role": "tool",
-                "name": call.function.name,
-                "content": str(result)
-            })
-
-        st["history"].extend(tool_results)
         save_state(sid, st)
-
-        # Als de laatste tool-call quick replies voorstelt, geef dan direct het antwoord terug
-        # zonder een nieuwe LLM-ronde te starten.
-        if msg.tool_calls[-1].function.name == "propose_quick_replies":
-            return msg.content or "(actie wordt voorbereid)"
+        return msg.content or "(geen antwoord)"
 
     log.warning(f"MAX_TURNS bereikt voor sessie {sid}")
     return "(max turns bereikt)"
 
-# ───────────────────── build_payload (Ongewijzigd) ────────────────
+# ───────────────── FLASK ROUTES & PAYLOAD ──────────────────────
 def build_payload(st: Dict[str, Any], reply: str) -> Dict[str, Any]:
     """Stelt de JSON-payload samen die naar de frontend wordt gestuurd."""
-    log.info(f"Samenstellen van payload voor sessie {st.get('id', 'onbekend')}.")
-
     payload = {
-        "assistant_reply"  : reply,
-        "session_id"       : st["id"],
-        "stage"            : st["stage"],
-        "plan"             : st["plan"],
-        "suggested_replies": [],
-        "suggested_topics" : {}
+        "assistant_reply": reply, "session_id": st["id"], "stage": st["stage"],
+        "plan": st["plan"], "suggested_replies": [],
+        "suggested_topics": st.get("topic_suggestions", {})
     }
-
-    last_message = st["history"][-1] if st["history"] else None
-    if last_message and last_message.get("role") == "assistant" and last_message.get("tool_calls"):
-        for tool_call in last_message["tool_calls"]:
-            fname = tool_call.get("function", {}).get("name")
-            try:
-                args = json.loads(tool_call["function"]["arguments"])
-            except (json.JSONDecodeError, TypeError):
-                continue
-            if fname == "propose_quick_replies":
-                payload["suggested_replies"] = args.get("replies", [])
-            elif fname == "propose_topics":
-                theme = args.get("theme")
-                payload["suggested_topics"][theme] = args.get("suggestions", [])
-
-    payload["suggested_topics"].update(st.get("topic_suggestions", {}))
-    log.debug(f"Finale payload:\n{json.dumps(payload, indent=2, ensure_ascii=False)}")
+    
+    # Zoek naar de laatste relevante tool call voor quick replies
+    for message in reversed(st["history"]):
+        if message.get("role") == "assistant" and message.get("tool_calls"):
+            for tc in message["tool_calls"]:
+                if tc.get("function", {}).get("name") == "propose_quick_replies":
+                    try:
+                        args = json.loads(tc["function"]["arguments"])
+                        payload["suggested_replies"] = args.get("replies", [])
+                        # Stop met zoeken zodra we de eerste vinden
+                        return payload
+                    except (json.JSONDecodeError, TypeError):
+                        pass
     return payload
 
-# ───────────────────────── Flask-routes (Ongewijzigd) ──────────────────
 @app.post("/agent")
 def agent_route():
-    log.info(f"Binnenkomend verzoek op /agent van IP: {request.remote_addr}")
     try:
-        body=request.get_json(force=True) or {}
-        msg=body.get("message","").strip()
-        sid=body.get("session_id") or str(uuid.uuid4())
-        log.info(f"Sessie ID: {sid}, Bericht: '{msg}'")
+        body = request.get_json(force=True) or {}
+        msg, sid = body.get("message","").strip(), body.get("session_id") or str(uuid.uuid4())
+        if not msg: return jsonify({"assistant_reply":"(leeg bericht)","session_id":sid})
 
-        if not msg:
-            log.warning("Leeg bericht ontvangen.")
-            return jsonify({"assistant_reply":"(leeg bericht)","session_id":sid})
-
-        st=get_session(sid)
+        st = get_session(sid)
         st["history"].append({"role":"user","content":msg})
         save_state(sid,st)
-        log.debug(f"Gebruikersbericht toegevoegd aan history voor sessie {sid}.")
 
-        reply=run_main_agent_loop(sid)
-        log.info(f"Agent-loop voltooid voor sessie {sid}. Antwoord: '{reply[:100]}...'")
-
+        reply = run_main_agent_loop(sid)
         final_st = get_session(sid)
-
-        if final_st["stage"]==Stage.COMPLETED.value:
-            log.info(f"Sessie {sid} is in COMPLETED fase. Samenvatting wordt opgeslagen.")
+        
+        if final_st["stage"] == Stage.COMPLETED.value:
             save_plan_summary(session_id=sid)
 
-        response_payload = build_payload(final_st,reply)
-        return jsonify(response_payload)
+        return jsonify(build_payload(final_st, reply))
     except Exception as e:
         log.critical(f"Onverwachte fout in /agent route: {e}", exc_info=True)
         return jsonify({"error": "Er is een interne serverfout opgetreden."}), 500
 
 @app.get("/export/<sid>")
 def export_json(sid):
-    log.info(f"Exportverzoek voor sessie {sid} (JSON).")
     st=load_state(sid);
-    if not st:
-        log.warning(f"Exportverzoek voor onbekende sessie {sid}.")
-        abort(404)
+    if not st: abort(404)
     path=ROOT/f"geboorteplan_{sid}.json"
     path.write_text(json.dumps(st["plan"],ensure_ascii=False,indent=2),"utf-8")
-    log.info(f"Geboorteplan voor {sid} geëxporteerd naar {path}")
     return send_file(path,as_attachment=True,download_name=path.name)
 
 @app.route("/", defaults={"path":""})
 @app.route("/<path:path>")
 def serve_frontend(path):
-    log.debug(f"Frontend verzoek voor pad: '{path}'")
     if path=="iframe":
         backend_url = os.getenv("RENDER_EXTERNAL_URL","http://127.0.0.1:10000")
-        log.info(f"Iframe pagina wordt geserveerd met backend_url: {backend_url}")
         return render_template("iframe_page.html", backend_url=backend_url)
-
     full_path = os.path.join(app.static_folder, path)
     if path and os.path.exists(full_path):
-        log.debug(f"Statisch bestand '{path}' wordt geserveerd.")
         return send_from_directory(app.static_folder, path)
-
-    log.debug("Geen specifiek pad gevonden, 'index.html' wordt geserveerd.")
     return send_from_directory(app.static_folder, "index.html")
 
 if __name__=="__main__":
