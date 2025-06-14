@@ -333,29 +333,33 @@ def update_answer(session_id:str,question_text:str,new_answer:str)->str:
 
 # --- Proactieve-Gids tools ---
 @function_tool
-def find_web_resources(topic:str,depth:Literal['brief','diep']='brief')->str:
+def find_web_resources(session_id: str,
+                       topic: str,
+                       depth: Literal['brief', 'diep'] = 'brief') -> str:
     """Zoekt naar webbronnen over een bepaald onderwerp."""
-    log.info(f"Tool 'find_web_resources' aangeroepen. Topic: {topic}, Depth: {depth}")
-    return json.dumps({"summary":f"Samenvatting over {topic}",
-                       "links":[f"https://example.com/{topic}"]})
+    log.info(f"Tool 'find_web_resources' aangeroepen voor sessie {session_id}. Topic: {topic}, Depth: {depth}")
+    return json.dumps({
+        "summary": f"Samenvatting over {topic}",
+        "links":   [f"https://example.com/{topic}"]
+    })
 
 @function_tool
-def vergelijk_opties(options:List[str])->str:
+def vergelijk_opties(session_id: str, options: List[str]) -> str:
     """Vergelijkt verschillende opties."""
-    log.info(f"Tool 'vergelijk_opties' aangeroepen. Opties: {options}")
+    log.info(f"Tool 'vergelijk_opties' aangeroepen voor sessie {session_id}. Opties: {options}")
     return f"Vergelijking: {', '.join(options)}"
 
 @function_tool
-def geef_denkvraag(theme:str)->str:
+def geef_denkvraag(session_id: str, theme: str) -> str:
     """Geeft een reflectievraag over een thema."""
-    log.info(f"Tool 'geef_denkvraag' aangeroepen. Thema: {theme}")
+    log.info(f"Tool 'geef_denkvraag' aangeroepen voor sessie {session_id}. Thema: {theme}")
     return f"Hoe voel je je over {theme}?"
 
 @function_tool
-def find_external_organization(keyword:str)->str:
+def find_external_organization(session_id: str, keyword: str) -> str:
     """Zoekt naar externe organisaties."""
-    log.info(f"Tool 'find_external_organization' aangeroepen. Keyword: {keyword}")
-    return json.dumps({"organisaties":[f"{keyword} support groep"]})
+    log.info(f"Tool 'find_external_organization' aangeroepen voor sessie {session_id}. Keyword: {keyword}")
+    return json.dumps({"organisaties": [f"{keyword} support groep"]})
 
 @function_tool
 def check_onbeantwoorde_punten(session_id:str)->str:
@@ -372,9 +376,9 @@ def genereer_plan_tekst(session_id:str,format:Literal['markdown','plain']='markd
     return "# Geboorteplan\n"+json.dumps(st["plan"],ensure_ascii=False,indent=2)
 
 @function_tool
-def present_tool_choices(choices:str)->str:
+def present_tool_choices(session_id: str, choices: str) -> str:
     """Geeft JSON-string terug zodat de frontend dit als quick-replies kan tonen."""
-    log.info(f"Tool 'present_tool_choices' aangeroepen met keuzes: {choices}")
+    log.info(f"Tool 'present_tool_choices' aangeroepen voor sessie {session_id} met keuzes: {choices}")
     return choices
 
 @function_tool
