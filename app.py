@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 import os, json, uuid, sqlite3, time, logging, inspect, pathlib
+import re, uuid   
 from enum import Enum
 from typing import Any, Dict, List, Literal, Optional
 from flask import Flask, request, jsonify, abort, send_file, send_from_directory, render_template
@@ -450,15 +451,57 @@ TOOL_MAP={t.openai_schema['function']['name']:t for t in tool_funcs}
 log.info(f"{len(tool_funcs)} tools geregistreerd: {[name for name in TOOL_MAP.keys()]}")
 
 # ───────────────────────── Agent-loop ────────────────────────────────────
+def _auto_quick_replies(st: dict, assistant_msg) -> Optional[dict]:
+    """
+    Injecteer – indien nodig – een pseudo-assistant-bericht met een
+    propose_quick_replies-tool-call.  Geeft het gegenereerde bericht-dict
+    terug óf None wanneer er niets hoeft te gebeuren.
+    """
+    # fases waarin we géén knoppen willen (sidebar-flows)
+    SKIP_STAGES = {
+        Stage.THEME_SELECTION.value,
+        Stage.TOPIC_SELECTION.value,
+        Stage.COMPLETED.value,
+    }
+
+    # 1) al quick-replies aanwezig? 2) fase uitgesloten? 3) geen vraagteken → niets doen
+    if (any(tc.function.name == "propose_quick_replies"
+            for tc in (assistant_msg.tool_calls or []))
+        or st["stage"] in SKIP_STAGES
+        or not (assistant_msg.content or "").strip().endswith("?")):
+        return None
+
+    # heuristiek: “… of …?” ⇒ twee opties; anders standaard Ja/Nee
+    m = re.search(r"\b(.+?)\s+of\s+(.+?)\?$", assistant_msg.content, re.I)
+    replies = ([m.group(1).strip().capitalize(),
+                m.group(2).strip().capitalize()] if m else ["Ja", "Nee"])
+
+    # roep de échte tool aan (voor logging + consistentie)
+    propose_quick_replies(session_id=st["id"], replies=replies)
+
+    # pseudo-tool-call bericht (géén tool-result opnemen → laatste assistant-item blijft ‘assistant’)
+    return {
+        "role": "assistant",
+        "tool_calls": [{
+            "id": str(uuid.uuid4()),
+            "function": {
+                "name": "propose_quick_replies",
+                "arguments": json.dumps({"replies": replies})
+            }
+        }]
+    }
+
+
+# ──────────────────────────────────────────────────────────────────────────
 def run_main_agent_loop(sid: str) -> str:
-    """Hoofdloop: stuurt de conversatie naar OpenAI, voert tool-calls uit
-    en bewaart de bijgewerkte sessiestate.  Sleutel-fix: na elke batch
-    tool-calls wordt de state opnieuw ingelezen, zodat we de wijzigingen
-    van de tools niet overschrijven met een verouderde kopie."""
+    """
+    Hoofdloop: stuurt de conversatie naar OpenAI, voert tool-calls uit,
+    bewaart sessiestate en voegt – zo nodig – automatisch quick-replies toe.
+    """
     st = get_session(sid)
     log.info(f"Start main agent loop voor sessie {sid}. History-len: {len(st['history'])}")
 
-    # ­­­— simpele guardrail -------------------------------------------------
+    # ---------- eenvoudige guardrail -------------------------------------------------
     if detect_sentiment(st["history"][-1]["content"]) == "needs_menu":
         menu = json.dumps({
             "choices": [
@@ -474,11 +517,12 @@ def run_main_agent_loop(sid: str) -> str:
             ]
         })
         return present_tool_choices(session_id=sid, choices=menu)
-    # -----------------------------------------------------------------------
+    # -------------------------------------------------------------------------------
 
-    for turn in range(5):                              # MAX_TURNS = 5
+    for turn in range(5):                     # MAX_TURNS = 5
         log.info(f"Agent-beurt {turn + 1}/5 voor sessie {sid}")
 
+        # 1) LLM-antwoord ophalen
         resp = client.chat.completions.create(
             model       = MODEL_CHOICE,
             messages    = st["history"],
@@ -486,16 +530,13 @@ def run_main_agent_loop(sid: str) -> str:
             tool_choice = "auto"
         )
         msg = resp.choices[0].message
+
+        # 2) voeg het assistant-bericht meteen toe
         st["history"].append(msg.model_dump(exclude_unset=True))
 
-        # — geen tool-calls → klaar
-        if not msg.tool_calls:
-            save_state(sid, st)
-            return msg.content or "(geen antwoord)"
-
-        # — tool-calls uitvoeren
+        # 3) voer eventuele tool-calls van het LLM-bericht uit
         tool_results: List[Dict[str, Any]] = []
-        for call in msg.tool_calls:
+        for call in (msg.tool_calls or []):
             fn = TOOL_MAP.get(call.function.name)
             try:
                 args   = json.loads(call.function.arguments)
@@ -511,20 +552,32 @@ def run_main_agent_loop(sid: str) -> str:
                 "content"    : str(result)
             })
 
-        # — short-circuit wanneer laatste tool quick-replies plaatst
-        if msg.tool_calls[-1].function.name == "propose_quick_replies":
-            for i in range(len(st["history"]) - 2, -1, -1):
-                hist = st["history"][i]
-                if hist.get("role") == "assistant" and hist.get("content"):
-                    return hist["content"]
-            return "(actie wordt voorbereid)"
+        # 4) history veilig mergen (state kan in tool-calls gewijzigd zijn)
+        local_history = st["history"] + tool_results
+        st            = get_session(sid)           # verse state met plan-updates
+        st["history"] = local_history
 
-        # —❰FIX START❱—  *state veilig bijwerken*
-        local_history = st["history"] + tool_results   # voeg tool-output lokaal toe
-        st            = get_session(sid)               # laad **verse** state (met plan-updates)
-        st["history"] = local_history                  # merge history
-        save_state(sid, st)                            # sla nu pas alles op
-        # —❰FIX END❱—
+        # 5) automatisch quick-replies toevoegen – ná de tool-results,
+        #    zodat dit het laatste assistant-item wordt
+        injected = _auto_quick_replies(st, msg)
+        if injected:
+            st["history"].append(injected)
+
+        # 6) state opslaan (één keer per loop-iteratie)
+        save_state(sid, st)
+
+        # 7) SHORT-CIRCUIT: als (a) we zojuist iets injecteerden óf
+        #    (b) het LLM zelf quick-replies heeft aangeroepen,
+        #    dan is dit gebruikers-beurtje klaar.
+        if (injected or
+            (msg.tool_calls and msg.tool_calls[-1].function.name == "propose_quick_replies")):
+            return msg.content or "(geen antwoord)"
+
+        # 8) als er überhaupt géén tool-calls waren, zijn we ook klaar
+        if not msg.tool_calls:
+            return msg.content or "(geen antwoord)"
+
+        # anders: ga door naar de volgende turn (max 5)
 
     log.warning(f"MAX_TURNS bereikt voor sessie {sid}")
     return "(max turns bereikt)"
