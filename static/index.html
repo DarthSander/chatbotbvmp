@@ -145,7 +145,21 @@
       }
       #mobile-tabs button.active{ background:#fff; font-weight:600; }
     }
+
+    /* ---------- QUICK REPLIES ­— zelfde look & feel als thema-chips ---------- */
+    #quick-replies .chip,
+    #mobile-quick-replies .chip{
+      border-color:var(--rose);
+      color:var(--rose);
+    }
+    #quick-replies .chip.selected,
+    #mobile-quick-replies .chip.selected{
+      background:var(--rose);
+      color:#fff;
+      border-color:transparent;
+    }
   </style>
+
 </head>
 
 <body>
@@ -604,16 +618,17 @@ window.addEventListener("DOMContentLoaded", () => {
     document.getElementById("tab-plan").classList.toggle("active", faceName === "plan");
   }
 
-  /* -------------------------------------------------- *
+    /* -------------------------------------------------- *
    * 2.9 Chat-verzending (centrale functie)             *
    * -------------------------------------------------- */
   async function handleSend(txt, silent = false){
     if(!txt.trim()) return;
 
     const isMobile = window.innerWidth <= 900;
-    const chatBox = isMobile ? ui.mobileChatbox : ui.chatbox;
-    const inputEl = isMobile ? ui.mobileInput : ui.input;
+    const chatBox  = isMobile ? ui.mobileChatbox : ui.chatbox;
+    const inputEl  = isMobile ? ui.mobileInput    : ui.input;
 
+    /* eigen bubbeltje (of stille send) */
     if(!silent){
       addMsg("user", txt, chatBox);
     }else{
@@ -621,19 +636,29 @@ window.addEventListener("DOMContentLoaded", () => {
     }
 
     inputEl.value = "";
-    renderQuickReplies([]);            // oude opties weg
+    renderQuickReplies([]);            // oude opties wissen
 
     try{
       const data = await callAgent(txt, sessionId);
       if(!data) return;
 
+      /* ──── ❶ NIEUW: merge backend-suggesties ──── */
+      if(data.suggested_topics){
+        Object.assign(DEFAULT_TOPICS_PER_THEME, data.suggested_topics);
+        /* sta je op de back-face? → meteen chips refreshen */
+        if(currentThemeForTopics){
+          renderBackFace();
+        }
+      }
+      /* ─────────────────────────────────────────── */
+
       sessionId = data.session_id;
       sessionStorage.setItem("agentSession", sessionId);
 
-      /* als assistant_reply puur JSON-menu is, niet in bubble tonen */
+      /* JSON-menu onderdrukken in chat-bubble */
       let isJsonMenu = false;
       try{ isJsonMenu = JSON.parse(data.assistant_reply).choices ? true : false; }
-      catch(_){ /* not JSON */ }
+      catch(_){ /* niet parsebaar → geen menu */ }
 
       if(data.assistant_reply && !isJsonMenu){
         addMsg("bot", data.assistant_reply, chatBox);
@@ -645,6 +670,7 @@ window.addEventListener("DOMContentLoaded", () => {
       addMsg("bot","⚠️ Onbekende fout. Probeer opnieuw.", chatBox);
     }
   }
+
 
   /* -------------------------------------------------- *
    * 3. Init-prompt of sessie herstellen                *
