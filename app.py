@@ -305,7 +305,7 @@ def propose_topics(session_id: str, theme: str, suggestions: List[str]) -> str:
 # ╭───────────────────────────────╮
 # │  ✨  MAE – MASTER SYSTEM PROMPT │
 # ╰───────────────────────────────╯
-SYSTEM_PROMPT_FULL = r"""
+SYSTEM_PROMPT = r"""
 ╔══════════════════════════════════════════════════════════════════════╗
 ║ MAE – GEBOORTEPLAN-ASSISTENT  ·  ULTIEME INSTRUCTIE                 ║
 ╚══════════════════════════════════════════════════════════════════════╝
@@ -449,7 +449,7 @@ EINDE INSTRUCTIE
 # ╭──────────────────────────────────────────────╮
 # │  ✨  QUICK-REPLY EXTRACTOR – VOLLEDIG PROMPT   │
 # ╰──────────────────────────────────────────────╯
-EXTRACTOR_PROMPT_FULL = r"""
+EXTRACTOR_PROMPT = r"""
 ╔══════════════════════════════════════════════════════════════════════╗
 ║ QUICK-REPLY CLASSIFIER · VOLLEDIGE INSTRUCTIE                        ║
 ╚══════════════════════════════════════════════════════════════════════╝
