@@ -31,6 +31,13 @@ ROOT = pathlib.Path(__file__).parent
 dotenv_path = ROOT / '.env'
 load_dotenv(dotenv_path=dotenv_path)
 
+# --- Reparatie Render URI ---
+raw_uri = os.getenv("DATABASE_URL", "")
+if raw_uri.startswith("postgres://"):          # Render gebruikt dit oude schema
+    raw_uri = raw_uri.replace("postgres://", "postgresql://", 1)
+os.environ["DATABASE_URL"] = raw_uri           # zet aangepast URI terug
+
+
 # Flask App Initialisatie
 app = Flask(__name__, static_folder="static", static_url_path="/static", template_folder="templates")
 app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_prefix=1)
