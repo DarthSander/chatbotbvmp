@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# app.py – Geboorteplan-assistent • Versie 10.4 (Met ProxyFix voor Productie) 28-06-2025
+# app.py – Geboorteplan-assistent • Versie 11.1 (Productie Definitief) 28-06-2025
 
 import os
 import json
@@ -34,32 +34,31 @@ load_dotenv(dotenv_path=dotenv_path)
 # Flask App Initialisatie
 app = Flask(__name__, static_folder="static", static_url_path="/static", template_folder="templates")
 
-# --- BELANGRIJKE UPDATE: ProxyFix Toepassen ---
-# Deze regel vertelt Flask om de headers van de Render proxy te vertrouwen.
-# Dit moet vóór alle routes en andere logica worden toegepast.
+# --- ProxyFix Toepassen ---
+# Deze cruciale regel zorgt ervoor dat de app de Render proxy vertrouwt.
+# Het moet direct na het aanmaken van de 'app' instantie komen.
 app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_prefix=1)
 
-app.config['SECRET_KEY'] = os.getenv("SECRET_KEY", "een-zeer-geheim-geheim-voor-ontwikkeling")
+# --- App Configuratie ---
+# Gebruikt de SECRET_KEY van de environment, met een fallback voor lokaal testen.
+# ZORG ERVOOR DAT DEZE VARIABELE OP RENDER IS INGESTELD MET EEN LANGE, WILLEKEURIGE WAARDE.
+app.config['SECRET_KEY'] = os.getenv("SECRET_KEY", "vervang-dit-met-een-echt-geheim-voor-lokaal-testen")
 app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv("DATABASE_URL", f"sqlite:///{ROOT / 'database.db'}")
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
-# --- DYNAMISCHE SESSIE CONFIGURATIE VOOR PRODUCTIE & TEST ---
-# Render stelt automatisch de 'RENDER' environment variable in.
-IS_PRODUCTION = os.getenv('RENDER') == 'true'
+# --- Sessie Cookie Configuratie voor Productie ---
+# Deze instellingen zijn vereist voor sessies over HTTPS op platforms als Render.
+print("Productieomgeving gedetecteerd. Veilige cookie-instellingen worden toegepast.")
+app.config['SESSION_COOKIE_SECURE'] = True
+app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
+app.config['SESSION_COOKIE_HTTPONLY'] = True
 
-if IS_PRODUCTION:
-    print("Productieomgeving gedetecteerd (Render). Veilige cookie-instellingen worden toegepast.")
-    app.config['SESSION_COOKIE_SECURE'] = True
-    app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
-    app.config['SESSION_COOKIE_HTTPONLY'] = True
-else:
-    print("Lokale/testomgeving gedetecteerd. Standaard cookie-instellingen worden gebruikt.")
-
-# --- CORS CONFIGURATIE ---
+# --- CORS Configuratie ---
 ALLOWED_ORIGINS = [
     "https://bevalmeteenplan.nl",
     "https://www.bevalmeteenplan.nl",
     "https://chatbotbvmp.onrender.com",
+    # "https://jouw-hostinger-website.com" # Voeg hier je Hostinger domein toe
 ]
 CORS(app, origins=ALLOWED_ORIGINS)
 
@@ -86,13 +85,12 @@ log = logging.getLogger("geboorteplan-assistent")
 # OpenAI Client
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
-# --- BELANGRIJKE WAARSCHUWING VOOR PRODUCTIE ---
-if IS_PRODUCTION and app.config['SQLALCHEMY_DATABASE_URI'].startswith('sqlite'):
+# --- Productie Waarschuwing ---
+if os.getenv('RENDER') == 'true' and "sqlite" in app.config['SQLALCHEMY_DATABASE_URI']:
     log.warning("WAARSCHUWING: SQLite wordt gebruikt in een productieomgeving (Render).")
-    log.warning("De data kan verloren gaan bij elke herstart. Overweeg een beheerde database zoals Render PostgreSQL.")
-# --- EINDE WAARSCHUWING ---
+    log.warning("Dit is NIET aanbevolen. Data kan verloren gaan bij herstarts. Overweeg een beheerde database.")
 
-# --- RAG Setup: Laad of bouw de vector database ---
+# --- RAG Setup ---
 try:
     log.info("Laden van embedding model...")
     embeddings = HuggingFaceEmbeddings(model_name=EMBEDDING_MODEL_NAME)
@@ -152,7 +150,10 @@ def add_security_headers(response):
 def login_required(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
+        # Extra logging om de sessie te inspecteren VOORDAT de controle plaatsvindt
+        log.debug(f"Checking session in login_required for path: {request.path}. Session data: {session.items()}")
         if 'user_id' not in session:
+            log.warning(f"Sessie 'user_id' niet gevonden voor pad {request.path}. Doorverwijzen naar login.")
             flash("Je moet ingelogd zijn om deze pagina te bekijken.", "error")
             return redirect(url_for('login'))
         return f(*args, **kwargs)
@@ -303,6 +304,8 @@ def login():
         if user and bcrypt.check_password_hash(user.password_hash, password):
             session['user_id'] = user.id
             log.info(f"Gebruiker {user.username} (ID: {user.id}) succesvol ingelogd.")
+            # Extra logging om de sessie te inspecteren DIRECT na het instellen
+            log.debug(f"Session data after login: {session.items()}")
             return redirect(url_for('dashboard'))
         else:
             flash("Inloggen mislukt. Controleer je e-mailadres en wachtwoord.", "error")
