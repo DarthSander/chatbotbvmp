@@ -1,430 +1,435 @@
 #!/usr/bin/env python3
-# app.py – Geboorteplan-agent • Volledige versie 15-06-2025
+# app.py – Geboorteplan-assistent • Versie 10.2 (Met DB Initialisatie & CORS/Iframe) 28-06-2025
 
-from __future__ import annotations
-import os, json, uuid, sqlite3, time, logging, inspect, pathlib
-import re
-from enum import Enum
-from typing import Any, Dict, List, Literal, Optional
-from flask import Flask, request, jsonify, abort, send_file, send_from_directory, render_template
-from flask_cors import CORS
+import os
+import json
+import logging
+import pathlib
+from typing import Any, Dict, Optional, Generator, List
+from datetime import date
+from functools import wraps
+
+from flask import Flask, request, jsonify, abort, Response, stream_with_context, render_template, redirect, url_for, \
+    session, flash
+from flask_bcrypt import Bcrypt
+from flask_cors import CORS  # TOEGEVOEGDE IMPORT
 from openai import OpenAI
+from dotenv import load_dotenv
 
+# Lokale imports voor database en RAG
+from database import db, User, BirthPlan
+from langchain_community.vectorstores import FAISS
+from langchain_community.document_loaders import TextLoader
+from langchain.text_splitter import CharacterTextSplitter
+from langchain_huggingface import HuggingFaceEmbeddings
+
+# --- CONFIGURATIE ---
 ROOT = pathlib.Path(__file__).parent
-DB_FILE = ROOT / "sessions.db"
-LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
-MODEL_CHOICE = os.getenv("MODEL_CHOICE", "gpt-4.1")
-CLASSIFIER_MODEL = "gpt-3.5-turbo"
+dotenv_path = ROOT / '.env'
+load_dotenv(dotenv_path=dotenv_path)
 
-logging.basicConfig(
-    level=LOG_LEVEL,
-    format="%(asctime)s [%(levelname)s] %(name)s:%(funcName)s:%(lineno)d – %(message)s",
-    datefmt="%Y-%m-%d %H:%M:%S"
-)
-log = logging.getLogger("mae-backend")
-log.info("Mae-backend applicatie start...")
-log.info(f"Hoofd-model: {MODEL_CHOICE}, Classifier-model: {CLASSIFIER_MODEL}")
+# Flask App Initialisatie
+app = Flask(__name__, static_folder="static", static_url_path="/static", template_folder="templates")
+app.config['SECRET_KEY'] = os.getenv("SECRET_KEY", "een-zeer-geheim-geheim-voor-ontwikkeling")
+app.config['SQLALCHEMY_DATABASE_URI'] = f"sqlite:///{ROOT / 'database.db'}"
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-
+# --- NIEUWE CORS CONFIGURATIE ---
 ALLOWED_ORIGINS = [
     "https://bevalmeteenplan.nl",
     "https://www.bevalmeteenplan.nl",
-    "https://chatbotbvmp.onrender.com"
+    "https://chatbotbvmp.onrender.com",
+    # VERVANG DIT MET JE EIGEN HOSTINGER DOMEIN
+    # "https://jouw-hostinger-website.com"
 ]
+CORS(app, origins=ALLOWED_ORIGINS)
+# --- EINDE NIEUWE SECTIE ---
 
-app = Flask(__name__, static_folder="static", template_folder="templates", static_url_path="")
-CORS(app, origins=ALLOWED_ORIGINS, allow_headers="*", methods=["GET", "POST", "OPTIONS"])
-log.info(f"CORS ingeschakeld voor origins: {ALLOWED_ORIGINS}")
+# Extensies Initialiseren
+db.init_app(app)
+bcrypt = Bcrypt(app)
 
-# ─────────────────── Decorator om schema aan tools toe te voegen ───────────────────
-def function_tool(fn: Any) -> Any:
-    sig = inspect.signature(fn)
-    schema = {"type": "object", "properties": {}, "required": []}
-    py2json = {str:"string", int:"integer", float:"number", bool:"boolean"}
-    for name, param in sig.parameters.items():
-        if name == "session_id": continue
-        if getattr(param.annotation, "__origin__", None) is Literal:
-            schema["properties"][name] = {"type":"string","enum":list(param.annotation.__args__)}
+# Pad- en modelconfiguratie
+PLAN_TEMPLATE_FILE = ROOT / "geboorteplan_template.json"
+LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
+MODEL_CHOICE = os.getenv("MODEL_CHOICE", "gpt-4o-mini")
+VALIDATOR_MODEL = os.getenv("VALIDATOR_MODEL", "gpt-4o")
+
+# --- RAG CONFIGURATIE ---
+KNOWLEDGE_BASE_FILE = ROOT / "kennisbank.md"
+VECTOR_DB_PATH = ROOT / "vector_db"
+EMBEDDING_MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
+
+# Logging setup
+logging.basicConfig(level=LOG_LEVEL,
+                    format="%(asctime)s [%(levelname)s] %(name)s:%(funcName)s:%(lineno)d – %(message)s")
+log = logging.getLogger("geboorteplan-assistent")
+
+# OpenAI Client
+client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+
+# --- RAG Setup: Laad of bouw de vector database ---
+try:
+    log.info("Laden van embedding model...")
+    embeddings = HuggingFaceEmbeddings(model_name=EMBEDDING_MODEL_NAME)
+
+    if not VECTOR_DB_PATH.exists():
+        log.warning("Vector database niet gevonden. Bouwen van nieuwe database...")
+        if not KNOWLEDGE_BASE_FILE.exists():
+            raise FileNotFoundError(f"Kennisbank-bestand niet gevonden op: {KNOWLEDGE_BASE_FILE}")
+        loader = TextLoader(str(KNOWLEDGE_BASE_FILE), encoding="utf-8")
+        documents = loader.load()
+        text_splitter = CharacterTextSplitter(chunk_size=1000, chunk_overlap=100)
+        docs = text_splitter.split_documents(documents)
+        log.info(f"Kennisbank opgesplitst in {len(docs)} stukken.")
+        vector_db = FAISS.from_documents(docs, embeddings)
+        vector_db.save_local(str(VECTOR_DB_PATH))
+        log.info(f"Nieuwe vector database opgeslagen in: {VECTOR_DB_PATH}")
+    else:
+        log.info("Laden van bestaande vector database...")
+        vector_db = FAISS.load_local(str(VECTOR_DB_PATH), embeddings, allow_dangerous_deserialization=True)
+
+    vector_retriever = vector_db.as_retriever(search_kwargs={"k": 2})
+    log.info("Vector database succesvol geladen.")
+
+except Exception as e:
+    log.error(f"Kritieke fout bij opzetten van RAG: {e}", exc_info=True)
+    vector_retriever = None
+
+# --- Statische Teksten ---
+INTRO_MESSAGE = """Met het beantwoorden van de volgende vragenlijst proberen we jouw wensen en voorkeuren op te nemen in je persoonlijk bevalplan. Ook als je bij sommige vragen geen specifieke voorkeur hebt, is het waardevol om vooraf na te denken over verschillende situaties en wat deze bij jou oproepen. Door je bewust te zijn van je gedachten en gevoelens, kun je tijdens de bevalling beter aangeven wat je nodig hebt. Invulling geven aan jouw bevalplan is een manier om samen met je partner en zorgverleners het gesprek aan te gaan over wat voor jou belangrijk is. Dit draagt bij aan een gevoel van betrokkenheid en regie, ongeacht hoe je bevalling uiteindelijk verloopt.
+
+In Nederland staat de veiligheid van moeder en kind natuurlijk altijd voorop. Het is goed om je te realiseren dat bij medische noodzaak protocollen kunnen afwijken van je wensen. Je verloskundige/gynaecoloog bespreekt dit altijd met je, tenzij het een acute noodsituatie betreft."""
+
+FINAL_MESSAGE = """Dit bevalplan beschrijft jouw ideale bevalling. Niet alle bevallingen verlopen volgens plan. Denk vooraf ook na over situaties zoals een inleiding, langdurige bevalling of (spoed)keizersnede en bespreek je wensen hierover met je verloskundige. Ook in afwijkende situaties blijven veel wensen uit dit plan relevant. Deel het daarom altijd met je zorgteam.
+
+Onthoud: een goede bevalervaring betekent dat jij je gehoord voelt, goed geïnformeerd bent en jij en je kindje gezond zijn."""
+
+
+# --- DATABASE INITIALISATIE COMMANDO ---
+@app.cli.command("init-db")
+def init_db_command():
+    """Maakt de databasetabellen aan."""
+    with app.app_context():
+        db.create_all()
+    print("Database geïnitialiseerd en tabellen aangemaakt.")
+
+
+# --- NIEUWE IFRAME SECURITY HEADER ---
+@app.after_request
+def add_security_headers(response):
+    """Voegt de nodige Content-Security-Policy header toe om iframe embedding toe te staan."""
+    # Construeer de 'frame-ancestors' waarde uit de ALLOWED_ORIGINS lijst
+    frame_ancestors = " ".join(ALLOWED_ORIGINS)
+    response.headers['Content-Security-Policy'] = f"frame-ancestors 'self' {frame_ancestors}"
+    return response
+# --- EINDE NIEUWE SECTIE ---
+
+
+# --- AUTHENTICATIE DECORATOR ---
+def login_required(f):
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if 'user_id' not in session:
+            flash("Je moet ingelogd zijn om deze pagina te bekijken.", "error")
+            return redirect(url_for('login'))
+        return f(*args, **kwargs)
+
+    return decorated_function
+
+
+# --- GEBRUIKER & GEBOORTEPLAN BEHEER ---
+def get_plan_for_user(user_id: int) -> Optional[BirthPlan]:
+    return BirthPlan.query.filter_by(user_id=user_id).first()
+
+
+def get_or_create_plan_for_user(user_id: int) -> BirthPlan:
+    plan = get_plan_for_user(user_id)
+    if plan:
+        return plan
+
+    log.info(f"Nieuw geboorteplan wordt aangemaakt voor gebruiker ID: {user_id}")
+    with open(PLAN_TEMPLATE_FILE, "r", encoding="utf-8") as f:
+        plan_template = json.load(f)
+
+    new_plan = BirthPlan(
+        user_id=user_id,
+        plan=plan_template,
+        history=[]
+    )
+    db.session.add(new_plan)
+    db.session.commit()
+    return new_plan
+
+
+def save_plan_state(plan: BirthPlan, st: Dict[str, Any]):
+    plan.plan = st.get('plan')
+    plan.history = st.get('history')
+    db.session.commit()
+    log.debug(f"Status opgeslagen voor gebruiker ID: {plan.user_id}")
+
+
+# --- HELPER FUNCTIES ---
+def find_topic_by_id(plan: list, topic_id: str):
+    for theme in plan:
+        for topic in theme.get('topics', []):
+            if topic['id'] == topic_id:
+                return topic, theme
+    return None, None
+
+
+def is_plan_complete(plan: list) -> bool:
+    for theme in plan:
+        for topic in theme.get('topics', []):
+            if not topic.get('answer'):
+                return False
+    return True
+
+
+def stream_llm_response(messages: list) -> Generator[str, None, None]:
+    try:
+        stream = client.chat.completions.create(model=MODEL_CHOICE, messages=messages, stream=True)
+        for chunk in stream:
+            content = chunk.choices[0].delta.content
+            if content:
+                yield f"data: {json.dumps({'content': content})}\n\n"
+    except Exception as e:
+        log.error(f"Streaming LLM fout: {e}")
+        yield f"data: {json.dumps({'error': 'Sorry, er ging iets mis met de OpenAI API.'})}\n\n"
+
+
+# --- PAGINA ROUTES ---
+@app.route('/')
+def root():
+    if 'user_id' in session:
+        return redirect(url_for('dashboard'))
+    return redirect(url_for('login'))
+
+
+@app.route('/register', methods=['GET', 'POST'])
+def register():
+    if request.method == 'POST':
+        # --- Accountgegevens ophalen ---
+        email = request.form.get('email')
+        username = request.form.get('username')
+        password = request.form.get('password')
+
+        # --- Persoonlijke gegevens ophalen ---
+        woman_name = request.form.get('woman_name')
+        partner_name = request.form.get('partner_name')
+        woman_dob_str = request.form.get('woman_dob')
+        due_date_str = request.form.get('due_date')
+        woman_phone = request.form.get('woman_phone')
+        partner_phone = request.form.get('partner_phone')
+
+        # --- Baby & Zorg gegevens ophalen ---
+        baby_name = request.form.get('baby_name')
+        baby_name_secret = True if request.form.get('baby_name_secret') else False
+        midwifery_practice = request.form.get('midwifery_practice')
+        midwifery_phone = request.form.get('midwifery_phone')
+        medical_complications = request.form.get('medical_complications')
+
+        # --- Validatie ---
+        if not all([email, username, password, woman_name, due_date_str]):
+            flash("Vul alle verplichte velden (*) in.", "error")
+            return redirect(url_for('register'))
+
+        if User.query.filter((User.email == email) | (User.username == username)).first():
+            flash("E-mailadres of gebruikersnaam is al in gebruik.", "error")
+            return redirect(url_for('register'))
+
+        # --- Gegevens verwerken en opslaan ---
+        hashed_password = bcrypt.generate_password_hash(password).decode('utf-8')
+        due_date = date.fromisoformat(due_date_str)
+        woman_dob = date.fromisoformat(woman_dob_str) if woman_dob_str else None
+
+        new_user = User(
+            email=email,
+            username=username,
+            password_hash=hashed_password,
+            woman_name=woman_name,
+            partner_name=partner_name,
+            woman_dob=woman_dob,
+            due_date=due_date,
+            woman_phone=woman_phone,
+            partner_phone=partner_phone,
+            baby_name=baby_name,
+            baby_name_secret=baby_name_secret,
+            midwifery_practice=midwifery_practice,
+            midwifery_phone=midwifery_phone,
+            medical_complications=medical_complications
+        )
+
+        db.session.add(new_user)
+        db.session.commit()
+
+        get_or_create_plan_for_user(new_user.id)
+
+        flash("Account succesvol aangemaakt! Je kunt nu inloggen.", "success")
+        return redirect(url_for('login'))
+
+    return render_template('register.html')
+
+
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    if request.method == 'POST':
+        email = request.form.get('email')
+        password = request.form.get('password')
+        user = User.query.filter_by(email=email).first()
+
+        if user and bcrypt.check_password_hash(user.password_hash, password):
+            session['user_id'] = user.id
+            log.info(f"Gebruiker {user.username} (ID: {user.id}) succesvol ingelogd.")
+            return redirect(url_for('dashboard'))
         else:
-            schema["properties"][name] = {"type": py2json.get(param.annotation,"string")}
-        if param.default is inspect.Parameter.empty:
-            schema["required"].append(name)
-    fn.openai_schema = {"type":"function","function":{
-        "name": fn.__name__, "description": fn.__doc__ or "", "parameters": schema}}
-    return fn
-def get_schema(f): return f.openai_schema
+            flash("Inloggen mislukt. Controleer je e-mailadres en wachtwoord.", "error")
+            return redirect(url_for('login'))
 
-# ─────────────────────────── Domein-state ────────────────────────────────
-class Stage(str,Enum):
-    THEME_SELECTION="THEME_SELECTION"
-    TOPIC_SELECTION="TOPIC_SELECTION"
-    QA_SESSION="QA_SESSION"
-    COMPLETED="COMPLETED"
+    return render_template('login.html')
 
-DEFAULT_THEMES=[{"name":"Ondersteuning","description":"Wie je erbij wilt en wat hun rol is."},
-{"name":"Bevalling & medisch beleid","description":"Wensen rondom pijnstilling en interventies."},
-{"name":"Sfeer en omgeving","description":"Voorkeuren voor licht, geluid en privacy."},
-{"name":"Voeding na de geboorte","description":"Keuzes rondom borst- of flesvoeding."},
-{"name":"Kraamtijd","description":"Wensen voor de eerste dagen na de bevalling."},
-{"name":"Communicatie","description":"Hoe je wilt dat zorgverleners met je communiceren."},
-{"name":"Speciale wensen","description":"Overige punten die voor jou belangrijk zijn."},
-{"name":"Fotografie en video","description":"Regels rondom het maken van opnames."},
-{"name":"Comfortmaatregelen","description":"Niet-medische manieren om pijn te verlichten."},
-{"name":"Partnerbetrokkenheid","description":"Specifieke taken en wensen voor je partner."}]
 
-DEFAULT_TOPICS_PER_THEME={
- "Ondersteuning":["Aanwezigheid partner","Rol van de partner","Aanwezigheid doula","Communicatie met zorgverleners"],
- "Bevalling & medisch beleid":["Pijnbestrijding opties","Houding tijdens bevallen","Medische interventies","Keizersnede voorkeuren"],
- "Sfeer en omgeving":["Muziek en geluid","Licht en temperatuur","Gebruik van water (douche/bad)","Privacy wensen"],
- "Voeding na de geboorte":["Borstvoeding of flesvoeding","Voedingshoudingen","Kolven","Hulp bij voeding"],
-}
+@app.route('/logout')
+def logout():
+    user_id = session.pop('user_id', None)
+    if user_id:
+        log.info(f"Gebruiker ID: {user_id} uitgelogd.")
+    flash("Je bent succesvol uitgelogd.", "success")
+    return redirect(url_for('login'))
 
-# ─────────────────────────── DB-initialisatie ────────────────────────────
-if not DB_FILE.exists():
-    log.warning(f"Databasebestand {DB_FILE} niet gevonden. Nieuwe database wordt aangemaakt.")
-    with sqlite3.connect(DB_FILE) as con:
-        con.execute("CREATE TABLE sessions (id TEXT PRIMARY KEY, state TEXT NOT NULL)")
-        con.execute("CREATE TABLE summaries (id TEXT, ts REAL, summary TEXT)")
-    log.info("Database en tabellen (sessions, summaries) succesvol aangemaakt.")
 
-def load_state(sid:str)->Optional[Dict[str,Any]]:
-    log.debug(f"Pogen state te laden voor session_id: {sid}")
-    with sqlite3.connect(DB_FILE) as con:
-        row = con.execute("SELECT state FROM sessions WHERE id=?",(sid,)).fetchone()
-        if row:
-            return json.loads(row[0])
-        return None
+@app.route('/dashboard')
+@login_required
+def dashboard():
+    user = User.query.get_or_404(session['user_id'])
+    return render_template('dashboard.html', user=user)
 
-def save_state(sid:str, st:Dict[str,Any]):
-    log.debug(f"State opslaan voor session_id: {sid}")
-    with sqlite3.connect(DB_FILE) as con:
-        con.execute("REPLACE INTO sessions (id,state) VALUES (?,?)",(sid,json.dumps(st)))
 
-def get_session(sid:str)->Dict[str,Any]:
-    st=load_state(sid)
-    if st:
-        log.info(f"Bestaande sessie {sid} geladen. Huidige fase: {st.get('stage', 'ONBEKEND')}")
-        st.setdefault("topic_suggestions", {})
-        return st
-    log.info(f"Nieuwe sessie gestart met id: {sid}")
-    st = {
-        "id" : sid,
-        "history" : [{"role": "system", "content": SYSTEM_PROMPT}],
-        "stage" : Stage.THEME_SELECTION.value,
-        "plan" : {"themes": [], "topics": {}, "qa_items": []},
-        "qa_queue": [],
-        "current_question": None,
-        "topic_suggestions": {}
-    }
-    save_state(sid,st)
-    return st
+@app.route('/vragenlijst')
+@login_required
+def vragenlijst():
+    return render_template('index.html')
 
-# ─────────────────────────── Alle Tools ───────────────────────────
-@function_tool
-def get_plan_status(session_id:str)->str:
-    """Geeft de huidige status van het geboorteplan terug."""
-    st=get_session(session_id)
-    return json.dumps({"stage":st["stage"],"plan":st["plan"]})
 
-@function_tool
-def offer_choices(session_id:str,choice_type:Literal['themes','topics'],theme_context:Optional[str]=None)->str:
-    """Biedt een lijst van keuzes voor thema's of onderwerpen."""
-    if choice_type == 'themes':
-        return ", ".join(t["name"] for t in DEFAULT_THEMES)
-    if choice_type == 'topics':
-        if not theme_context: return "Error: theme_context is verplicht."
-        for key, topics in DEFAULT_TOPICS_PER_THEME.items():
-            if key.lower() == theme_context.lower(): return ", ".join(topics)
-        return "Geen standaard onderwerpen gevonden. Bedenk zelf 4-5 suggesties."
-    return "Error: Ongeldig choice_type."
-
-@function_tool
-def add_item(session_id: str, item_type: Literal['theme', 'topic'], name: str, theme_context: Optional[str] = None, is_custom: bool = False) -> str:
-    """Voegt een thema of onderwerp toe aan het plan."""
-    st = get_session(session_id)
-    plan = st["plan"]
-    if isinstance(plan.get("topics"), list): plan["topics"] = {}
-    if item_type == 'theme':
-        if len(plan["themes"]) >= 6: return "Error: max 6 thema's."
-        if name not in [t["name"] for t in plan["themes"]]:
-            plan["themes"].append({"name": name, "is_custom": is_custom})
-    elif item_type == 'topic' and theme_context:
-        plan["topics"].setdefault(theme_context, [])
-        if name not in [t["name"] for t in plan["topics"].get(theme_context, [])]:
-            plan["topics"][theme_context].append({"name": name, "is_custom": is_custom})
-    save_state(session_id, st)
-    return f"{item_type.capitalize()} '{name}' is succesvol toegevoegd."
-
-@function_tool
-def remove_item(session_id:str,item_type:Literal['theme','topic'],name:str, theme_context:Optional[str]=None)->str:
-    """Verwijdert een thema of onderwerp uit het plan."""
-    st=get_session(session_id); plan=st["plan"]
-    if item_type=='theme':
-        plan["themes"]=[t for t in plan["themes"] if t["name"]!=name]
-        plan["topics"].pop(name,None)
-    elif item_type=='topic' and theme_context and theme_context in plan["topics"]:
-        plan["topics"][theme_context] = [t for t in plan["topics"][theme_context] if t["name"] != name]
-    save_state(session_id,st); return "ok"
-
-@function_tool
-def update_item(session_id:str,item_type:Literal['theme','topic'], old_name:str,new_name:str,theme_context:Optional[str]=None)->str:
-    """Werkt de naam van een thema of onderwerp bij."""
-    st=get_session(session_id); plan=st["plan"]
-    if item_type=='theme':
-        for t in plan["themes"]:
-            if t["name"]==old_name: t["name"]=new_name
-        if old_name in plan["topics"]:
-            plan["topics"][new_name]=plan["topics"].pop(old_name)
-    elif item_type=='topic' and theme_context and theme_context in plan["topics"]:
-        for t in plan["topics"][theme_context]:
-            if t["name"] == old_name: t["name"] = new_name
-        for qa in plan["qa_items"]:
-            if qa["theme"]==theme_context and qa["topic"]==old_name: qa["topic"]=new_name
-    save_state(session_id,st); return "ok"
-
-@function_tool
-def confirm_themes(session_id: str) -> str:
-    """Bevestigt dat de gebruiker klaar is met het kiezen van thema's en zet de fase naar de vragenronde."""
-    st = get_session(session_id)
-    st["stage"] = Stage.QA_SESSION.value
-    st["qa_queue"]=[{"theme":theme,"topic":t["name"],"question":f"Wat zijn je wensen rondom {t['name']}?"} for theme,topics in st["plan"]["topics"].items() for t in topics if "name" in t]
-    save_state(session_id, st)
-    log.info(f"Fase gewijzigd naar QA_SESSION. {len(st['qa_queue'])} vragen in wachtrij.")
-    return "Oké, we gaan nu beginnen met de vragen over de door jou gekozen onderwerpen."
-
-@function_tool
-def start_qa_session(session_id:str)->str:
-    """Start de vragenronde (QA-sessie)."""
-    st=get_session(session_id)
-    if st["stage"]==Stage.QA_SESSION.value: return "We zijn al in de vragenronde."
-    st["qa_queue"]=[{"theme":theme,"topic":t["name"],"question":f"Wat zijn je wensen rondom {t['name']}?"}
-                    for theme,topics in st["plan"]["topics"].items() for t in topics if "name" in t]
-    st["stage"]=Stage.QA_SESSION.value
-    save_state(session_id,st); return "ok"
-
-@function_tool
-def get_next_question(session_id:str)->str:
-    """Haalt de volgende vraag op uit de wachtrij."""
-    st=get_session(session_id)
-    if not st["qa_queue"]:
-        st["stage"]=Stage.COMPLETED.value; save_state(session_id,st)
-        return "Alle vragen zijn beantwoord!"
-    st["current_question"]=st["qa_queue"].pop(0)
-    save_state(session_id,st)
-    return f"Vraag over '{st['current_question']['topic']}': {st['current_question']['question']}"
-
-@function_tool
-def log_answer(session_id:str,answer:str)->str:
-    """Slaat het antwoord op een vraag op."""
-    st=get_session(session_id); cq=st["current_question"]
-    if not cq: return "Error:Geen actieve vraag."
-    st["plan"]["qa_items"].append({**cq,"answer":answer}); st["current_question"]=None
-    save_state(session_id,st); return "Antwoord opgeslagen."
-
-@function_tool
-def find_web_resources(session_id: str, topic: str, depth: Literal['brief', 'diep'] = 'brief') -> str:
-    """Zoekt naar webbronnen over een bepaald onderwerp."""
-    return json.dumps({"summary": f"Samenvatting over {topic}", "links": [f"https://example.com/{topic}"]})
-
-@function_tool
-def vergelijk_opties(session_id: str, options: List[str]) -> str:
-    """Vergelijkt verschillende opties."""
-    return f"Vergelijking: {', '.join(options)}"
-
-@function_tool
-def geef_denkvraag(session_id: str, theme: str) -> str:
-    """Geeft een reflectievraag over een thema."""
-    return f"Hoe voel je je over {theme}?"
-
-@function_tool
-def find_external_organization(session_id: str, keyword: str) -> str:
-    """Zoekt naar externe organisaties."""
-    return json.dumps({"organisaties": [f"{keyword} support groep"]})
-
-@function_tool
-def check_onbeantwoorde_punten(session_id:str)->str:
-    """Controleert of er nog onbeantwoorde vragen zijn."""
-    return json.dumps({"missing":get_session(session_id)["qa_queue"]})
-
-@function_tool
-def genereer_plan_tekst(session_id:str,format:Literal['markdown','plain']='markdown')->str:
-    """Genereert de tekst van het geboorteplan."""
-    return "# Geboorteplan\n"+json.dumps(get_session(session_id)["plan"],ensure_ascii=False,indent=2)
-
-@function_tool
-def present_tool_choices(session_id: str, choices: str) -> str:
-    """Geeft JSON-string terug zodat de frontend dit als quick-replies kan tonen."""
-    return choices
-
-@function_tool
-def save_plan_summary(session_id:str)->str:
-    """Slaat een samenvatting van het plan op in de database."""
-    st=get_session(session_id)
-    prompt="Vat dit geboorteplan samen in 5 bulletpoints:"+json.dumps(st["plan"],ensure_ascii=False)
-    try:
-        resp=client.chat.completions.create(model="gpt-3.5-turbo",messages=[{"role":"user","content":prompt}])
-        summary=resp.choices[0].message.content.strip()
-    except Exception as e:
-        summary=f"(samenvatting mislukt: {e})"
-    with sqlite3.connect(DB_FILE) as con:
-        con.execute("INSERT INTO summaries (id,ts,summary) VALUES (?,?,?)",(session_id,time.time(),summary))
-    return "summary_saved"
-
-@function_tool
-def propose_quick_replies(session_id: str, replies: List[str]) -> str:
-    """Stel een lijst van quick reply-knoppen voor die de frontend kan tonen."""
-    log.info(f"Tool 'propose_quick_replies' aangeroepen met replies: {replies}")
-    return f"Quick replies voorgesteld: {', '.join(replies)}"
-
-@function_tool
-def propose_topics(session_id: str, theme: str, suggestions: List[str]) -> str:
-    """Geeft een lijst van topic-suggesties terug en slaat deze op in de sessie."""
-    st = get_session(session_id)
-    st.setdefault("topic_suggestions", {})[theme] = suggestions
-    save_state(session_id, st)
-    return f"Topics voorgesteld voor '{theme}'."
-
-# ─────────────────────── Tool-registratie ──────────────────────────────
-tool_funcs = [
-    get_plan_status, offer_choices, add_item, remove_item, update_item,
-    start_qa_session, get_next_question, log_answer,
-    find_web_resources, vergelijk_opties, geef_denkvraag, find_external_organization,
-    check_onbeantwoorde_punten, genereer_plan_tekst,
-    present_tool_choices, save_plan_summary,
-    propose_quick_replies, confirm_themes, propose_topics
-]
-tools_schema = [get_schema(t) for t in tool_funcs]
-TOOL_MAP = {t.openai_schema['function']['name']: t for t in tool_funcs}
-log.info(f"{len(tool_funcs)} tools geregistreerd.")
-
-# ─────────────────── KEUZE-EXTRACTOR FUNCTIE ───────────────────
-def get_quick_reply_options(text: str) -> Optional[List[str]]:
-    if not text or not text.strip().endswith('?'):
-        return None
-    log.info(f"Keuze-Extractor checkt tekst: '{text[:75]}...'")
-    try:
-        response = client.chat.completions.create(
-            model=CLASSIFIER_MODEL,
-            messages=[
-                {"role": "system", "content": "Bepaal of deze tekst eindigt met een ja/nee vraag. Als ja: geef ['Ja','Nee'] terug. Anders: null"},
-                {"role": "user", "content": text}
-            ],
-            temperature=0,
-            response_format={"type": "json_object"}
-        )
-        result = json.loads(response.choices[0].message.content)
-        choices = result.get("keuzes")
-        if isinstance(choices, list) and len(choices) > 0:
-            return choices
-        return None
-    except Exception as e:
-        log.error(f"Keuze-Extractor fout: {e}", exc_info=True)
-        return None
-
-# ───────────────── AGENT LOOP MET UI-LOGICA ───────────────────
-def run_main_agent_loop(sid: str) -> str:
-    st = get_session(sid)
-    log.info(f"Start main agent loop voor sessie {sid}. History-len: {len(st['history'])}")
-
-    if len(st["history"]) == 2 and st["history"][1]["role"] == "user":
-        welcome_message = "Welkom! Ik ben Mae, je assistent voor het samenstellen van je geboorteplan. Klik op thema's om te starten."
-        st["history"].insert(1, {"role": "assistant", "content": welcome_message})
-        save_state(sid, st)
-        return welcome_message
-
-    for turn in range(5):
-        resp = client.chat.completions.create(
-            model=MODEL_CHOICE, messages=st["history"], tools=tools_schema, tool_choice="auto"
-        )
-        msg = resp.choices[0].message
-        st["history"].append(msg.model_dump(exclude_unset=True, warnings=False))
-
-        if msg.tool_calls:
-            tool_results = []
-            for call in msg.tool_calls:
-                fn = TOOL_MAP.get(call.function.name, lambda **_: f"Error: onbekende tool {call.function.name}")
-                try:
-                    args = json.loads(call.function.arguments or "{}")
-                    result = fn(session_id=sid, **args)
-                except Exception as e:
-                    result = f"Error executing tool: {e}"
-                    log.error(result, exc_info=True)
-                tool_results.append({"tool_call_id": call.id, "role": "tool", "name": call.function.name, "content": str(result)})
-            st["history"].extend(tool_results)
-            save_state(sid, st)
-            continue
-
-        if msg.content:
-            options = get_quick_reply_options(msg.content)
-            if options:
-                tool_call_id = f"call_{uuid.uuid4()}"
-                tool_call_payload = {
-                    "role": "assistant",
-                    "tool_calls": [{
-                        "id": tool_call_id,
-                        "type": "function",
-                        "function": {
-                            "name": "propose_quick_replies",
-                            "arguments": json.dumps({"replies": options})
-                        }
-                    }]
-                }
-                st["history"].append(tool_call_payload)
-                st["history"].append({
-                    "tool_call_id": tool_call_id,
-                    "role": "tool",
-                    "name": "propose_quick_replies",
-                    "content": f"Quick replies voorgesteld: {', '.join(options)}"
-                })
-
-        save_state(sid, st)
-        return msg.content or "(geen antwoord)"
-    return "(max turns bereikt)"
-
-# ───────────────── FLASK ROUTES ──────────────────────
-@app.post("/agent")
+# --- API ROUTE (CHATBOT LOGICA) ---
+@app.route("/agent", methods=['POST'])
+@login_required
 def agent_route():
-    try:
-        body = request.get_json(force=True) or {}
-        msg, sid = body.get("message","").strip(), body.get("session_id") or str(uuid.uuid4())
-        if not msg: return jsonify({"assistant_reply":"(leeg bericht)","session_id":sid})
-        st = get_session(sid)
-        st["history"].append({"role":"user","content":msg})
-        save_state(sid,st)
-        reply = run_main_agent_loop(sid)
-        final_st = get_session(sid)
-        if final_st["stage"] == Stage.COMPLETED.value: save_plan_summary(session_id=sid)
-        return jsonify({
-            "assistant_reply": reply,
-            "session_id": final_st["id"],
-            "stage": final_st["stage"],
-            "plan": final_st["plan"],
-            "suggested_replies": [],
-            "suggested_topics": final_st.get("topic_suggestions", {})
-        })
-    except Exception as e:
-        log.critical(f"Onverwachte fout in /agent route: {e}", exc_info=True)
-        return jsonify({"error": "Er is een interne serverfout opgetreden."}), 500
+    user_id = session.get('user_id')
+    plan_obj = get_or_create_plan_for_user(user_id)
 
-@app.get("/export/<sid>")
-def export_json(sid):
-    st=load_state(sid)
-    if not st: abort(404)
-    path=ROOT/f"geboorteplan_{sid}.json"
-    path.write_text(json.dumps(st["plan"],ensure_ascii=False,indent=2),"utf-8")
-    return send_file(path,as_attachment=True,download_name=path.name)
+    st = {
+        "id": plan_obj.user_id,
+        "plan": plan_obj.plan,
+        "history": plan_obj.history
+    }
 
-@app.route("/", defaults={"path":""})
-@app.route("/<path:path>")
-def serve_frontend(path):
-    if path=="iframe":
-        backend_url = os.getenv("RENDER_EXTERNAL_URL","http://127.0.0.1:10000")
-        return render_template("iframe_page.html", backend_url=backend_url)
-    full_path = os.path.join(app.static_folder, path)
-    if path and os.path.exists(full_path):
-        return send_from_directory(app.static_folder, path)
-    return send_from_directory(app.static_folder, "index.html")
+    body = request.get_json(force=True) or {}
+    command = body.get("command")
+    data = body.get("data", {})
 
-if __name__=="__main__":
-  
+    if command == "initialize":
+        return jsonify({"session_id": st["id"], "state": st, "welcome_message": INTRO_MESSAGE})
+
+    elif command == "question_selected":
+        topic_id = data.get("topic_id")
+        topic, _ = find_topic_by_id(st["plan"], topic_id)
+        if not topic: abort(404, "Topic niet gevonden")
+        explanation_message = f"**Toelichting bij \"{topic['question']}\"**:\n\n{topic['explanation']}"
+        return jsonify(
+            {"session_id": st["id"], "state": st, "explanation": explanation_message, "topic_name": topic["name"]})
+
+    elif command == "save_answer" or command == "submit_clarification":
+        topic_id = data.get("topic_id")
+        original_answer = data.get("answer") if command == "save_answer" else data.get("original_answer")
+        clarification = data.get("clarification") if command == "submit_clarification" else None
+        topic, theme = find_topic_by_id(st["plan"], topic_id)
+        if not topic: abort(404, "Topic niet gevonden")
+
+        plan_summary = "\n".join(
+            f"- Thema '{t['name']}', Vraag '{top['question']}', Antwoord: '{top.get('answer', '')}'"
+            for t in st['plan'] for top in t['topics'] if
+            top.get('answer') and top['id'] != topic_id and top.get('answer') != '__SKIPPED__'
+        ) or "Nog geen andere antwoorden gegeven."
+
+        clarification_text = f"De gebruiker heeft dit verduidelijkt: '{clarification}'." if clarification else ""
+        validation_prompt = f"""Je bent een kritische maar vriendelijke verloskundige adviseur. Analyseer het antwoord van een gebruiker.
+CONTEXT: De gebruiker stelt een geboorteplan op. HUIDIGE THEMA: {theme['name']}. DE VRAAG WAS: "{topic['question']}". HET GEGEVEN ANTWOORD IS: "{original_answer}". {clarification_text}
+SAMENVATTING VAN EERDERE KEUZES: {plan_summary}
+TAAK: Controleer het antwoord op onzin en tegenstrijdigheden.
+- Als het antwoord (eventueel met de verduidelijking) logisch en consistent is, antwoord dan met exact en alleen: OK
+- Als het antwoord onzinnig of tegenstrijdig blijft, formuleer dan een korte, vriendelijke, open wedervraag om de gebruiker te helpen. Wees direct."""
+
+        try:
+            validation_response = client.chat.completions.create(model=VALIDATOR_MODEL, messages=[
+                {"role": "user", "content": validation_prompt}], temperature=0.2)
+            validation_result = validation_response.choices[0].message.content.strip()
+        except Exception as e:
+            log.error(f"Validatie-call mislukt: {e}")
+            validation_result = "OK"
+
+        if validation_result == "OK":
+            topic["answer"] = original_answer
+            st["history"].append(
+                {"role": "system", "content": f"ANTWOORD OPGESLAGEN voor '{topic['name']}': '{original_answer}'"})
+            save_plan_state(plan_obj, st)
+            final_message = FINAL_MESSAGE if is_plan_complete(st["plan"]) else ""
+            return jsonify({"session_id": st["id"], "state": st, "status": "ok", "final_message": final_message})
+        else:
+            st["history"].append({"role": "system",
+                                  "content": f"ONGELDIG ANTWOORD voor '{topic['name']}': '{original_answer}'. Validatievraag wordt gesteld."})
+            save_plan_state(plan_obj, st)
+            return jsonify(
+                {"session_id": st["id"], "state": st, "status": "validation_failed", "feedback": validation_result,
+                 "original_answer": original_answer})
+
+    elif command == "skip_question":
+        topic_id = data.get("topic_id")
+        topic, _ = find_topic_by_id(st["plan"], topic_id)
+        if topic:
+            topic["answer"] = "__SKIPPED__"
+            st["history"].append({"role": "system", "content": f"VRAAG OVERGESLAGEN: '{topic['name']}'"})
+            save_plan_state(plan_obj, st)
+        final_message = FINAL_MESSAGE if is_plan_complete(st["plan"]) else ""
+        return jsonify({"session_id": st["id"], "state": st, "status": "ok", "final_message": final_message})
+
+    elif command == "start_guided_dialogue" or command == "user_message":
+        user_message = data.get("message", "Help me met deze vraag.")
+        st["history"].append({"role": "user", "content": user_message})
+        topic, _ = find_topic_by_id(st['plan'], data.get('topic_id'))
+
+        system_prompt = "Je bent Mae, een behulpzame assistent. Beantwoord de vraag van de gebruiker kort en bondig."
+
+        if command == "user_message" and vector_retriever:
+            log.info(f"RAG: Zoeken naar context voor vraag: '{user_message}'")
+            retrieved_docs = vector_retriever.invoke(user_message)
+            context = "\n\n".join([doc.page_content for doc in retrieved_docs])
+            log.info(f"RAG: Gevonden context:\n{context}")
+
+            system_prompt = f"""Je bent Mae, een behulpzame assistent gespecialiseerd in geboortezorg. Beantwoord de vraag van de gebruiker UITSLUITEND op basis van de volgende context. Als de informatie niet in de context staat, zeg dan dat je het niet weet. Wees beknopt.
+
+CONTEXT:
+---
+{context}
+---
+"""
+        elif command == "start_guided_dialogue" and topic:
+            question_context = f"De gebruiker wil hulp bij de vraag: '{topic['question']}'. De officiële toelichting is: '{topic['explanation']}'."
+            system_prompt = f"BELANGRIJK: Je bent nu in 'begeleide dialoog'-modus. {question_context} Je doel is de gebruiker te helpen een eigen antwoord te formuleren. Begin met een samenvatting van de toelichting en stel DAARNA een open, verkennende vraag om de dialoog te starten."
+
+        messages_for_llm = [{"role": "system", "content": system_prompt}]
+        messages_for_llm.extend([msg for msg in st["history"][-7:] if msg.get("role") != "system"])
+
+        def generate():
+            full_response = ""
+            for content_chunk in stream_llm_response(messages_for_llm):
+                parsed_chunk = json.loads(content_chunk.replace("data: ", ""))
+                full_response += parsed_chunk.get('content', '')
+                yield content_chunk
+            st["history"].append({"role": "assistant", "content": full_response})
+            save_plan_state(plan_obj, st)
+
+        return Response(stream_with_context(generate()), mimetype='text/event-stream')
+
+    else:
+        abort(400, "Onbekend commando")
