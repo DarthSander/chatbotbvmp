@@ -9,62 +9,68 @@ from typing import Any, Dict, Optional, Generator, List
 from datetime import date, timedelta
 from functools import wraps
 
-from flask import Flask, request, jsonify, abort, Response, stream_with_context, render_template, redirect, url_for, \
-    session, flash
+from flask import (
+    Flask, request, jsonify, abort, Response, stream_with_context,
+    render_template, redirect, url_for, session, flash
+)
 from flask_bcrypt import Bcrypt
 from flask_cors import CORS
-from flask_session import Session  # NIEUWE IMPORT
+from flask_session import Session          # server-side sessions
 from openai import OpenAI
 from dotenv import load_dotenv
-
 from werkzeug.middleware.proxy_fix import ProxyFix
 
-# Lokale imports voor database en RAG
+# Lokale modules
 from database import db, User, BirthPlan
 from langchain_community.vectorstores import FAISS
 from langchain_community.document_loaders import TextLoader
 from langchain.text_splitter import CharacterTextSplitter
 from langchain_huggingface import HuggingFaceEmbeddings
 
-# --- CONFIGURATIE ---
+# ── BASIS-CONFIG ────────────────────────────────────────────────────────
 ROOT = pathlib.Path(__file__).parent
-dotenv_path = ROOT / '.env'
-load_dotenv(dotenv_path=dotenv_path)
+load_dotenv(dotenv_path=ROOT / ".env")
 
-# --- Reparatie Render URI ---
-raw_uri = os.getenv("DATABASE_URL", "")
-if raw_uri.startswith("postgres://"):          # Render gebruikt dit oude schema
-    raw_uri = raw_uri.replace("postgres://", "postgresql://", 1)
-os.environ["DATABASE_URL"] = raw_uri           # zet aangepast URI terug
+# ── DATABASE-URI (eenvoudig & robuust) ─────────────────────────────────
+db_uri = os.getenv("DATABASE_URL", "").strip()        # kan leeg zijn
+if db_uri.startswith("postgres://"):                  # Render legacy prefix
+    db_uri = db_uri.replace("postgres://", "postgresql://", 1)
+if not db_uri:                                        # niks gezet → SQLite
+    db_uri = f"sqlite:///{ROOT / 'database.db'}"
 
-
-# Flask App Initialisatie
-app = Flask(__name__, static_folder="static", static_url_path="/static", template_folder="templates")
+# ── FLASK-APP ──────────────────────────────────────────────────────────
+app = Flask(
+    __name__,
+    static_folder="static",
+    static_url_path="/static",
+    template_folder="templates",
+)
 app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_prefix=1)
 
-# --- App Configuratie ---
-app.config['SECRET_KEY'] = os.getenv("SECRET_KEY", "vervang-dit-met-een-echt-geheim-voor-lokaal-testen")
-app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv("DATABASE_URL", f"sqlite:///{ROOT / 'database.db'}")
-app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+# ── APP-CONFIG ─────────────────────────────────────────────────────────
+app.config.update(
+    SECRET_KEY=os.getenv("SECRET_KEY", "vervang-dit-met-een-echt-geheim-voor-lokaal-testen"),
+    SQLALCHEMY_DATABASE_URI=db_uri,
+    SQLALCHEMY_TRACK_MODIFICATIONS=False,
 
-# --- CONFIGURATIE VOOR SERVER-SIDE SESSIES ---
-app.config['SESSION_TYPE'] = 'sqlalchemy'
-app.config['SESSION_PERMANENT'] = True
-app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(days=7) # Sessies blijven een week geldig
-app.config['SESSION_USE_SIGNER'] = True # Ondertekent de session ID cookie
-app.config['SESSION_SQLALCHEMY_TABLE'] = 'sessions'
-app.config['SESSION_COOKIE_SECURE'] = True
-app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
-app.config['SESSION_COOKIE_HTTPONLY'] = True
+    # Server-side sessions (Flask-Session + SQLAlchemy)
+    SESSION_TYPE="sqlalchemy",
+    SESSION_PERMANENT=True,
+    PERMANENT_SESSION_LIFETIME=timedelta(days=7),
+    SESSION_USE_SIGNER=True,
+    SESSION_SQLALCHEMY_TABLE="sessions",
+    SESSION_COOKIE_SECURE=True,
+    SESSION_COOKIE_SAMESITE="Lax",
+    SESSION_COOKIE_HTTPONLY=True,
+)
 
-# Koppel de app aan de extensies
+# ── EXTENSIES KOPPELEN ────────────────────────────────────────────────
 db.init_app(app)
-app.config['SESSION_SQLALCHEMY'] = db # Moet na db.init_app(app)
-sess = Session(app) # Initialiseer de Session manager
-
+app.config["SESSION_SQLALCHEMY"] = db
+sess = Session(app)           # initialiseert session-manager
 bcrypt = Bcrypt(app)
 
-# --- CORS Configuratie ---
+# ── CORS ───────────────────────────────────────────────────────────────
 ALLOWED_ORIGINS = [
     "https://bevalmeteenplan.nl",
     "https://www.bevalmeteenplan.nl",
@@ -72,19 +78,22 @@ ALLOWED_ORIGINS = [
 ]
 CORS(app, origins=ALLOWED_ORIGINS, supports_credentials=True)
 
-# Pad- en modelconfiguratie
+# ── PAD- & MODEL-CONFIGURATIE ──────────────────────────────────────────
 PLAN_TEMPLATE_FILE = ROOT / "geboorteplan_template.json"
-LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
-MODEL_CHOICE = os.getenv("MODEL_CHOICE", "gpt-4o-mini")
-VALIDATOR_MODEL = os.getenv("VALIDATOR_MODEL", "gpt-4o")
+LOG_LEVEL        = os.getenv("LOG_LEVEL", "INFO").upper()
+MODEL_CHOICE     = os.getenv("MODEL_CHOICE", "gpt-4o-mini")
+VALIDATOR_MODEL  = os.getenv("VALIDATOR_MODEL", "gpt-4o")
 
-# Logging setup
-logging.basicConfig(level=LOG_LEVEL,
-                    format="%(asctime)s [%(levelname)s] %(name)s:%(funcName)s:%(lineno)d – %(message)s")
+# ── LOGGING ────────────────────────────────────────────────────────────
+logging.basicConfig(
+    level=LOG_LEVEL,
+    format="%(asctime)s [%(levelname)s] %(name)s:%(funcName)s:%(lineno)d – %(message)s",
+)
 log = logging.getLogger("geboorteplan-assistent")
 
-# OpenAI Client
+# ── OPENAI CLIENT ──────────────────────────────────────────────────────
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+
 
 # RAG CONFIG en Setup... (geen wijzigingen hier)
 KNOWLEDGE_BASE_FILE = ROOT / "kennisbank.md"
