@@ -52,3 +52,10 @@ class BirthPlan(db.Model):
     @history.setter
     def history(self, value):
         self._history_json = json.dumps(value)
+
+# NIEUWE TABEL VOOR SERVER-SIDE SESSIES
+class Sessions(db.Model):
+    id = db.Column(db.String(255), primary_key=True)
+    data = db.Column(db.LargeBinary)
+    expiry = db.Column(db.DateTime)
+
