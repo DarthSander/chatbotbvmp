@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# app.py – Geboorteplan-assistent • Versie 10.2 (Met DB Initialisatie & CORS/Iframe) 28-06-2025
+# app.py – Geboorteplan-assistent • Versie 10.3 (Productie & Test Klaar) 28-06-2025
 
 import os
 import json
@@ -12,7 +12,7 @@ from functools import wraps
 from flask import Flask, request, jsonify, abort, Response, stream_with_context, render_template, redirect, url_for, \
     session, flash
 from flask_bcrypt import Bcrypt
-from flask_cors import CORS  # TOEGEVOEGDE IMPORT
+from flask_cors import CORS
 from openai import OpenAI
 from dotenv import load_dotenv
 
@@ -34,7 +34,23 @@ app.config['SECRET_KEY'] = os.getenv("SECRET_KEY", "een-zeer-geheim-geheim-voor-
 app.config['SQLALCHEMY_DATABASE_URI'] = f"sqlite:///{ROOT / 'database.db'}"
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
-# --- NIEUWE CORS CONFIGURATIE ---
+# --- DYNAMISCHE SESSIE CONFIGURATIE VOOR PRODUCTIE & TEST ---
+# Render stelt automatisch de 'RENDER' environment variable in.
+# We controleren of deze variabele op 'true' staat.
+IS_PRODUCTION = os.getenv('RENDER') == 'true'
+
+if IS_PRODUCTION:
+    # Pas strenge cookie-instellingen alleen toe in de productieomgeving (op Render)
+    # log.info is hier nog niet beschikbaar, omdat logging later wordt geconfigureerd.
+    print("Productieomgeving gedetecteerd (Render). Veilige cookie-instellingen worden toegepast.")
+    app.config['SESSION_COOKIE_SECURE'] = True
+    app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
+    app.config['SESSION_COOKIE_HTTPONLY'] = True
+else:
+    # In de lokale testomgeving zijn de standaardinstellingen van Flask prima.
+    print("Lokale/testomgeving gedetecteerd. Standaard cookie-instellingen worden gebruikt.")
+
+# --- CORS CONFIGURATIE ---
 ALLOWED_ORIGINS = [
     "https://bevalmeteenplan.nl",
     "https://www.bevalmeteenplan.nl",
@@ -43,7 +59,6 @@ ALLOWED_ORIGINS = [
     # "https://jouw-hostinger-website.com"
 ]
 CORS(app, origins=ALLOWED_ORIGINS)
-# --- EINDE NIEUWE SECTIE ---
 
 # Extensies Initialiseren
 db.init_app(app)
@@ -115,7 +130,7 @@ def init_db_command():
     print("Database geïnitialiseerd en tabellen aangemaakt.")
 
 
-# --- NIEUWE IFRAME SECURITY HEADER ---
+# --- IFRAME SECURITY HEADER ---
 @app.after_request
 def add_security_headers(response):
     """Voegt de nodige Content-Security-Policy header toe om iframe embedding toe te staan."""
@@ -123,7 +138,6 @@ def add_security_headers(response):
     frame_ancestors = " ".join(ALLOWED_ORIGINS)
     response.headers['Content-Security-Policy'] = f"frame-ancestors 'self' {frame_ancestors}"
     return response
-# --- EINDE NIEUWE SECTIE ---
 
 
 # --- AUTHENTICATIE DECORATOR ---
@@ -433,3 +447,4 @@ CONTEXT:
 
     else:
         abort(400, "Onbekend commando")
+
