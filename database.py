@@ -53,9 +53,6 @@ class BirthPlan(db.Model):
     def history(self, value):
         self._history_json = json.dumps(value)
 
-# NIEUWE TABEL VOOR SERVER-SIDE SESSIES
-class Sessions(db.Model):
-    id = db.Column(db.String(255), primary_key=True)
-    data = db.Column(db.LargeBinary)
-    expiry = db.Column(db.DateTime)
+# De 'Sessions' class is hier bewust verwijderd.
+# De Flask-Session extensie beheert deze tabel nu volledig zelf.
 
