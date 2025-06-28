@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# app.py – Geboorteplan-assistent • Versie 11.1 (Productie Definitief) 28-06-2025
+# app.py – Geboorteplan-assistent • Versie 11.2 (Productie Definitief) 28-06-2025
 
 import os
 import json
@@ -48,7 +48,7 @@ app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 # --- Sessie Cookie Configuratie voor Productie ---
 # Deze instellingen zijn vereist voor sessies over HTTPS op platforms als Render.
-print("Productieomgeving gedetecteerd. Veilige cookie-instellingen worden toegepast.")
+# We forceren deze instellingen nu altijd, zonder 'if/else' voor de productieomgeving.
 app.config['SESSION_COOKIE_SECURE'] = True
 app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
 app.config['SESSION_COOKIE_HTTPONLY'] = True
@@ -78,7 +78,8 @@ VECTOR_DB_PATH = ROOT / "vector_db"
 EMBEDDING_MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
 
 # Logging setup
-logging.basicConfig(level=LOG_LEVEL,
+# Verander naar DEBUG om de extra logregels te zien als het nog steeds misgaat.
+logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO").upper(),
                     format="%(asctime)s [%(levelname)s] %(name)s:%(funcName)s:%(lineno)d – %(message)s")
 log = logging.getLogger("geboorteplan-assistent")
 
@@ -151,6 +152,7 @@ def login_required(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
         # Extra logging om de sessie te inspecteren VOORDAT de controle plaatsvindt
+        log.debug(f"REQUEST HEADERS: {request.headers}")
         log.debug(f"Checking session in login_required for path: {request.path}. Session data: {session.items()}")
         if 'user_id' not in session:
             log.warning(f"Sessie 'user_id' niet gevonden voor pad {request.path}. Doorverwijzen naar login.")
@@ -232,27 +234,21 @@ def root():
 @app.route('/register', methods=['GET', 'POST'])
 def register():
     if request.method == 'POST':
-        # --- Accountgegevens ophalen ---
         email = request.form.get('email')
         username = request.form.get('username')
         password = request.form.get('password')
-
-        # --- Persoonlijke gegevens ophalen ---
         woman_name = request.form.get('woman_name')
         partner_name = request.form.get('partner_name')
         woman_dob_str = request.form.get('woman_dob')
         due_date_str = request.form.get('due_date')
         woman_phone = request.form.get('woman_phone')
         partner_phone = request.form.get('partner_phone')
-
-        # --- Baby & Zorg gegevens ophalen ---
         baby_name = request.form.get('baby_name')
         baby_name_secret = True if request.form.get('baby_name_secret') else False
         midwifery_practice = request.form.get('midwifery_practice')
         midwifery_phone = request.form.get('midwifery_phone')
         medical_complications = request.form.get('medical_complications')
 
-        # --- Validatie ---
         if not all([email, username, password, woman_name, due_date_str]):
             flash("Vul alle verplichte velden (*) in.", "error")
             return redirect(url_for('register'))
@@ -261,33 +257,21 @@ def register():
             flash("E-mailadres of gebruikersnaam is al in gebruik.", "error")
             return redirect(url_for('register'))
 
-        # --- Gegevens verwerken en opslaan ---
         hashed_password = bcrypt.generate_password_hash(password).decode('utf-8')
         due_date = date.fromisoformat(due_date_str)
         woman_dob = date.fromisoformat(woman_dob_str) if woman_dob_str else None
 
         new_user = User(
-            email=email,
-            username=username,
-            password_hash=hashed_password,
-            woman_name=woman_name,
-            partner_name=partner_name,
-            woman_dob=woman_dob,
-            due_date=due_date,
-            woman_phone=woman_phone,
-            partner_phone=partner_phone,
-            baby_name=baby_name,
-            baby_name_secret=baby_name_secret,
-            midwifery_practice=midwifery_practice,
-            midwifery_phone=midwifery_phone,
+            email=email, username=username, password_hash=hashed_password,
+            woman_name=woman_name, partner_name=partner_name, woman_dob=woman_dob,
+            due_date=due_date, woman_phone=woman_phone, partner_phone=partner_phone,
+            baby_name=baby_name, baby_name_secret=baby_name_secret,
+            midwifery_practice=midwifery_practice, midwifery_phone=midwifery_phone,
             medical_complications=medical_complications
         )
-
         db.session.add(new_user)
         db.session.commit()
-
         get_or_create_plan_for_user(new_user.id)
-
         flash("Account succesvol aangemaakt! Je kunt nu inloggen.", "success")
         return redirect(url_for('login'))
 
@@ -304,7 +288,6 @@ def login():
         if user and bcrypt.check_password_hash(user.password_hash, password):
             session['user_id'] = user.id
             log.info(f"Gebruiker {user.username} (ID: {user.id}) succesvol ingelogd.")
-            # Extra logging om de sessie te inspecteren DIRECT na het instellen
             log.debug(f"Session data after login: {session.items()}")
             return redirect(url_for('dashboard'))
         else:
@@ -342,13 +325,7 @@ def vragenlijst():
 def agent_route():
     user_id = session.get('user_id')
     plan_obj = get_or_create_plan_for_user(user_id)
-
-    st = {
-        "id": plan_obj.user_id,
-        "plan": plan_obj.plan,
-        "history": plan_obj.history
-    }
-
+    st = {"id": plan_obj.user_id, "plan": plan_obj.plan, "history": plan_obj.history}
     body = request.get_json(force=True) or {}
     command = body.get("command")
     data = body.get("data", {})
@@ -395,14 +372,12 @@ TAAK: Controleer het antwoord op onzin en tegenstrijdigheden.
 
         if validation_result == "OK":
             topic["answer"] = original_answer
-            st["history"].append(
-                {"role": "system", "content": f"ANTWOORD OPGESLAGEN voor '{topic['name']}': '{original_answer}'"})
+            st["history"].append({"role": "system", "content": f"ANTWOORD OPGESLAGEN voor '{topic['name']}': '{original_answer}'"})
             save_plan_state(plan_obj, st)
             final_message = FINAL_MESSAGE if is_plan_complete(st["plan"]) else ""
             return jsonify({"session_id": st["id"], "state": st, "status": "ok", "final_message": final_message})
         else:
-            st["history"].append({"role": "system",
-                                  "content": f"ONGELDIG ANTWOORD voor '{topic['name']}': '{original_answer}'. Validatievraag wordt gesteld."})
+            st["history"].append({"role": "system", "content": f"ONGELDIG ANTWOORD voor '{topic['name']}': '{original_answer}'. Validatievraag wordt gesteld."})
             save_plan_state(plan_obj, st)
             return jsonify(
                 {"session_id": st["id"], "state": st, "status": "validation_failed", "feedback": validation_result,
@@ -422,7 +397,6 @@ TAAK: Controleer het antwoord op onzin en tegenstrijdigheden.
         user_message = data.get("message", "Help me met deze vraag.")
         st["history"].append({"role": "user", "content": user_message})
         topic, _ = find_topic_by_id(st['plan'], data.get('topic_id'))
-
         system_prompt = "Je bent Mae, een behulpzame assistent. Beantwoord de vraag van de gebruiker kort en bondig."
 
         if command == "user_message" and vector_retriever:
@@ -430,14 +404,8 @@ TAAK: Controleer het antwoord op onzin en tegenstrijdigheden.
             retrieved_docs = vector_retriever.invoke(user_message)
             context = "\n\n".join([doc.page_content for doc in retrieved_docs])
             log.info(f"RAG: Gevonden context:\n{context}")
-
             system_prompt = f"""Je bent Mae, een behulpzame assistent gespecialiseerd in geboortezorg. Beantwoord de vraag van de gebruiker UITSLUITEND op basis van de volgende context. Als de informatie niet in de context staat, zeg dan dat je het niet weet. Wees beknopt.
-
-CONTEXT:
----
-{context}
----
-"""
+CONTEXT:\n---\n{context}\n---"""
         elif command == "start_guided_dialogue" and topic:
             question_context = f"De gebruiker wil hulp bij de vraag: '{topic['question']}'. De officiële toelichting is: '{topic['explanation']}'."
             system_prompt = f"BELANGRIJK: Je bent nu in 'begeleide dialoog'-modus. {question_context} Je doel is de gebruiker te helpen een eigen antwoord te formuleren. Begin met een samenvatting van de toelichting en stel DAARNA een open, verkennende vraag om de dialoog te starten."
@@ -454,7 +422,4 @@ CONTEXT:
             st["history"].append({"role": "assistant", "content": full_response})
             save_plan_state(plan_obj, st)
 
-        return Response(stream_with_context(generate()), mimetype='text/event-stream')
-
-    else:
-        abort(400, "Onbekend commando")
+        return Respon
