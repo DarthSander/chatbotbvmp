@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# app.py – Geboorteplan-assistent • Versie 10.3 (Productie & Test Klaar) 28-06-2025
+# app.py – Geboorteplan-assistent • Versie 10.4 (Met ProxyFix voor Productie) 28-06-2025
 
 import os
 import json
@@ -16,6 +16,9 @@ from flask_cors import CORS
 from openai import OpenAI
 from dotenv import load_dotenv
 
+# BELANGRIJKE TOEVOEGING: Middleware voor reverse proxies
+from werkzeug.middleware.proxy_fix import ProxyFix
+
 # Lokale imports voor database en RAG
 from database import db, User, BirthPlan
 from langchain_community.vectorstores import FAISS
@@ -30,24 +33,26 @@ load_dotenv(dotenv_path=dotenv_path)
 
 # Flask App Initialisatie
 app = Flask(__name__, static_folder="static", static_url_path="/static", template_folder="templates")
+
+# --- BELANGRIJKE UPDATE: ProxyFix Toepassen ---
+# Deze regel vertelt Flask om de headers van de Render proxy te vertrouwen.
+# Dit moet vóór alle routes en andere logica worden toegepast.
+app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_prefix=1)
+
 app.config['SECRET_KEY'] = os.getenv("SECRET_KEY", "een-zeer-geheim-geheim-voor-ontwikkeling")
-app.config['SQLALCHEMY_DATABASE_URI'] = f"sqlite:///{ROOT / 'database.db'}"
+app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv("DATABASE_URL", f"sqlite:///{ROOT / 'database.db'}")
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 # --- DYNAMISCHE SESSIE CONFIGURATIE VOOR PRODUCTIE & TEST ---
 # Render stelt automatisch de 'RENDER' environment variable in.
-# We controleren of deze variabele op 'true' staat.
 IS_PRODUCTION = os.getenv('RENDER') == 'true'
 
 if IS_PRODUCTION:
-    # Pas strenge cookie-instellingen alleen toe in de productieomgeving (op Render)
-    # log.info is hier nog niet beschikbaar, omdat logging later wordt geconfigureerd.
     print("Productieomgeving gedetecteerd (Render). Veilige cookie-instellingen worden toegepast.")
     app.config['SESSION_COOKIE_SECURE'] = True
     app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
     app.config['SESSION_COOKIE_HTTPONLY'] = True
 else:
-    # In de lokale testomgeving zijn de standaardinstellingen van Flask prima.
     print("Lokale/testomgeving gedetecteerd. Standaard cookie-instellingen worden gebruikt.")
 
 # --- CORS CONFIGURATIE ---
@@ -55,8 +60,6 @@ ALLOWED_ORIGINS = [
     "https://bevalmeteenplan.nl",
     "https://www.bevalmeteenplan.nl",
     "https://chatbotbvmp.onrender.com",
-    # VERVANG DIT MET JE EIGEN HOSTINGER DOMEIN
-    # "https://jouw-hostinger-website.com"
 ]
 CORS(app, origins=ALLOWED_ORIGINS)
 
@@ -82,6 +85,12 @@ log = logging.getLogger("geboorteplan-assistent")
 
 # OpenAI Client
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+
+# --- BELANGRIJKE WAARSCHUWING VOOR PRODUCTIE ---
+if IS_PRODUCTION and app.config['SQLALCHEMY_DATABASE_URI'].startswith('sqlite'):
+    log.warning("WAARSCHUWING: SQLite wordt gebruikt in een productieomgeving (Render).")
+    log.warning("De data kan verloren gaan bij elke herstart. Overweeg een beheerde database zoals Render PostgreSQL.")
+# --- EINDE WAARSCHUWING ---
 
 # --- RAG Setup: Laad of bouw de vector database ---
 try:
@@ -134,7 +143,6 @@ def init_db_command():
 @app.after_request
 def add_security_headers(response):
     """Voegt de nodige Content-Security-Policy header toe om iframe embedding toe te staan."""
-    # Construeer de 'frame-ancestors' waarde uit de ALLOWED_ORIGINS lijst
     frame_ancestors = " ".join(ALLOWED_ORIGINS)
     response.headers['Content-Security-Policy'] = f"frame-ancestors 'self' {frame_ancestors}"
     return response
@@ -447,4 +455,3 @@ CONTEXT:
 
     else:
         abort(400, "Onbekend commando")
-
