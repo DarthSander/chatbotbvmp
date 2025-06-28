@@ -13,7 +13,7 @@
           { "id": "q1_opt_1", "text": "Ik wil thuis bevallen in mijn eigen vertrouwde omgeving." },
           { "id": "q1_opt_2", "text": "Ik wil in het ziekenhuis bevallen met alle medische voorzieningen nabij." },
           { "id": "q1_opt_3", "text": "Ik wil in een geboortecentrum bevallen voor een huiselijke sfeer met medische backup." },
-          { "id": "q1_custom", "text": "Anders, namelijk...", "isCustom": true }
+          { "id": "q1_custom", "text": "Anders, ik wil graag: _____", "isCustom": true }
         ]
       },
       {
@@ -26,7 +26,7 @@
           { "id": "q2_opt_1", "text": "Alleen mijn partner voor intieme ondersteuning tijdens de bevalling." },
           { "id": "q2_opt_2", "text": "Partner en één of meer familieleden voor extra emotionele steun." },
           { "id": "q2_opt_3", "text": "Partner en een doula voor professionele bevalondersteuning." },
-          { "id": "q2_custom", "text": "Anders, namelijk...", "isCustom": true }
+          { "id": "q2_custom", "text": "Anders, ik wil graag: _____", "isCustom": true }
         ]
       },
       {
@@ -38,7 +38,8 @@
         "predefined_answers": [
           { "id": "q3_opt_1", "text": "Ja, stagiairs mogen aanwezig zijn en meehelpen tijdens mijn bevalling." },
           { "id": "q3_opt_2", "text": "Nee, ik wil geen stagiairs of studenten bij mijn bevalling." },
-          { "id": "q3_opt_3", "text": "Alleen na overleg en mijn uitdrukkelijke toestemming op dat moment." }
+          { "id": "q3_opt_3", "text": "Alleen na overleg en mijn uitdrukkelijke toestemming op dat moment." },
+          { "id": "q3_custom", "text": "Anders, ik wil graag: _____", "isCustom": true }
         ]
       }
     ]
@@ -57,7 +58,8 @@
           { "id": "q4_opt_1", "text": "Rustig en beknopt: alleen essentiële informatie en instructies." },
           { "id": "q4_opt_2", "text": "Uitgebreid en ondersteunend: graag toelichting bij elke stap en aanmoediging." },
           { "id": "q4_opt_3", "text": "Feitelijk en direct: duidelijke, medische informatie zonder omhaal." },
-          { "id": "q4_opt_4", "text": "Ik pas mijn voorkeur aan op het moment zelf." }
+          { "id": "q4_opt_4", "text": "Ik pas mijn voorkeur aan op het moment zelf." },
+          { "id": "q4_custom", "text": "Anders, ik wil graag: _____", "isCustom": true }
         ]
       },
       {
@@ -69,7 +71,8 @@
         "predefined_answers": [
           { "id": "q5_opt_1", "text": "Mijn partner/geboortecoach als tussenpersoon tussen mij en het medisch team." },
           { "id": "q5_opt_2", "text": "Direct contact met de verloskundige/arts die de bevalling begeleidt." },
-          { "id": "q5_opt_3", "text": "Een combinatie, afhankelijk van de situatie en het type informatie." }
+          { "id": "q5_opt_3", "text": "Een combinatie, afhankelijk van de situatie en het type informatie." },
+          { "id": "q5_custom", "text": "Anders, ik wil graag: _____", "isCustom": true }
         ]
       },
       {
@@ -81,7 +84,8 @@
         "predefined_answers": [
           { "id": "q6_opt_1", "text": "Mijn partner mag namens mij beslissen over mijn zorg tijdens de bevalling." },
           { "id": "q6_opt_2", "text": "Een familielid (zoals ouder, zus of broer) mag namens mij beslissingen nemen." },
-          { "id": "q6_opt_3", "text": "Ik vertrouw op het medisch team om de juiste beslissingen te nemen volgens protocol." }
+          { "id": "q6_opt_3", "text": "Ik vertrouw op het medisch team om de juiste beslissingen te nemen volgens protocol." },
+          { "id": "q6_custom", "text": "Anders, ik wil graag: _____", "isCustom": true }
         ]
       }
     ]
@@ -99,7 +103,7 @@
         "predefined_answers": [
           { "id": "q7_opt_1", "text": "Gedimde verlichting voor een rustige sfeer én eigen muziek afspelen voor ontspanning." },
           { "id": "q7_opt_2", "text": "Ik wil eigen spullen zoals kussen of deken voor een vertrouwd gevoel." },
-          { "id": "q7_custom", "text": "Anders, namelijk...", "isCustom": true }
+          { "id": "q7_custom", "text": "Anders, ik wil graag: _____", "isCustom": true }
         ]
       },
       {
@@ -112,7 +116,7 @@
           { "id": "q8_opt_1", "text": "Ik wil graag in bad voor pijnverlichting en ontspanning." },
           { "id": "q8_opt_2", "text": "Ik wil een baarkruk of yogabal gebruiken voor verschillende houdingen." },
           { "id": "q8_opt_3", "text": "Ik wil geen specifieke hulpmiddelen, ik zie wel wat ik nodig heb." },
-          { "id": "q8_custom", "text": "Anders, namelijk...", "isCustom": true }
+          { "id": "q8_custom", "text": "Anders, ik wil graag: _____", "isCustom": true }
         ]
       },
       {
@@ -125,7 +129,7 @@
           { "id": "q9_opt_1", "text": "Ja, mijn partner of zorgpersoneel mag foto's en/of video's maken tijdens de bevalling." },
           { "id": "q9_opt_2", "text": "Ja, we hebben een professionele fotograaf geregeld voor de bevalling." },
           { "id": "q9_opt_3", "text": "Nee, ik wil geen foto's of video's tijdens de bevalling." },
-          { "id": "q9_custom", "text": "Anders, namelijk...", "isCustom": true }
+          { "id": "q9_custom", "text": "Anders, ik wil graag: _____", "isCustom": true }
         ]
       }
     ]
@@ -145,7 +149,7 @@
           { "id": "q10_opt_2", "text": "Ik wil gebruikmaken van medicamenteuze pijnverlichting zoals een epiduraal (ruggenprik), remifentanil (pijnstilling via infuus) of lachgas." },
           { "id": "q10_opt_3", "text": "Ik wil graag beide opties openhouden en tijdens de bevalling beslissen wat ik nodig heb." },
           { "id": "q10_opt_4", "text": "Ik wil bij voorkeur geen pijnverlichting gebruiken." },
-          { "id": "q10_custom", "text": "Anders, namelijk...", "isCustom": true }
+          { "id": "q10_custom", "text": "Anders, ik wil graag: _____", "isCustom": true }
         ]
       },
       {
@@ -159,7 +163,8 @@
           { "id": "q11_opt_2", "text": "Horizontaal (op rug of zij liggend)" },
           { "id": "q11_opt_3", "text": "Op handen en knieën" },
           { "id": "q11_opt_4", "text": "Ik wil verschillende houdingen kunnen uitproberen." },
-          { "id": "q11_opt_5", "text": "Ik laat dit afhangen van wat op dat moment prettig voelt." }
+          { "id": "q11_opt_5", "text": "Ik laat dit afhangen van wat op dat moment prettig voelt." },
+          { "id": "q11_custom", "text": "Anders, ik wil graag: _____", "isCustom": true }
         ]
       },
       {
@@ -172,7 +177,8 @@
           { "id": "q12_opt_1", "text": "Duidelijke en actieve aanwijzingen van het zorgteam." },
           { "id": "q12_opt_2", "text": "Zo min mogelijk aanwijzingen; mijn eigen lichaam volgen." },
           { "id": "q12_opt_3", "text": "Een mix van aanwijzingen en mijn eigen gevoel volgen." },
-          { "id": "q12_opt_4", "text": "Ik beslis graag op het moment zelf." }
+          { "id": "q12_opt_4", "text": "Ik beslis graag op het moment zelf." },
+          { "id": "q12_custom", "text": "Anders, ik wil graag: _____", "isCustom": true }
         ]
       }
     ]
@@ -191,7 +197,7 @@
           { "id": "q13_opt_1", "text": "Mijn partner of een andere naaste mag de navelstreng doorknippen (indien mogelijk)." },
           { "id": "q13_opt_2", "text": "Ik wil zelf de navelstreng doorknippen (indien mogelijk)." },
           { "id": "q13_opt_3", "text": "De verloskundige of arts mag de navelstreng doorknippen." },
-          { "id": "q13_custom", "text": "Anders, namelijk...", "isCustom": true }
+          { "id": "q13_custom", "text": "Anders, ik wil graag: _____", "isCustom": true }
         ]
       },
       {
@@ -203,7 +209,7 @@
         "predefined_answers": [
           { "id": "q14_opt_1", "text": "Als ik niet in staat ben tot huid-op-huidcontact, wil ik dat mijn partner dit overneemt." },
           { "id": "q14_opt_2", "text": "Ik wil graag zoveel mogelijk zicht hebben op de onderzoeken bij mijn kindje." },
-          { "id": "q14_custom", "text": "Anders, namelijk...", "isCustom": true }
+          { "id": "q14_custom", "text": "Anders, ik wil graag: _____", "isCustom": true }
         ]
       },
       {
@@ -216,7 +222,8 @@
           { "id": "q15_opt_1", "text": "Ik wil de placenta graag zien/bekijken na de geboorte." },
           { "id": "q15_opt_2", "text": "Ik wil de placenta meenemen voor eigen gebruik (capsuleren, ritueel, etc.)." },
           { "id": "q15_opt_3", "text": "Placenta natuurlijk laten komen (aanvankelijk geen oxytocine)." },
-          { "id": "q15_opt_4", "text": "Geen speciale wensen." }
+          { "id": "q15_opt_4", "text": "Geen speciale wensen." },
+          { "id": "q15_custom", "text": "Anders, ik wil graag: _____", "isCustom": true }
         ]
       },
       {
@@ -228,7 +235,8 @@
         "predefined_answers": [
           { "id": "q16_opt_1", "text": "Borstvoeding geven." },
           { "id": "q16_opt_2", "text": "Kunstvoeding geven." },
-          { "id": "q16_opt_3", "text": "Dit laat ik afhangen van wat er wel en niet mogelijk of noodzakelijk is." }
+          { "id": "q16_opt_3", "text": "Dit laat ik afhangen van wat er wel en niet mogelijk of noodzakelijk is." },
+          { "id": "q16_custom", "text": "Anders, ik wil graag: _____", "isCustom": true }
         ]
       }
     ]
@@ -247,7 +255,7 @@
           { "id": "q17_opt_1", "text": "Indien mogelijk eerst alternatieven bespreken." },
           { "id": "q17_opt_2", "text": "Ik vertrouw volledig op het oordeel van mijn zorgverlener." },
           { "id": "q17_opt_3", "text": "Liever preventief ingrijpen dan risico’s nemen." },
-          { "id": "q17_custom", "text": "Anders, namelijk...", "isCustom": true }
+          { "id": "q17_custom", "text": "Anders, ik wil graag: _____", "isCustom": true }
         ]
       },
       {
@@ -259,7 +267,7 @@
         "predefined_answers": [
           { "id": "q18_opt_1", "text": "Ik wil regelmatig overleg en actief betrokken worden bij beslissingen over extra pijnstilling of ingrepen." },
           { "id": "q18_opt_2", "text": "Ik laat het liever over aan het advies van het zorgteam." },
-          { "id": "q18_custom", "text": "Anders, namelijk...", "isCustom": true }
+          { "id": "q18_custom", "text": "Anders, ik wil graag: _____", "isCustom": true }
         ]
       },
       {
@@ -272,7 +280,7 @@
           { "id": "q19_opt_1", "text": "Ik wil direct volledig geïnformeerd worden, ook terwijl er gehandeld wordt." },
           { "id": "q19_opt_2", "text": "Eerst handelen en stabiliseren, daarna uitleg en informatie geven." },
           { "id": "q19_opt_3", "text": "Mijn partner of naaste informeren, terwijl het team zich op mij concentreert." },
-          { "id": "q19_custom", "text": "Anders, namelijk...", "isCustom": true }
+          { "id": "q19_custom", "text": "Anders, ik wil graag: _____", "isCustom": true }
         ]
       },
       {
