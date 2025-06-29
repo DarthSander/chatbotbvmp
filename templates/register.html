@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="nl">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>Registreren - Geboorteplan Assistent</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
+</head>
+<body>
+<main id="layout">
+    <div class="container auth-container register-container">
+        <h1>Account aanmaken</h1>
+
+        <div class="progress-bar">
+            <div class="progress-step active" data-step="1">
+                <i class="fa-solid fa-user-lock"></i>
+                <span>Account</span>
+            </div>
+            <div class="progress-step" data-step="2">
+                <i class="fa-solid fa-heart"></i>
+                <span>Persoonlijk</span>
+            </div>
+            <div class="progress-step" data-step="3">
+                <i class="fa-solid fa-baby"></i>
+                <span>Baby & Zorg</span>
+            </div>
+        </div>
+
+        <form id="registerForm" method="POST" action="{{ url_for('register') }}" class="auth-form">
+            <div class="form-step active">
+                <div class="form-section">
+                    <h3>Accountgegevens</h3>
+                    <div class="form-group">
+                        <label for="username">Gebruikersnaam *</label>
+                        <input type="text" id="username" name="username" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="email">E-mailadres *</label>
+                        <input type="email" id="email" name="email" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="password">Wachtwoord *</label>
+                        <input type="password" id="password" name="password" required pattern="(?=.*\d)(?=.*[a-z])(?=.*[A-Z])(?=.*\W).{8,}" title="Minimaal 8 tekens, met een hoofdletter, een kleine letter, een cijfer en een symbool.">
+                        <small>Minimaal 8 tekens, met een hoofdletter, een kleine letter, een cijfer en een symbool.</small>
+                    </div>
+                </div>
+                <div class="nav-buttons">
+                    <button type="button" class="nav-btn next-btn">Volgende <i class="fa-solid fa-arrow-right"></i></button>
+                </div>
+            </div>
+
+            <div class="form-step">
+                <div class="form-section">
+                    <h3>Persoonlijke Informatie</h3>
+                    <div class="form-group">
+                        <label for="woman_name">Jouw volledige naam *</label>
+                        <input type="text" id="woman_name" name="woman_name" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="due_date">Uitgerekende datum *</label>
+                        <input type="date" id="due_date" name="due_date" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="partner_name">Naam partner</label>
+                        <input type="text" id="partner_name" name="partner_name">
+                    </div>
+                    <div class="form-group">
+                        <label for="woman_dob">Jouw geboortedatum</label>
+                        <input type="date" id="woman_dob" name="woman_dob">
+                    </div>
+                    <div class="form-group">
+                        <label for="woman_phone">Jouw telefoonnummer</label>
+                        <input type="tel" id="woman_phone" name="woman_phone">
+                    </div>
+                    <div class="form-group">
+                        <label for="partner_phone">Telefoonnummer partner</label>
+                        <input type="tel" id="partner_phone" name="partner_phone">
+                    </div>
+                </div>
+                <div class="nav-buttons">
+                    <button type="button" class="nav-btn prev-btn"><i class="fa-solid fa-arrow-left"></i> Vorige</button>
+                    <button type="button" class="nav-btn next-btn">Volgende <i class="fa-solid fa-arrow-right"></i></button>
+                </div>
+            </div>
+
+            <div class="form-step">
+                <div class="form-section">
+                    <h3>Baby & Zorg</h3>
+                    <div class="form-group">
+                        <label for="baby_name">Naam van de baby</label>
+                        <input type="text" id="baby_name" name="baby_name">
+                        <div class="checkbox-group">
+                            <input type="checkbox" id="baby_name_secret" name="baby_name_secret" value="true">
+                            <label for="baby_name_secret">Ik houd dit nog even geheim</label>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label for="midwifery_practice">Naam verloskundigenpraktijk</label>
+                        <input type="text" id="midwifery_practice" name="midwifery_practice">
+                    </div>
+                    <div class="form-group">
+                        <label for="midwifery_phone">Telefoonnummer verloskundigenpraktijk</label>
+                        <input type="tel" id="midwifery_phone" name="midwifery_phone">
+                    </div>
+                    <div class="form-group">
+                        <label for="medical_complications">Eventuele medische complicaties</label>
+                        <textarea id="medical_complications" name="medical_complications" rows="3"></textarea>
+                    </div>
+                </div>
+                <div class="nav-buttons">
+                    <button type="button" class="nav-btn prev-btn"><i class="fa-solid fa-arrow-left"></i> Vorige</button>
+                    <button type="submit" class="submit-btn">Account aanmaken</button>
+                </div>
+            </div>
+        </form>
+        <p class="auth-switch">Heb je al een account? <a href="{{ url_for('login') }}">Log hier in</a>.</p>
+    </div>
+</main>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const nextButtons = document.querySelectorAll('.next-btn');
+    const prevButtons = document.querySelectorAll('.prev-btn');
+    const formSteps = document.querySelectorAll('.form-step');
+    const progressSteps = document.querySelectorAll('.progress-step');
+
+    let currentStep = 0;
+
+    function updateFormSteps() {
+        // Verberg alle stappen
+        formSteps.forEach(step => {
+            step.classList.remove('active');
+        });
+        // Toon de huidige stap
+        formSteps[currentStep].classList.add('active');
+    }
+
+    function updateProgressBar() {
+        progressSteps.forEach((step, idx) => {
+            if (idx <= currentStep) {
+                step.classList.add('active');
+            } else {
+                step.classList.remove('active');
+            }
+        });
+    }
+
+    function validateStep(stepIndex) {
+        const currentFormStep = formSteps[stepIndex];
+        const inputs = currentFormStep.querySelectorAll('input[required]');
+        let isValid = true;
+        inputs.forEach(input => {
+            if (!input.checkValidity()) {
+                isValid = false;
+                // Optioneel: toon een melding of markeer het veld
+                input.reportValidity();
+            }
+        });
+        return isValid;
+    }
+
+    nextButtons.forEach(button => {
+        button.addEventListener('click', () => {
+            if (validateStep(currentStep)) {
+                if (currentStep < formSteps.length - 1) {
+                    currentStep++;
+                    updateFormSteps();
+                    updateProgressBar();
+                }
+            }
+        });
+    });
+
+    prevButtons.forEach(button => {
+        button.addEventListener('click', () => {
+            if (currentStep > 0) {
+                currentStep--;
+                updateFormSteps();
+                updateProgressBar();
+            }
+        });
+    });
+
+    // Initialiseer de eerste stap
+    updateFormSteps();
+    updateProgressBar();
+});
+</script>
+
+</body>
+</html>
