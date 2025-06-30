@@ -216,7 +216,7 @@ def register():
             midwifery_practice=f.get("midwifery_practice"),
             midwifery_phone=f.get("midwifery_phone"),
             medical_complications=f.get("medical_complications"),
-            paid=False
+            paid=True
         )
         db.session.add(user); db.session.commit()
         get_or_create_plan_for_user(user.id)
