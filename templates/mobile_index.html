@@ -2,573 +2,471 @@
 <html lang="nl">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="viewport"
+          content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no">
     <title>Geboorteplan Assistent</title>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
-    <link rel="stylesheet" href="{{ url_for('static', filename='mobile_style.css') }}">
+
+    <!-- Icons & CSS -->
+    <link rel="stylesheet"
+          href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
+    <link rel="stylesheet"
+          href="{{ url_for('static', filename='mobile_style.css') }}">
+
+    <!-- Markdown parser -->
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 </head>
 <body>
-
 <div id="mobile-layout">
     <main id="main-content">
-
+        <!-- Stappenplan -->
         <div id="stappenplan-view" class="view active">
             <div id="progress-bar-container"><div id="progress-bar"></div></div>
 
-            <div id="themes-list-view" class="step-view active"></div>
-            <div id="questions-list-view" class="step-view"></div>
-            <div id="answer-options-view" class="step-view split-screen"></div>
+            <div id="themes-list-view"     class="step-view active"></div>
+            <div id="questions-list-view"  class="step-view"></div>
+            <div id="answer-options-view"  class="step-view split-screen"></div>
         </div>
 
-        <div id="chat-view" class="view">
-            <div id="full-chatbox"></div>
-        </div>
+        <!-- Chat -->
+        <div id="chat-view" class="view"><div id="full-chatbox"></div></div>
 
+        <!-- Samenvatting -->
         <div id="summary-view" class="view"></div>
     </main>
 
-    <div id="mobile-input-area" style="display: none;">
-        <textarea id="mobile-input" placeholder="Typ een bericht..." rows="1"></textarea>
-        <button id="mobile-send-btn" disabled><i class="fa-solid fa-paper-plane"></i></button>
+    <!-- Sticky input; wordt dynamisch verplaatst -->
+    <div id="mobile-input-area" style="display:none;">
+        <textarea id="mobile-input" placeholder="Typ een bericht…" rows="1"></textarea>
+        <button id="mobile-send-btn" disabled>
+            <i class="fa-solid fa-paper-plane"></i>
+        </button>
     </div>
 
+    <!-- Onderste tab-bar -->
     <nav id="tab-bar">
-        <div class="tab-item active" data-view="stappenplan-view"><i class="fa-solid fa-list-check"></i><span>Stappenplan</span></div>
-        <div class="tab-item" data-view="chat-view"><i class="fa-solid fa-comments"></i><span>Chat</span></div>
-        <div class="tab-item" data-view="summary-view"><i class="fa-solid fa-clipboard-check"></i><span>Antwoorden</span></div>
+        <div class="tab-item active" data-view="stappenplan-view">
+            <i class="fa-solid fa-list-check"></i><span>Stappenplan</span>
+        </div>
+        <div class="tab-item" data-view="chat-view">
+            <i class="fa-solid fa-comments"></i><span>Chat</span>
+        </div>
+        <div class="tab-item" data-view="summary-view">
+            <i class="fa-solid fa-clipboard-check"></i><span>Antwoorden</span>
+        </div>
     </nav>
 </div>
 
-<template id="themes-list-template">
-    </template>
+<!-- ------- INLINE TEMPLATES ------- -->
+<template id="themes-list-template"></template>
+
 <template id="questions-list-template">
     <div class="page-header" id="back-to-themes">
-        <i class="fa-solid fa-arrow-left"></i>
-        <h2 id="questions-theme-title"></h2>
+        <i class="fa-solid fa-arrow-left"></i><h2 id="questions-theme-title"></h2>
     </div>
     <div id="questions-list-container"></div>
 </template>
+
 <template id="answer-options-template">
     <div id="options-panel">
         <div id="answer-breadcrumb"></div>
         <h3 class="question-title-header" id="answer-question-title"></h3>
         <div id="answer-buttons-container"></div>
+
         <div class="answer-actions">
-            <div class="action-button" id="more-info-btn"><i class="fa-solid fa-circle-question"></i> Meer informatie</div>
-            <div class="action-button" id="skip-question-btn"><i class="fa-solid fa-forward"></i> Sla vraag over</div>
+            <div class="action-button" id="more-info-btn">
+                <i class="fa-solid fa-circle-question"></i> Meer informatie
+            </div>
+            <div class="action-button" id="skip-question-btn">
+                <i class="fa-solid fa-forward"></i> Sla vraag over
+            </div>
         </div>
     </div>
+
     <div id="chat-context-panel">
         <div class="chatbox-context" id="answer-chat-context"></div>
     </div>
 </template>
+
 <template id="summary-template">
     <h2>Mijn Antwoorden</h2>
     <div id="summary-list-container"></div>
 </template>
+<!-- ------- EINDE   TEMPLATES ------- -->
 
 <script>
-document.addEventListener('DOMContentLoaded', function() {
-
-    // --- STATE MANAGEMENT ---
+document.addEventListener('DOMContentLoaded', () => {
+    /* ---------- STATE ---------- */
     let state = {
         plan: [],
         history: [],
-        currentViewId: 'stappenplan-view',
-        currentStepId: 'themes-list-view',
+        currentViewId:  'stappenplan-view',
+        currentStepId:  'themes-list-view',
         selectedThemeId: null,
         selectedTopicId: null,
         isLocked: false,
         pendingAnswer: null
     };
 
-    // --- ELEMENT SELECTORS ---
-    const inputArea = document.getElementById('mobile-input-area');
-    const input = document.getElementById('mobile-input');
-    const sendBtn = document.getElementById('mobile-send-btn');
-    const progressBar = document.getElementById('progress-bar');
+    /* ---------- ELEMENTEN ---------- */
+    const API_URL    = "/agent";
+    const inputArea  = document.getElementById('mobile-input-area');
+    const input      = document.getElementById('mobile-input');
+    const sendBtn    = document.getElementById('mobile-send-btn');
+    const progress   = document.getElementById('progress-bar');
 
-    const API_URL = "/agent";
+    /* ---------- HELPER ---------- */
+    const setUiLock = locked => {
+        state.isLocked = locked;
+        input.disabled = locked;
+        sendBtn.disabled = locked || !input.value.trim();
+    };
 
-    // --- INITIALISATIE ---
-    async function initialize() {
+    /* ---------- INIT ---------- */
+    (async function initialize() {
         setUiLock(true);
-        const initialState = await callApi("initialize");
-        if (initialState) {
-            state.plan = initialState.state.plan;
-            state.history = initialState.state.history || [];
-            if (initialState.welcome_message) {
-                addChatMessage('bot', initialState.welcome_message, 'full-chatbox');
+        const init = await callApi('initialize');
+        if (init) {
+            state.plan    = init.state.plan;
+            state.history = init.state.history || [];
+            if (init.welcome_message) {
+                addChat('bot', init.welcome_message, 'full-chatbox');
             }
             renderCurrentView();
         }
         setUiLock(false);
-    }
+    })();
 
-    // --- UI LOCK & INPUT HANDLING ---
-    function setUiLock(locked) {
-        state.isLocked = locked;
-        input.disabled = locked;
-        sendBtn.disabled = locked || input.value.trim() === '';
-    }
-
+    /* ---------- INPUT ---------- */
     input.addEventListener('input', () => {
-        sendBtn.disabled = state.isLocked || input.value.trim() === '';
+        sendBtn.disabled = state.isLocked || !input.value.trim();
         input.style.height = 'auto';
-        input.style.height = (input.scrollHeight) + 'px';
+        input.style.height = input.scrollHeight + 'px';
+    });
+    input.addEventListener('keydown', e => {
+        if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); }
     });
     sendBtn.addEventListener('click', handleSend);
-    input.addEventListener('keydown', e => {
-        if (e.key === "Enter" && !e.shiftKey) {
-            e.preventDefault();
-            handleSend();
-        }
-    });
 
-    // --- CORE NAVIGATION & RENDERING ---
-    function navigateToView(viewId) {
-        if (state.currentViewId === viewId && viewId !== 'stappenplan-view') return;
-        state.currentViewId = viewId;
+    /* ---------- NAVIGATIE ---------- */
+    document.querySelectorAll('.tab-item').forEach(tab =>
+        tab.addEventListener('click', () => navigateView(tab.dataset.view))
+    );
+
+    function navigateView(view) {
+        if (view === state.currentViewId && view !== 'stappenplan-view') return;
+        state.currentViewId = view;
 
         document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
-        document.getElementById(viewId).classList.add('active');
+        document.getElementById(view).classList.add('active');
 
         document.querySelector('.tab-item.active').classList.remove('active');
-        document.querySelector(`.tab-item[data-view="${viewId}"]`).classList.add('active');
+        document.querySelector(`.tab-item[data-view="${view}"]`).classList.add('active');
 
         renderCurrentView();
     }
 
-    function navigateToStep(stepId, themeId = null, topicId = null) {
-        state.currentStepId = stepId;
-        if(themeId) state.selectedThemeId = themeId;
-        if(topicId) state.selectedTopicId = topicId;
+    function navigateStep(step, themeId = null, topicId = null) {
+        state.currentStepId = step;
+        if (themeId)  state.selectedThemeId  = themeId;
+        if (topicId)  state.selectedTopicId  = topicId;
 
-        if(stepId === 'themes-list-view') {
-            state.selectedThemeId = null;
-            state.selectedTopicId = null;
-        }
-        if(stepId === 'questions-list-view') {
-            state.selectedTopicId = null;
-        }
+        if (step === 'themes-list-view')   { state.selectedThemeId = state.selectedTopicId = null; }
+        if (step === 'questions-list-view'){ state.selectedTopicId = null; }
 
         renderCurrentView();
     }
+    window.navigateToStep = navigateStep; // nodig voor inline onclicks
 
+    /* ---------- RENDER ---------- */
     function renderCurrentView() {
         switch (state.currentViewId) {
-            case 'stappenplan-view':
-                renderStappenplanView();
-                break;
-            case 'chat-view':
-                renderChatView();
-                break;
-            case 'summary-view':
-                renderSummaryView();
-                break;
+            case 'stappenplan-view': renderStappenplan(); break;
+            case 'chat-view':        renderChat();        break;
+            case 'summary-view':     renderSummary();     break;
         }
-        updateUiForCurrentState();
-        updateProgressBar();
+        updateInputPosition();
+        updateProgress();
     }
 
-    function updateUiForCurrentState() {
-        const shouldShowInput = (state.currentViewId === 'chat-view') || (state.currentStepId === 'answer-options-view');
-        if (shouldShowInput) {
-            const parent = (state.currentViewId === 'chat-view')
-                ? document.getElementById('chat-view')
-                : document.getElementById('chat-context-panel');
-
-            if (parent) {
-                parent.appendChild(inputArea);
-                inputArea.style.display = 'flex';
-            }
+    function updateInputPosition() {
+        const needsInput = state.currentViewId === 'chat-view'
+                        || state.currentStepId === 'answer-options-view';
+        if (needsInput) {
+            const parent = state.currentViewId === 'chat-view'
+                         ? document.getElementById('chat-view')
+                         : document.getElementById('chat-context-panel');
+            parent.appendChild(inputArea);
+            inputArea.style.display = 'flex';
         } else {
             inputArea.style.display = 'none';
         }
     }
 
-    // --- VIEW-SPECIFIC RENDER FUNCTIONS ---
-    function renderStappenplanView() {
-        const stappenplanContainer = document.getElementById('stappenplan-view');
-        stappenplanContainer.querySelectorAll('.step-view').forEach(step => {
-            step.style.display = 'none'; // Use display none to hide
-        });
-
-        const activeStepContainer = document.getElementById(state.currentStepId);
-        if (activeStepContainer) {
-            activeStepContainer.style.display = 'block'; // Use display block to show
-        }
-
-        switch (state.currentStepId) {
-            case 'themes-list-view':
-                renderThemesList();
-                break;
-            case 'questions-list-view':
-                renderQuestionsList();
-                break;
-            case 'answer-options-view':
-                renderAnswerOptions();
-                break;
-        }
+    function updateProgress() {
+        if (!state.plan.length) return;
+        const total    = state.plan.reduce((n,t) => n + t.topics.length, 0);
+        const answered = state.plan.reduce((n,t) => n + t.topics.filter(tp=>tp.answer).length, 0);
+        progress.style.width = (answered / total * 100) + '%';
     }
 
-    function renderChatView() {
-        const container = document.getElementById('chat-view');
-        container.innerHTML = '';
-        const chatbox = document.createElement('div');
-        chatbox.id = 'full-chatbox';
-        chatbox.style.flex = '1';
-        chatbox.style.overflowY = 'auto';
-        container.appendChild(chatbox);
+    /* ---------- STAPPENPLAN-RENDERS ---------- */
+    function renderStappenplan() {
+        const view = document.getElementById('stappenplan-view');
+        view.querySelectorAll('.step-view').forEach(s => s.style.display = 'none');
+        const active = document.getElementById(state.currentStepId);
+        if (active) active.style.display = 'block';
 
-        state.history.forEach(msg => {
-            if (msg.role !== 'system') {
-                addChatMessage(msg.role, msg.content, 'full-chatbox');
-            }
+        if (state.currentStepId === 'themes-list-view')   return renderThemes();
+        if (state.currentStepId === 'questions-list-view')return renderQuestions();
+        if (state.currentStepId === 'answer-options-view')return renderAnswers();
+    }
+
+    function renderThemes() {
+        const c = document.getElementById('themes-list-view'); c.innerHTML = '';
+        state.plan.forEach(th => {
+            const done = th.topics.every(t=>t.answer);
+            c.insertAdjacentHTML('beforeend', `
+              <div class="theme-card" onclick="navigateToStep('questions-list-view','${th.id}')">
+                  <div class="theme-card-content">
+                      <p>Thema</p><h3>${th.name}</h3>
+                  </div>
+                  <i class="status-icon fa-solid ${done?'fa-circle-check completed':'fa-circle-notch'}"></i>
+              </div>`);
         });
     }
 
-    function renderSummaryView() {
-        const container = document.getElementById('summary-view');
-        // FIX: Gebruik een streepje (-) in plaats van een underscore (_)
-        const template = document.getElementById('summary-template');
-        if (template) {
-            container.innerHTML = template.innerHTML;
-        }
+    function renderQuestions() {
+        const tpl = document.getElementById('questions-list-template').innerHTML;
+        const view = document.getElementById('questions-list-view');
+        view.innerHTML = tpl;
 
-        const listContainer = document.getElementById('summary-list-container');
-        if (!listContainer) return;
-        listContainer.innerHTML = '';
-        let hasAnswers = false;
+        const th = state.plan.find(t=>t.id===state.selectedThemeId); if (!th) return;
+        document.getElementById('back-to-themes').onclick = () => navigateStep('themes-list-view');
+        document.getElementById('questions-theme-title').textContent = th.name;
 
-        state.plan.forEach(theme => {
-            const answeredTopics = theme.topics.filter(t => t.answer && t.answer !== '__SKIPPED__');
-            if (answeredTopics.length > 0) {
-                hasAnswers = true;
-                const group = document.createElement('div');
-                group.className = 'summary-group';
-                group.innerHTML = `<h3 class="summary-theme-title">${theme.name}</h3>`;
-
-                answeredTopics.forEach(topic => {
-                    const item = document.createElement('div');
-                    item.className = 'summary-item';
-                    item.innerHTML = `
-                        <div class="summary-item-content">
-                            <strong>${topic.question}</strong>
-                            <span>${topic.answer}</span>
-                        </div>
-                        <i class="edit-icon fa-solid fa-pencil"></i>`;
-                    item.querySelector('.edit-icon').onclick = () => {
-                        navigateToView('stappenplan-view');
-                        navigateToStep('answer-options-view', theme.id, topic.id);
-                    };
-                    group.appendChild(item);
-                });
-                listContainer.appendChild(group);
-            }
-        });
-        if (!hasAnswers) {
-            listContainer.innerHTML = '<p>Je hebt nog geen antwoorden gegeven.</p>';
-        }
-    }
-
-    // --- STEP-SPECIFIC RENDER FUNCTIONS ---
-    function renderThemesList() {
-        const container = document.getElementById('themes-list-view');
-        if (!container) return;
-        container.innerHTML = '';
-        state.plan.forEach(theme => {
-            const isCompleted = theme.topics.every(t => t.answer);
-            const card = document.createElement('div');
-            card.className = 'theme-card';
-            card.innerHTML = `
-                <div class="theme-card-content">
-                    <p>Thema</p>
-                    <h3>${theme.name}</h3>
-                </div>
-                <i class="status-icon fa-solid ${isCompleted ? 'fa-circle-check completed' : 'fa-circle-notch'}"></i>`;
-            card.onclick = () => navigateToStep('questions-list-view', theme.id);
-            container.appendChild(card);
+        const list = document.getElementById('questions-list-container');
+        th.topics.forEach(tp => {
+            const cls = tp.answer==='__SKIPPED__' ? 'skipped'
+                     : tp.answer ? 'answered' : '';
+            list.insertAdjacentHTML('beforeend', `
+              <div class="question-card ${cls}" onclick="selectQuestion('${tp.id}')">
+                  ${tp.question}
+              </div>`);
         });
     }
 
-    function renderQuestionsList() {
-        const container = document.getElementById('questions-list-view');
-        if (!container) return;
-        // FIX: Gebruik een streepje (-) in plaats van een underscore (_)
-        const template = document.getElementById('questions-list-template');
-        if (template) {
-            container.innerHTML = template.innerHTML;
-        }
+    function renderAnswers() {
+        const tpl = document.getElementById('answer-options-template').innerHTML;
+        const view = document.getElementById('answer-options-view');
+        view.innerHTML = tpl;
 
-        const theme = state.plan.find(t => t.id === state.selectedThemeId);
-        if(!theme) return;
+        const th = state.plan.find(t=>t.id===state.selectedThemeId);
+        const tp = th.topics.find(t=>t.id===state.selectedTopicId);
+        document.getElementById('answer-breadcrumb').innerHTML =
+            `<span onclick="navigateToStep('themes-list-view')">Thema's</span>
+             > <span onclick="navigateToStep('questions-list-view','${th.id}')">${th.name}</span>`;
+        document.getElementById('answer-question-title').textContent = tp.question;
 
-        document.getElementById('back-to-themes').onclick = () => navigateToStep('themes-list-view');
-        document.getElementById('questions-theme-title').textContent = theme.name;
-        const listContainer = document.getElementById('questions-list-container');
-        if (!listContainer) return;
-        listContainer.innerHTML = '';
-
-        theme.topics.forEach(topic => {
-            const card = document.createElement('div');
-            card.className = 'question-card';
-            card.textContent = topic.question;
-            if (topic.answer === '__SKIPPED__') card.classList.add('skipped');
-            else if (topic.answer) card.classList.add('answered');
-            card.onclick = () => selectQuestion(topic.id);
-            listContainer.appendChild(card);
-        });
-    }
-
-    function renderAnswerOptions() {
-        const container = document.getElementById('answer-options-view');
-        if (!container) return;
-        // FIX: Gebruik een streepje (-) in plaats van een underscore (_)
-        const template = document.getElementById('answer-options-template');
-        if(template) {
-            container.innerHTML = template.innerHTML;
-            // Zorg dat de split-screen view de flex-eigenschap behoudt.
-            container.style.display = 'flex';
-            container.style.flexDirection = 'column';
-        }
-
-        const theme = state.plan.find(t => t.id === state.selectedThemeId);
-        const topic = theme.topics.find(t => t.id === state.selectedTopicId);
-        if (!topic) return;
-
-        document.getElementById('answer-breadcrumb').innerHTML = `<span onclick="navigateToStep('themes-list-view')">Thema's</span> > <span onclick="navigateToStep('questions-list-view', '${theme.id}')">${theme.name}</span>`;
-        document.getElementById('answer-question-title').textContent = topic.question;
-        const buttonContainer = document.getElementById('answer-buttons-container');
-        if(!buttonContainer) return;
-        buttonContainer.innerHTML = '';
-
-        topic.predefined_answers.forEach(answer => {
-            const btn = document.createElement('button');
-            btn.className = 'answer-btn';
-            btn.textContent = answer.text;
-            if (answer.isCustom) {
-                btn.classList.add('anders');
-                btn.onclick = () => {
-                    input.placeholder = `Jouw antwoord op: "${topic.question.substring(0,30)}..."`;
-                    input.focus();
-                };
+        const btns = document.getElementById('answer-buttons-container');
+        btns.innerHTML = '';
+        tp.predefined_answers.forEach(ans=>{
+            const b = document.createElement('button');
+            b.className = 'answer-btn' + (ans.isCustom?' anders':'');
+            b.textContent = ans.text;
+            if (ans.isCustom) {
+                b.onclick = ()=>{ input.placeholder=`Jouw antwoord op "${tp.question.slice(0,30)}…"`;
+                                  input.focus(); };
             } else {
-                btn.onclick = () => handleSaveAnswer(topic.id, answer.text);
+                b.onclick = ()=>handleSaveAnswer(tp.id,ans.text);
             }
-            buttonContainer.appendChild(btn);
+            btns.appendChild(b);
         });
-
-        document.getElementById('more-info-btn').onclick = () => handleGuidedDialogue();
-        document.getElementById('skip-question-btn').onclick = () => handleSaveAnswer(topic.id, '__SKIPPED__');
+        document.getElementById('more-info-btn').onclick = handleGuidedDialogue;
+        document.getElementById('skip-question-btn').onclick = ()=>handleSaveAnswer(tp.id,'__SKIPPED__');
     }
 
-    // --- API & CHAT HANDLING ---
+    function renderChat() {
+        const c = document.getElementById('chat-view');
+        c.innerHTML = '<div id="full-chatbox" style="flex:1;overflow-y:auto;"></div>';
+        state.history.filter(m=>m.role!=='system').forEach(m=>addChat(m.role,m.content,'full-chatbox'));
+    }
 
-    async function callApi(command, data = {}) {
-        try {
-            const res = await fetch(API_URL, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ command, data })
+    function renderSummary() {
+        const tpl = document.getElementById('summary-template').innerHTML;
+        const view = document.getElementById('summary-view'); view.innerHTML = tpl;
+
+        const list = document.getElementById('summary-list-container'); list.innerHTML='';
+        state.plan.forEach(th=>{
+            const answered = th.topics.filter(t=>t.answer && t.answer!=='__SKIPPED__');
+            if(!answered.length) return;
+            list.insertAdjacentHTML('beforeend',`<h3 class="summary-theme-title">${th.name}</h3>`);
+            answered.forEach(tp=>{
+                list.insertAdjacentHTML('beforeend',`
+                  <div class="summary-item">
+                      <div class="summary-item-content">
+                          <strong>${tp.question}</strong><span>${tp.answer}</span>
+                      </div>
+                      <i class="edit-icon fa-solid fa-pencil"
+                         onclick="navigateToView('stappenplan-view');navigateToStep('answer-options-view','${th.id}','${tp.id}')">
+                      </i>
+                  </div>`);
             });
-            if (!res.ok) throw new Error(`Server error: ${res.status}`);
-            return res.json();
-        } catch (error) {
-            console.error("API Call failed:", error);
-            addChatMessage('bot', 'Oeps, de verbinding met de server is mislukt. Probeer het later opnieuw.', 'full-chatbox');
+        });
+        if(!list.children.length) list.innerHTML='<p>Je hebt nog geen antwoorden gegeven.</p>';
+    }
+
+    /* ---------- CHAT & API ---------- */
+    async function callApi(command,data={}) {
+        try {
+            const r = await fetch(API_URL,{method:'POST',headers:{'Content-Type':'application/json'},
+                                           body:JSON.stringify({command,data})});
+            if(!r.ok) throw new Error('Server '+r.status);
+            return await r.json();
+        } catch(e){
+            console.error(e);
+            addChat('bot','Oeps, verbinding mislukt.','full-chatbox');
             return null;
         }
     }
 
-    async function streamBotResponse(command, data = {}, targetChatboxId) {
+    async function streamBot(command,data={},boxId){
         setUiLock(true);
-        const loadingBubble = showLoadingIndicator(targetChatboxId);
-        let fullResponse = "";
+        const loader = showLoader(boxId);
+        let full='';
 
-        try {
-            const response = await fetch(API_URL, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ command, data })
-            });
-            if (!response.ok) throw new Error(`Server error: ${response.status}`);
+        try{
+            const resp = await fetch(API_URL,{method:'POST',headers:{'Content-Type':'application/json'},
+                                              body:JSON.stringify({command,data})});
+            if(!resp.ok) throw new Error('Server '+resp.status);
 
-            clearTimeout(loadingBubble.timeoutId);
-            loadingBubble.element.innerHTML = "";
+            clearTimeout(loader.timeout);
+            loader.el.innerHTML='';
 
-            const reader = response.body.getReader();
-            const decoder = new TextDecoder();
-            while (true) {
-                const { value, done } = await reader.read();
-                if (done) break;
-
-                const chunk = decoder.decode(value, { stream: true });
-                const jsonStrings = chunk.match(/data: \{[\s\S]*?\}(?=\n\n|$)/g);
-
-                if (jsonStrings) {
-                    for (const jsonString of jsonStrings) {
-                        try {
-                            const parsed = JSON.parse(jsonString.substring(5));
-                            if (parsed.content) {
-                                fullResponse += parsed.content;
-                                loadingBubble.element.innerHTML = marked.parse(fullResponse);
-                                scrollChatToBottom(targetChatboxId);
-                            } else if (parsed.error) {
-                                fullResponse = parsed.error;
-                                loadingBubble.element.innerHTML = fullResponse;
-                                break;
-                            }
-                        } catch (e) {
-                            console.error("Failed to parse stream chunk:", jsonString, e);
-                        }
-                    }
-                }
+            const rd = resp.body.getReader(), dec=new TextDecoder();
+            while(true){
+                const {value,done}=await rd.read(); if(done)break;
+                const chunk = dec.decode(value,{stream:true});
+                const parts = chunk.match(/data: \{[\s\S]*?}/g)||[];
+                parts.forEach(p=>{
+                    try{
+                        const j=JSON.parse(p.slice(6));
+                        if(j.content){ full+=j.content; loader.el.innerHTML = marked.parse(full); scroll(boxId); }
+                        else if(j.error){ full=j.error; loader.el.textContent=full; }
+                    }catch(e){console.error('parse',e);}
+                });
             }
-        } catch (error) {
-            console.error("Streaming failed:", error);
-            clearTimeout(loadingBubble.timeoutId);
-            loadingBubble.element.textContent = "Sorry, er ging iets mis tijdens het ophalen van het antwoord.";
-        } finally {
-            if (fullResponse) {
-                state.history.push({ role: "assistant", content: fullResponse });
-            }
-            if(!fullResponse && loadingBubble.element) {
-                loadingBubble.element.remove();
-            }
+        }catch(e){
+            console.error(e); loader.el.textContent='Sorry, er ging iets mis.';
+        }finally{
+            if(full) state.history.push({role:'assistant',content:full});
             setUiLock(false);
         }
     }
 
-    function showLoadingIndicator(targetChatboxId) {
-        const container = document.getElementById(targetChatboxId);
-        if(!container) return { element: null, timeoutId: null};
-        const bubble = document.createElement('div');
-        bubble.className = 'bubble bot-bubble';
-        bubble.textContent = 'Mae is aan het nadenken...';
-        container.appendChild(bubble);
-        scrollChatToBottom(targetChatboxId);
-
-        const timeoutId = setTimeout(() => {
-            if(bubble) bubble.textContent = 'Het kost iets meer tijd, maar Mae is bezig voor jou.';
-        }, 3000);
-
-        return { element: bubble, timeoutId: timeoutId };
-    }
-
-    function addChatMessage(role, text, containerId) {
-        const container = document.getElementById(containerId);
-        if (!container) return;
-        const div = document.createElement('div');
-        div.className = `bubble ${role}-bubble`;
-        div.innerHTML = marked.parse(text);
-        container.appendChild(div);
-        scrollChatToBottom(containerId);
-    }
-
-    function scrollChatToBottom(containerId) {
-        const container = document.getElementById(containerId);
-        if (container) container.scrollTop = container.scrollHeight;
-    }
-
-    // --- ACTION HANDLERS ---
-
-    async function selectQuestion(topicId) {
+    /* ----- ACTIONS ----- */
+    async function selectQuestion(topicId){
         setUiLock(true);
-        // Eerst navigeren om de DOM-structuur op te bouwen
-        navigateToStep('answer-options-view', state.selectedThemeId, topicId);
-        // Dan de API call doen en de chat vullen
-        const data = await callApi('question_selected', { topic_id: topicId });
-        if (data && data.explanation) {
-            addChatMessage('bot', data.explanation, 'answer-chat-context');
-            state.history.push({role:'system', content: data.explanation });
+        navigateStep('answer-options-view',state.selectedThemeId,topicId);
+        /* Pixel-9 fix – DOM klaar maken vóór API-call */
+        await new Promise(res=>setTimeout(res,50));
+        const data = await callApi('question_selected',{topic_id:topicId});
+        if(data?.explanation){
+            addChat('bot',data.explanation,'answer-chat-context');
+            state.history.push({role:'system',content:data.explanation});
         }
         setUiLock(false);
     }
 
-    async function handleSend() {
-        const message = input.value.trim();
-        if (!message || state.isLocked) return;
-        const targetChatboxId = (state.currentStepId === 'answer-options-view') ? 'answer-chat-context' : 'full-chatbox';
-
-        input.value = '';
-        input.style.height = 'auto';
-
-        addChatMessage('user', message, targetChatboxId);
-        state.history.push({ role: 'user', content: message });
-
-        if (state.pendingAnswer) {
-            const payload = { topic_id: state.selectedTopicId, original_answer: state.pendingAnswer, clarification: message };
-            const response = await callApi('submit_clarification', payload);
-            handleApiResponse(response);
-        } else if (state.currentStepId === 'answer-options-view') {
-            await handleSaveAnswer(state.selectedTopicId, message);
-        } else {
-            await streamBotResponse('user_message', { message: message }, targetChatboxId);
-        }
-    }
-
-    async function handleSaveAnswer(topicId, answer) {
+    async function handleSaveAnswer(topicId,answer){
         setUiLock(true);
-        const response = await callApi('save_answer', { topic_id: topicId, answer });
-        handleApiResponse(response);
+        const resp = await callApi('save_answer',{topic_id:topicId,answer});
+        processResponse(resp);
         setUiLock(false);
     }
 
-    async function handleGuidedDialogue() {
-        const message = 'Kun je meer informatie geven over deze vraag?';
-        const targetChatboxId = 'answer-chat-context';
-        addChatMessage('user', message, targetChatboxId);
-        state.history.push({ role: 'user', content: message });
-        await streamBotResponse('start_guided_dialogue', { topic_id: state.selectedTopicId }, targetChatboxId);
+    async function handleSend(){
+        if(state.isLocked) return;
+        const msg = input.value.trim(); if(!msg) return;
+        const box = state.currentStepId==='answer-options-view'?'answer-chat-context':'full-chatbox';
+
+        input.value=''; input.style.height='auto';
+        addChat('user',msg,box); state.history.push({role:'user',content:msg});
+
+        if(state.pendingAnswer){
+            const resp = await callApi('submit_clarification',{
+                topic_id:state.selectedTopicId,
+                original_answer:state.pendingAnswer,
+                clarification:msg
+            });
+            processResponse(resp);
+        }else if(state.currentStepId==='answer-options-view'){
+            await handleSaveAnswer(state.selectedTopicId,msg);
+        }else{
+            await streamBot('user_message',{message:msg},box);
+        }
     }
 
-    function handleApiResponse(data) {
-        if (!data) return;
+    async function handleGuidedDialogue(){
+        const m = 'Kun je meer informatie geven over deze vraag?';
+        addChat('user',m,'answer-chat-context');
+        state.history.push({role:'user',content:m});
+        await streamBot('start_guided_dialogue',{topic_id:state.selectedTopicId},'answer-chat-context');
+    }
 
-        state.plan = data.state.plan;
+    function processResponse(data){
+        if(!data) return;
+
+        /* nieuwe betaal-flow */
+        if(data.status==='payment_required'){
+            alert('De gratis 5 minuten zijn verstreken. Je moet nu betalen om verder te gaan.');
+            location.href='{{ url_for("start_payment") }}';
+            return;
+        }
+
+        state.plan    = data.state.plan;
         state.history = data.state.history;
         state.pendingAnswer = null;
         input.classList.remove('validation-failed');
-        input.placeholder = 'Typ een bericht...';
+        input.placeholder = 'Typ een bericht…';
 
-        if (data.status === 'ok') {
-            if (data.final_message) {
-                 addChatMessage('bot', data.final_message, 'full-chatbox');
-                 navigateToView('summary-view');
+        if(data.status==='ok'){
+            if(data.final_message){
+                addChat('bot',data.final_message,'full-chatbox');
+                navigateView('summary-view');
             } else {
-                 navigateToStep('questions-list-view', state.selectedThemeId);
+                navigateStep('questions-list-view',state.selectedThemeId);
             }
-        } else if (data.status === 'validation_failed') {
+        }
+        else if(data.status==='validation_failed'){
             state.pendingAnswer = data.original_answer;
-            input.placeholder = "Kun je dit verduidelijken?";
+            input.placeholder = 'Kun je dit verduidelijken?';
             input.classList.add('validation-failed');
             renderCurrentView();
             input.focus();
-        } else {
-            renderCurrentView();
         }
     }
 
-    function updateProgressBar() {
-        if(!state.plan || state.plan.length === 0) return;
-        const total = state.plan.reduce((acc, theme) => acc + theme.topics.length, 0);
-        if (total === 0) return;
-        const answered = state.plan.reduce((acc, theme) => acc + theme.topics.filter(t => t.answer).length, 0);
-        if(progressBar) progressBar.style.width = `${(answered / total) * 100}%`;
+    /* ---------- UTIL ---------- */
+    function addChat(role,text,boxId){
+        const box = document.getElementById(boxId);
+        if(!box) return;
+        const div = document.createElement('div');
+        div.className = `bubble ${role}-bubble`;
+        div.innerHTML = marked.parse(text);
+        box.appendChild(div); scroll(boxId);
     }
+    function showLoader(boxId){
+        const box = document.getElementById(boxId);
+        const b   = document.createElement('div');
+        b.className='bubble bot-bubble';
+        b.textContent='Mae is aan het nadenken…';
+        box.appendChild(b); scroll(boxId);
+        const t = setTimeout(()=>{b.textContent='Het duurt wat langer, Mae werkt eraan…';},3000);
+        return {el:b,timeout:t};
+    }
+    function scroll(boxId){ const c=document.getElementById(boxId); c&& (c.scrollTop=c.scrollHeight); }
 
-    // --- GLOBAL EVENT LISTENERS & START ---
-    document.querySelectorAll('.tab-item').forEach(tab => {
-        tab.addEventListener('click', () => navigateToView(tab.dataset.view));
-    });
-
-    window.navigateToStep = navigateToStep;
-
-    initialize();
 });
 </script>
-
 </body>
 </html>
