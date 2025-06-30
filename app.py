@@ -57,7 +57,7 @@ app.config.update(
     SESSION_TYPE="sqlalchemy",
     SESSION_PERMANENT=True,
     PERMANENT_SESSION_LIFETIME=timedelta(days=7),
-    SESSION_USE_SIGNER=False,
+    SESSION_USE_SIGNER=True,
     SESSION_SQLALCHEMY_TABLE="sessions",
     SESSION_COOKIE_SECURE=True,
     SESSION_COOKIE_SAMESITE="None",
