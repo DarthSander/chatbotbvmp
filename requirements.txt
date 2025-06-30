@@ -1,5 +1,6 @@
 # Web-backend & Server
 Flask>=2.3.0
+Werkzeug==2.3.8
 Flask-Cors>=4.0.0
 gunicorn>=21.0.0
 Flask-SQLAlchemy>=3.0.0
