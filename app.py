@@ -70,9 +70,8 @@ app.config.update(
     SESSION_SQLALCHEMY_TABLE="sessions",
 
     # ─ Cookie-instellingen ─
-    SESSION_COOKIE_SECURE=True,                 # alleen via HTTPS
-    SESSION_COOKIE_SAMESITE="Lax",              # blijft werken bij interne links
-    SESSION_COOKIE_DOMAIN=".bevalmeteenplan.nl",# gedeeld door bevalmeteenplan.nl én www.*
+    SESSION_COOKIE_SECURE=True,
+    SESSION_COOKIE_SAMESITE="None",
     SESSION_COOKIE_HTTPONLY=True,               # niet toegankelijk via JS
 )
 
