@@ -4,7 +4,6 @@ import json
 
 db = SQLAlchemy()
 
-
 class User(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     # Accountgegevens
@@ -25,9 +24,11 @@ class User(db.Model):
     baby_name_secret = db.Column(db.Boolean, default=False)
     medical_complications = db.Column(db.Text, nullable=True)
 
+    # Betalingsstatus voor geboorteplan
+    paid = db.Column(db.Boolean, default=False)  # Toegevoegd: gebruiker heeft betaald
+
     # Relatie met het geboorteplan
     birth_plan = db.relationship('BirthPlan', backref='user', uselist=False, cascade="all, delete-orphan")
-
 
 class BirthPlan(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -53,6 +54,4 @@ class BirthPlan(db.Model):
     def history(self, value):
         self._history_json = json.dumps(value)
 
-# De 'Sessions' class is hier bewust verwijderd.
-# De Flask-Session extensie beheert deze tabel nu volledig zelf.
-
+# De 'Sessions' klasse wordt door Flask-Session beheerd (zie app.py).
