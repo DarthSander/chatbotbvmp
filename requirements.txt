@@ -4,17 +4,20 @@ Flask-Cors>=4.0.0
 gunicorn>=21.0.0
 Flask-SQLAlchemy>=3.0.0
 Flask-Bcrypt>=1.0.0
-Flask-Session>=0.5.0  # NIEUW: Voor robuuste server-side sessies
+Flask-Session>=0.5.0
 
-# OpenAI API-interactie
+# OpenAI
 openai>=1.26.0,<2.0
 
-# Voor het laden van .env bestanden
+# Helpers
 python-dotenv>=1.0.0
 
-# RAG & Vector Database
+# RAG & vector search
 langchain>=0.1.0
 langchain-community>=0.0.30
 langchain-huggingface>=0.0.3
 sentence-transformers>=2.5.0
 faiss-cpu>=1.7.0
+
+# Mollie (nieuw)
+mollie-api-python>=2.9.0
