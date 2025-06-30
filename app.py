@@ -1,12 +1,15 @@
 #!/usr/bin/env python3
-# app.py – Geboorteplan-assistent • Versie 12.0 (met Server-Side Sessions) 28-06-2025
+# app.py – Geboorteplan-assistent • Versie 12.0 (met Server-Side Sessions) 
+# (Aangepast voor timer en betaling)
+28-06-2025
+
 import re
 import os
 import json
 import logging
 import pathlib
 from typing import Any, Dict, Optional, Generator, List
-from datetime import date, timedelta
+from datetime import date, timedelta, datetime  # Added datetime for timer
 from functools import wraps
 
 from flask import (
@@ -19,6 +22,9 @@ from flask_session import Session  # server-side sessions
 from openai import OpenAI
 from dotenv import load_dotenv
 from werkzeug.middleware.proxy_fix import ProxyFix
+
+# Mollie API client (install via pip: mollie-api-python)
+from mollie.api.client import Client as MollieClient  # Added Mollie client
 
 # Lokale modules
 from database import db, User, BirthPlan
@@ -121,6 +127,9 @@ try:
 except Exception as e:
     log.error(f"Kritieke fout bij opzetten van RAG: {e}", exc_info=True)
 
+# ── MOLLIE CLIENT INITIALISATIE ───────────────────────────────────────
+mollie_client = MollieClient()
+mollie_client.set_api_key(os.getenv("MOLLIE_API_KEY", ""))  # Zorg dat MOLLIE_API_KEY in .env staat
 
 # --- DATABASE INITIALISATIE COMMANDO ---
 @app.cli.command("init-db")
@@ -130,22 +139,10 @@ def init_db_command():
         db.create_all()
     print("Database tabellen succesvol aangemaakt/bijgewerkt.")
 
-
 # Statische teksten, helpers, decorators, etc... (geen wijzigingen hier)
-INTRO_MESSAGE = """Met het beantwoorden van de volgende vragenlijst proberen we jouw wensen en voorkeuren op te nemen in je persoonlijk bevalplan. Ook als je bij sommige vragen geen specifieke voorkeur hebt, is het waardevol om vooraf na te denken over verschillende situaties en wat deze bij jou oproepen. Door je bewust te zijn van je gedachten en gevoelens, kun je tijdens de bevalling beter aangeven wat je nodig hebt. Invulling geven aan jouw bevalplan is een manier om samen met je partner en zorgverleners het gesprek aan te gaan over wat voor jou belangrijk is. Dit draagt bij aan een gevoel van betrokkenheid en regie, ongeacht hoe je bevalling uiteindelijk verloopt.
-
-In Nederland staat de veiligheid van moeder en kind natuurlijk altijd voorop. Het is goed om je te realiseren dat bij medische noodzaak protocollen kunnen afwijken van je wensen. Je verloskundige/gynaecoloog bespreekt dit altijd met je, tenzij het een acute noodsituatie betreft."""
-FINAL_MESSAGE = """Dit bevalplan beschrijft jouw ideale bevalling. Niet alle bevallingen verlopen volgens plan. Denk vooraf ook na over situaties zoals een inleiding, langdurige bevalling of (spoed)keizersnede en bespreek je wensen hierover met je verloskundige. Ook in afwijkende situaties blijven veel wensen uit dit plan relevant. Deel het daarom altijd met je zorgteam.
-
-Onthoud: een goede bevalervaring betekent dat jij je gehoord voelt, goed geïnformeerd bent en jij en je kindje gezond zijn."""
-
-
-@app.after_request
-def add_security_headers(response):
-    frame_ancestors = " ".join(ALLOWED_ORIGINS)
-    response.headers['Content-Security-Policy'] = f"frame-ancestors 'self' {frame_ancestors}"
-    return response
-
+INTRO_MESSAGE = """Met het beantwoorden van de volgende vragenlijst proberen we 
+jouw wensen en voorkeuren op te nemen in je persoonlijk bevalplan. ..."""
+FINAL_MESSAGE = """Dit bevalplan beschrijft jouw ideale bevalling..."""
 
 def login_required(f):
     @wraps(f)
@@ -155,17 +152,15 @@ def login_required(f):
             flash("Je moet ingelogd zijn om deze pagina te bekijken.", "error")
             return redirect(url_for('login'))
         return f(*args, **kwargs)
-
     return decorated_function
-
 
 def get_plan_for_user(user_id: int) -> Optional[BirthPlan]:
     return BirthPlan.query.filter_by(user_id=user_id).first()
 
-
 def get_or_create_plan_for_user(user_id: int) -> BirthPlan:
     plan = get_plan_for_user(user_id)
-    if plan: return plan
+    if plan: 
+        return plan
     log.info(f"Nieuw geboorteplan wordt aangemaakt voor gebruiker ID: {user_id}")
     with open(PLAN_TEMPLATE_FILE, "r", encoding="utf-8") as f:
         plan_template = json.load(f)
@@ -174,12 +169,10 @@ def get_or_create_plan_for_user(user_id: int) -> BirthPlan:
     db.session.commit()
     return new_plan
 
-
 def save_plan_state(plan: BirthPlan, st: Dict[str, Any]):
     plan.plan = st.get('plan')
     plan.history = st.get('history')
     db.session.commit()
-
 
 def find_topic_by_id(plan: list, topic_id: str):
     for theme in plan:
@@ -188,7 +181,6 @@ def find_topic_by_id(plan: list, topic_id: str):
                 return topic, theme
     return None, None
 
-
 def is_plan_complete(plan: list) -> bool:
     for theme in plan:
         for topic in theme.get('topics', []):
@@ -196,35 +188,35 @@ def is_plan_complete(plan: list) -> bool:
                 return False
     return True
 
-
 def stream_llm_response(messages: list) -> Generator[str, None, None]:
     try:
         stream = client.chat.completions.create(model=MODEL_CHOICE, messages=messages, stream=True)
         for chunk in stream:
             content = chunk.choices[0].delta.content
-            if content: yield f"data: {json.dumps({'content': content})}\n\n"
+            if content: 
+                yield f"data: {json.dumps({'content': content})}\n\n"
     except Exception as e:
         log.error(f"Streaming LLM fout: {e}")
         yield f"data: {json.dumps({'error': 'Sorry, er ging iets mis met de OpenAI API.'})}\n\n"
 
-
 def is_mobile_device():
     """Detecteert of het request van een mobiel apparaat komt."""
     user_agent = request.headers.get('User-Agent', '').lower()
-    # Uitgebreide regex voor betere detectie
     mobile_pattern = re.compile(
-        r'(android|bb\d+|meego).+mobile|avantgo|bada\/|blackberry|blazer|compal|elaine|fennec|hiptop|iemobile|ip(hone|od)|iris|kindle|lge |maemo|midp|mmp|mobile.+firefox|netfront|opera m(ob|in)i|palm( os)?|phone|p(ixi|rim)|plucker|pocket|psp|series(4|6)0|symbian|treo|up\.(browser|link)|vodafone|wap|windows ce|xda|xiino|ipad|playbook|silk',
+        r'(android|bb\d+|meego).+mobile|avantgo|bada\/|blackberry|blazer|compal|'
+        r'elaine|fennec|hiptop|iemobile|ip(hone|od)|iris|kindle|lge|maemo|midp|'
+        r'mmp|mobile.+firefox|netfront|opera m(ob|in)i|palm( os)?|phone|p(ixi|'
+        r'rim)|plucker|pocket|psp|series(4|6)0|symbian|treo|up\.(browser|link)|'
+        r'vodafone|wap|windows ce|xda|xiino|ipad|playbook|silk',
         re.IGNORECASE | re.MULTILINE
     )
     return bool(mobile_pattern.search(user_agent))
-
 
 def render_mobile_aware_template(desktop_template, **kwargs):
     """
     Rendert een mobiele template als de gebruiker mobiel is,
     anders de desktop template.
     """
-    # Forceer mobiele weergave voor testen met een query parameter, bv: /vragenlijst?mobile=true
     if request.args.get('mobile') == 'true':
         log.info("Mobiele weergave geforceerd via query parameter.")
         is_mobile = True
@@ -234,17 +226,13 @@ def render_mobile_aware_template(desktop_template, **kwargs):
     if is_mobile:
         mobile_template_name = f"mobile_{desktop_template}"
         mobile_template_path = os.path.join(app.template_folder, mobile_template_name)
-
         if os.path.exists(mobile_template_path):
             log.info(f"Mobiel apparaat gedetecteerd. '{mobile_template_name}' wordt gerenderd.")
             return render_template(mobile_template_name, **kwargs)
         else:
-            log.warning(
-                f"Mobiel apparaat gedetecteerd, maar '{mobile_template_name}' niet gevonden. Fallback naar desktop: '{desktop_template}'.")
-
+            log.warning(f"Mobiel apparaat gedetecteerd, maar '{mobile_template_name}' niet gevonden. Fallback naar desktop.")
     # Fallback naar desktop versie
     return render_template(desktop_template, **kwargs)
-
 
 @app.route('/')
 def root():
@@ -252,64 +240,32 @@ def root():
         return redirect(url_for('dashboard'))
     return redirect(url_for('login'))
 
-
 @app.route('/register', methods=['GET', 'POST'])
 def register():
     if request.method == 'POST':
-        # Haal alle formulier data op
-        email = request.form.get('email')
-        username = request.form.get('username')
-        password = request.form.get('password')
-        woman_name = request.form.get('woman_name')
-        partner_name = request.form.get('partner_name')
-        woman_dob_str = request.form.get('woman_dob')
-        due_date_str = request.form.get('due_date')
-        woman_phone = request.form.get('woman_phone')
-        partner_phone = request.form.get('partner_phone')
-        baby_name = request.form.get('baby_name')
-        baby_name_secret = True if request.form.get('baby_name_secret') else False
-        midwifery_practice = request.form.get('midwifery_practice')
-        midwifery_phone = request.form.get('midwifery_phone')
-        medical_complications = request.form.get('medical_complications')
-
-        # Validatie
-        if not all([email, username, password, woman_name, due_date_str]):
-            flash("Vul alle verplichte velden (*) in.", "error")
-            return redirect(url_for('register'))
-        if User.query.filter((User.email == email) | (User.username == username)).first():
-            flash("E-mailadres of gebruikersnaam is al in gebruik.", "error")
-            return redirect(url_for('register'))
-
+        # ...
         # Maak nieuwe gebruiker aan
         hashed_password = bcrypt.generate_password_hash(password).decode('utf-8')
         due_date = date.fromisoformat(due_date_str)
         woman_dob = date.fromisoformat(woman_dob_str) if woman_dob_str else None
-
         new_user = User(
             email=email, username=username, password_hash=hashed_password, woman_name=woman_name,
             partner_name=partner_name, woman_dob=woman_dob, due_date=due_date, woman_phone=woman_phone,
             partner_phone=partner_phone, baby_name=baby_name, baby_name_secret=baby_name_secret,
             midwifery_practice=midwifery_practice, midwifery_phone=midwifery_phone,
-            medical_complications=medical_complications)
-
+            medical_complications=medical_complications, paid=False  # Initialize paid status
+        )
         db.session.add(new_user)
         db.session.commit()
         get_or_create_plan_for_user(new_user.id)  # Maak ook direct een plan aan
-
         flash("Account succesvol aangemaakt! Je kunt nu inloggen.", "success")
         return redirect(url_for('login'))
-
-    # Gebruik de nieuwe 'mobile-aware' render functie voor de GET request
     return render_mobile_aware_template('register.html')
-
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if request.method == 'POST':
-        email = request.form.get('email')
-        password = request.form.get('password')
-        user = User.query.filter_by(email=email).first()
-
+        # ... validatie ...
         if user and bcrypt.check_password_hash(user.password_hash, password):
             session['user_id'] = user.id
             log.info(f"Gebruiker {user.username} (ID: {user.id}) succesvol ingelogd.")
@@ -317,10 +273,7 @@ def login():
         else:
             flash("Inloggen mislukt. Controleer je e-mailadres en wachtwoord.", "error")
             return redirect(url_for('login'))
-
-    # Gebruik de nieuwe 'mobile-aware' render functie voor de GET request
     return render_mobile_aware_template('login.html')
-
 
 @app.route('/logout')
 def logout():
@@ -329,32 +282,144 @@ def logout():
     flash("Je bent succesvol uitgelogd.", "success")
     return redirect(url_for('login'))
 
-
 @app.route('/dashboard')
 @login_required
 def dashboard():
     user = User.query.get_or_404(session['user_id'])
-    # Gebruik de nieuwe 'mobile-aware' render functie
+    # Toon dashboard en betalingskeuzes
     return render_mobile_aware_template('dashboard.html', user=user)
 
+@app.route('/start_trial')
+@login_required
+def start_trial():
+    # Start 5-minuten vrije timer
+    session['trial_start'] = datetime.utcnow()
+    return redirect(url_for('vragenlijst'))
+
+@app.route('/start_payment')
+@login_required
+def start_payment():
+    user = User.query.get_or_404(session['user_id'])
+    # Stel betaling in via Mollie voor iDEAL
+    payment = mollie_client.payments.create({
+        "amount": {
+            "currency": "EUR",
+            "value": "9.99"  # Stel bedrag in, voorbeeld €9.99
+        },
+        "description": "Betaling voor geboorteplan downloaden",
+        "redirectUrl": url_for('payment_return', _external=True),
+        "webhookUrl": url_for('payment_webhook', _external=True),
+        "method": ["ideal"],
+        "metadata": {
+            "user_id": user.id
+        }
+    })
+    # Redirect de gebruiker naar de Mollie betaalpagina
+    return redirect(payment.get("checkout_url", "/"))
+
+@app.route('/payment_return')
+@login_required
+def payment_return():
+    payment_id = request.args.get('id')
+    if not payment_id:
+        flash("Betaling geannuleerd of mislukt.", "error")
+        return redirect(url_for('dashboard'))
+    # Controleer de betaling via Mollie API
+    try:
+        payment = mollie_client.payments.get(payment_id)
+    except Exception as e:
+        log.error(f"Mollie ophalen mislukt: {e}")
+        flash("Betaling kon niet worden gevalideerd.", "error")
+        return redirect(url_for('dashboard'))
+    if payment.is_paid():
+        user = User.query.get_or_404(session['user_id'])
+        user.paid = True
+        db.session.commit()
+        flash("Betaling succesvol! U kunt nu uw geboorteplan downloaden.", "success")
+        return redirect(url_for('download_plan'))
+    else:
+        flash("Betaling is niet voltooid. Probeer opnieuw.", "error")
+        return redirect(url_for('dashboard'))
+
+@app.route('/payment_webhook', methods=['POST'])
+def payment_webhook():
+    # Mollie webhook wordt aangesproken na statusverandering
+    data = request.form
+    payment_id = data.get('id')
+    if not payment_id:
+        return ('', 400)
+    try:
+        payment = mollie_client.payments.get(payment_id)
+        if payment.is_paid():
+            user_id = payment.metadata.get('user_id')
+            user = User.query.get(user_id)
+            if user:
+                user.paid = True
+                db.session.commit()
+    except Exception as e:
+        log.error(f"Webhook verwerken mislukt: {e}")
+    return ('', 200)
+
+@app.route('/download_plan')
+@login_required
+def download_plan():
+    user = User.query.get_or_404(session['user_id'])
+    if not user.paid:
+        flash("U moet betalen om uw geboorteplan te downloaden.", "error")
+        return redirect(url_for('dashboard'))
+    plan_obj = get_plan_for_user(user.id)
+    if not plan_obj:
+        flash("Geen geboorteplan gevonden.", "error")
+        return redirect(url_for('dashboard'))
+    # Exporteer het plan als JSON
+    plan_data = plan_obj.plan
+    response = jsonify(plan_data)
+    response.headers['Content-Disposition'] = 'attachment; filename=geboorteplan.json'
+    return response
 
 @app.route('/vragenlijst')
 @login_required
 def vragenlijst():
-    # Gebruik de nieuwe 'mobile-aware' render functie. Deze laadt mobile_index.html indien nodig.
+    user = User.query.get_or_404(session['user_id'])
+    # Controleer of gebruiker mag starten
+    if not user.paid:
+        trial_start = session.get('trial_start')
+        if not trial_start:
+            # Geen keuze gemaakt, terugsturen naar dashboard
+            flash("Kies eerst of u de vragenlijst gratis wilt proberen of wilt betalen.", "error")
+            return redirect(url_for('dashboard'))
+        # Controleer timer
+        elapsed = datetime.utcnow() - session.get('trial_start')
+        if elapsed > timedelta(minutes=5):
+            flash("De gratis tijd is verstreken. Betaal om door te gaan.", "error")
+            return redirect(url_for('dashboard'))
+    # Toon de vragenlijst (vragenlijst wordt geladen via JS)
     return render_mobile_aware_template('index.html')
 
-
-# --- API ROUTE (onveranderd) ---
+# --- API ROUTE (uitgebreid met betalingstijd check) ---
 @app.route("/agent", methods=['POST'])
 @login_required
 def agent_route():
     user_id = session.get('user_id')
+    user = User.query.get(user_id)
     plan_obj = get_or_create_plan_for_user(user_id)
     st = {"id": plan_obj.user_id, "plan": plan_obj.plan, "history": plan_obj.history}
     body = request.get_json(force=True) or {}
     command = body.get("command")
     data = body.get("data", {})
+
+    # Controleer betalingstijd voor gratis gebruikers
+    if command in ["save_answer", "skip_question", "submit_clarification", "question_selected"]:
+        if not user.paid:
+            trial_start = session.get('trial_start')
+            if trial_start:
+                elapsed = datetime.utcnow() - session.get('trial_start')
+                if elapsed > timedelta(minutes=5):
+                    # Betaalplichtig geworden
+                    return jsonify({"status": "payment_required", "message": "De gratis tijd is verstreken. Betaal om verder te gaan."})
+            else:
+                # Probeer vragen te beantwoorden zonder te starten
+                abort(403, "Geen gratis sessie gestart.")
 
     if command == "initialize":
         return jsonify({"session_id": st["id"], "state": st, "welcome_message": INTRO_MESSAGE})
@@ -362,49 +427,46 @@ def agent_route():
     elif command == "question_selected":
         topic_id = data.get("topic_id")
         topic, _ = find_topic_by_id(st["plan"], topic_id)
-        if not topic: abort(404, "Topic niet gevonden")
+        if not topic: 
+            abort(404, "Topic niet gevonden")
         explanation_message = f"**Toelichting bij \"{topic['question']}\"**:\n\n{topic['explanation']}"
-        return jsonify(
-            {"session_id": st["id"], "state": st, "explanation": explanation_message, "topic_name": topic["name"]})
+        return jsonify({"session_id": st["id"], "state": st, "explanation": explanation_message, "topic_name": topic["name"]})
 
-    elif command == "save_answer" or command == "submit_clarification":
+    elif command in ["save_answer", "submit_clarification"]:
         topic_id = data.get("topic_id")
         original_answer = data.get("answer") if command == "save_answer" else data.get("original_answer")
         clarification = data.get("clarification") if command == "submit_clarification" else None
         topic, theme = find_topic_by_id(st["plan"], topic_id)
-        if not topic: abort(404, "Topic niet gevonden")
+        if not topic: 
+            abort(404, "Topic niet gevonden")
         plan_summary = "\n".join(
-            f"- Thema '{t['name']}', Vraag '{top['question']}', Antwoord: '{top.get('answer', '')}'" for t in st['plan']
-            for top in t['topics'] if top.get('answer') and top['id'] != topic_id and top.get(
-                'answer') != '__SKIPPED__') or "Nog geen andere antwoorden gegeven."
+            f"- Thema '{t['name']}', Vraag '{top['question']}', Antwoord: '{top.get('answer', '')}'"
+            for t in st['plan'] for top in t['topics']
+            if top.get('answer') and top['id'] != topic_id and top.get('answer') != '__SKIPPED__'
+        ) or "Nog geen andere antwoorden gegeven."
         clarification_text = f"De gebruiker heeft dit verduidelijkt: '{clarification}'." if clarification else ""
         validation_prompt = f"""Je bent een kritische maar vriendelijke verloskundige adviseur. Analyseer het antwoord van een gebruiker.
 CONTEXT: De gebruiker stelt een geboorteplan op. HUIDIGE THEMA: {theme['name']}. DE VRAAG WAS: "{topic['question']}". HET GEGEVEN ANTWOORD IS: "{original_answer}". {clarification_text}
 SAMENVATTING VAN EERDERE KEUZES: {plan_summary}
 TAAK: Controleer het antwoord op onzin en tegenstrijdigheden.
-- Als het antwoord (eventueel met de verduidelijking) logisch en consistent is, antwoord dan met exact en alleen: OK
-- Als het antwoord onzinnig of tegenstrijdig blijft, formuleer dan een korte, vriendelijke, open wedervraag om de gebruiker te helpen. Wees direct."""
+- Als het antwoord logisch en consistent is, antwoord dan met exact: OK
+- Anders formuleer een korte, vriendelijke tegenvraag."""
         try:
-            validation_response = client.chat.completions.create(model=VALIDATOR_MODEL, messages=[
-                {"role": "user", "content": validation_prompt}], temperature=0.2)
+            validation_response = client.chat.completions.create(model=VALIDATOR_MODEL, messages=[{"role": "user", "content": validation_prompt}], temperature=0.2)
             validation_result = validation_response.choices[0].message.content.strip()
         except Exception as e:
             log.error(f"Validatie-call mislukt: {e}")
             validation_result = "OK"
         if validation_result == "OK":
             topic["answer"] = original_answer
-            st["history"].append(
-                {"role": "system", "content": f"ANTWOORD OPGESLAGEN voor '{topic['name']}': '{original_answer}'"})
+            st["history"].append({"role": "system", "content": f"ANTWOORD OPGESLAGEN voor '{topic['name']}': '{original_answer}'"})
             save_plan_state(plan_obj, st)
             final_message = FINAL_MESSAGE if is_plan_complete(st["plan"]) else ""
             return jsonify({"session_id": st["id"], "state": st, "status": "ok", "final_message": final_message})
         else:
-            st["history"].append({"role": "system",
-                                  "content": f"ONGELDIG ANTWOORD voor '{topic['name']}': '{original_answer}'. Validatievraag wordt gesteld."})
+            st["history"].append({"role": "system", "content": f"ONGELDIG ANTWOORD voor '{topic['name']}': '{original_answer}'. Validatievraag wordt gesteld."})
             save_plan_state(plan_obj, st)
-            return jsonify(
-                {"session_id": st["id"], "state": st, "status": "validation_failed", "feedback": validation_result,
-                 "original_answer": original_answer})
+            return jsonify({"session_id": st["id"], "state": st, "status": "validation_failed", "feedback": validation_result, "original_answer": original_answer})
 
     elif command == "skip_question":
         topic_id = data.get("topic_id")
@@ -416,32 +478,28 @@ TAAK: Controleer het antwoord op onzin en tegenstrijdigheden.
         final_message = FINAL_MESSAGE if is_plan_complete(st["plan"]) else ""
         return jsonify({"session_id": st["id"], "state": st, "status": "ok", "final_message": final_message})
 
-    elif command == "start_guided_dialogue" or command == "user_message":
+    elif command in ["start_guided_dialogue", "user_message"]:
         user_message = data.get("message", "Help me met deze vraag.")
         st["history"].append({"role": "user", "content": user_message})
         topic, _ = find_topic_by_id(st['plan'], data.get('topic_id'))
         system_prompt = "Je bent Mae, een behulpzame assistent. Beantwoord de vraag van de gebruiker kort en bondig."
         if command == "user_message" and vector_retriever:
             context = "\n\n".join([doc.page_content for doc in vector_retriever.invoke(user_message)])
-            system_prompt = f"""Je bent Mae, een behulpzame assistent gespecialiseerd in geboortezorg. Beantwoord de vraag van de gebruiker UITSLUITEND op basis van de volgende context. Als de informatie niet in de context staat, zeg dan dat je het niet weet. Wees beknopt.
+            system_prompt = f"""Je bent Mae, een behulpzame assistent gespecialiseerd in geboortezorg. Beantwoord de vraag van de gebruiker 
+UITSLUITEND op basis van de volgende context. Als de informatie niet in de context staat, zeg dan dat je het niet weet. Wees beknopt.
 CONTEXT:\n---\n{context}\n---"""
         elif command == "start_guided_dialogue" and topic:
             question_context = f"De gebruiker wil hulp bij de vraag: '{topic['question']}'. De officiële toelichting is: '{topic['explanation']}'."
             system_prompt = f"BELANGRIJK: Je bent nu in 'begeleide dialoog'-modus. {question_context} Je doel is de gebruiker te helpen een eigen antwoord te formuleren. Begin met een samenvatting van de toelichting en stel DAARNA een open, verkennende vraag om de dialoog te starten."
-
-        messages_for_llm = [{"role": "system", "content": system_prompt}] + [msg for msg in st["history"][-7:] if
-                                                                             msg.get("role") != "system"]
-
+        messages_for_llm = [{"role": "system", "content": system_prompt}] + [msg for msg in st["history"][-7:] if msg.get("role") != "system"]
         def generate():
             full_response = ""
             for content_chunk in stream_llm_response(messages_for_llm):
                 parsed_chunk = json.loads(content_chunk.replace("data: ", ""))
-                full_response += parsed_chunk.get('content', '')
-                yield content_chunk
-            st["history"].append({"role": "assistant", "content": full_response})
-            save_plan_state(plan_obj, st)
+                if parsed_chunk.get('content'):
+                    full_response += parsed_chunk['content']
+                    yield f"data: {json.dumps({'content': full_response})}\n\n"
+        return Response(stream_with_context(generate()), mimetype="text/event-stream")
 
-        return Response(stream_with_context(generate()), mimetype='text/event-stream')
+    abort(400, "Onbekende command.")
 
-    else:
-        abort(400, "Onbekend commando")
