@@ -242,36 +242,74 @@ def root():
 @app.route('/register', methods=['GET', 'POST'])
 def register():
     if request.method == 'POST':
-        # ...
-        # Maak nieuwe gebruiker aan
+        form = request.form
+
+        # ── verplichte velden ───────────────────────────────
+        email        = form.get('email', '').strip()
+        username     = form.get('username', '').strip()
+        password     = form.get('password', '')          # <─ NIEUW
+        woman_name   = form.get('woman_name', '').strip()
+        due_date_str = form.get('due_date', '').strip()
+
+        # ── optionele velden ───────────────────────────────
+        partner_name        = form.get('partner_name', '').strip()
+        woman_dob_str       = form.get('woman_dob', '').strip()
+        woman_phone         = form.get('woman_phone', '').strip()
+        partner_phone       = form.get('partner_phone', '').strip()
+        baby_name           = form.get('baby_name', '').strip()
+        baby_name_secret    = bool(form.get('baby_name_secret'))
+        midwifery_practice  = form.get('midwifery_practice', '').strip()
+        midwifery_phone     = form.get('midwifery_phone', '').strip()
+        medical_complications = form.get('medical_complications', '').strip()
+
+        # ── validatie ──────────────────────────────────────
+        if not all([email, username, password, woman_name, due_date_str]):
+            flash("Vul alle verplichte velden (*) in.", "error")
+            return redirect(url_for('register'))
+
+        if User.query.filter((User.email == email) | (User.username == username)).first():
+            flash("E-mailadres of gebruikersnaam is al in gebruik.", "error")
+            return redirect(url_for('register'))
+
+        # ── opslag in db ───────────────────────────────────
         hashed_password = bcrypt.generate_password_hash(password).decode('utf-8')
-        due_date = date.fromisoformat(due_date_str)
+        due_date  = date.fromisoformat(due_date_str)
         woman_dob = date.fromisoformat(woman_dob_str) if woman_dob_str else None
+
         new_user = User(
-            email=email, username=username, password_hash=hashed_password, woman_name=woman_name,
-            partner_name=partner_name, woman_dob=woman_dob, due_date=due_date, woman_phone=woman_phone,
-            partner_phone=partner_phone, baby_name=baby_name, baby_name_secret=baby_name_secret,
+            email=email, username=username, password_hash=hashed_password,
+            woman_name=woman_name, partner_name=partner_name, woman_dob=woman_dob,
+            due_date=due_date, woman_phone=woman_phone, partner_phone=partner_phone,
+            baby_name=baby_name, baby_name_secret=baby_name_secret,
             midwifery_practice=midwifery_practice, midwifery_phone=midwifery_phone,
-            medical_complications=medical_complications, paid=False  # Initialize paid status
+            medical_complications=medical_complications, paid=False
         )
         db.session.add(new_user)
         db.session.commit()
-        get_or_create_plan_for_user(new_user.id)  # Maak ook direct een plan aan
+        get_or_create_plan_for_user(new_user.id)
+
         flash("Account succesvol aangemaakt! Je kunt nu inloggen.", "success")
         return redirect(url_for('login'))
+
+    # GET-verzoek → toon formulier
     return render_mobile_aware_template('register.html')
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if request.method == 'POST':
-        # ... validatie ...
+        form     = request.form
+        email    = form.get('email', '').strip()
+        password = form.get('password', '')              # <─ NIEUW
+
+        user = User.query.filter_by(email=email).first()
         if user and bcrypt.check_password_hash(user.password_hash, password):
             session['user_id'] = user.id
             log.info(f"Gebruiker {user.username} (ID: {user.id}) succesvol ingelogd.")
             return redirect(url_for('dashboard'))
         else:
-            flash("Inloggen mislukt. Controleer je e-mailadres en wachtwoord.", "error")
+            flash("Inloggen mislukt. Controleer je e-mail en wachtwoord.", "error")
             return redirect(url_for('login'))
+
     return render_mobile_aware_template('login.html')
 
 @app.route('/logout')
