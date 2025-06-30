@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 # app.py – Geboorteplan-assistent • Versie 12.0 (met Server-Side Sessions) 
 # (Aangepast voor timer en betaling)
-28-06-2025
 
 import re
 import os
