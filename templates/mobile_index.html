@@ -1,471 +1,374 @@
 <!DOCTYPE html>
 <html lang="nl">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport"
-          content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no">
-    <title>Geboorteplan Assistent</title>
+<meta charset="UTF-8">
+<meta name="viewport"
+      content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no">
+<title>Geboorteplan Assistent</title>
 
-    <!-- Icons & CSS -->
-    <link rel="stylesheet"
-          href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
-    <link rel="stylesheet"
-          href="{{ url_for('static', filename='mobile_style.css') }}">
+<link rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
+<link rel="stylesheet"
+      href="{{ url_for('static', filename='mobile_style.css') }}">
 
-    <!-- Markdown parser -->
-    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 </head>
 <body>
 <div id="mobile-layout">
-    <main id="main-content">
-        <!-- Stappenplan -->
-        <div id="stappenplan-view" class="view active">
-            <div id="progress-bar-container"><div id="progress-bar"></div></div>
+  <main id="main-content">
+    <div id="stappenplan-view" class="view active">
+      <div id="progress-bar-container"><div id="progress-bar"></div></div>
 
-            <div id="themes-list-view"     class="step-view active"></div>
-            <div id="questions-list-view"  class="step-view"></div>
-            <div id="answer-options-view"  class="step-view split-screen"></div>
-        </div>
-
-        <!-- Chat -->
-        <div id="chat-view" class="view"><div id="full-chatbox"></div></div>
-
-        <!-- Samenvatting -->
-        <div id="summary-view" class="view"></div>
-    </main>
-
-    <!-- Sticky input; wordt dynamisch verplaatst -->
-    <div id="mobile-input-area" style="display:none;">
-        <textarea id="mobile-input" placeholder="Typ een bericht…" rows="1"></textarea>
-        <button id="mobile-send-btn" disabled>
-            <i class="fa-solid fa-paper-plane"></i>
-        </button>
+      <div id="themes-list-view"    class="step-view active"></div>
+      <div id="questions-list-view" class="step-view"></div>
+      <div id="answer-options-view" class="step-view split-screen"></div>
     </div>
 
-    <!-- Onderste tab-bar -->
-    <nav id="tab-bar">
-        <div class="tab-item active" data-view="stappenplan-view">
-            <i class="fa-solid fa-list-check"></i><span>Stappenplan</span>
-        </div>
-        <div class="tab-item" data-view="chat-view">
-            <i class="fa-solid fa-comments"></i><span>Chat</span>
-        </div>
-        <div class="tab-item" data-view="summary-view">
-            <i class="fa-solid fa-clipboard-check"></i><span>Antwoorden</span>
-        </div>
-    </nav>
+    <div id="chat-view"    class="view"><div id="full-chatbox"></div></div>
+    <div id="summary-view" class="view"></div>
+  </main>
+
+  <!-- sticky input -->
+  <div id="mobile-input-area" style="display:none;">
+    <textarea id="mobile-input" placeholder="Typ een bericht…" rows="1"></textarea>
+    <button id="mobile-send-btn" disabled>
+      <i class="fa-solid fa-paper-plane"></i>
+    </button>
+  </div>
+
+  <nav id="tab-bar">
+    <div class="tab-item active" data-view="stappenplan-view">
+      <i class="fa-solid fa-list-check"></i><span>Stappenplan</span></div>
+    <div class="tab-item"        data-view="chat-view">
+      <i class="fa-solid fa-comments"></i><span>Chat</span></div>
+    <div class="tab-item"        data-view="summary-view">
+      <i class="fa-solid fa-clipboard-check"></i><span>Antwoorden</span></div>
+  </nav>
 </div>
 
-<!-- ------- INLINE TEMPLATES ------- -->
+<!-- -------- templates -------- -->
 <template id="themes-list-template"></template>
 
 <template id="questions-list-template">
-    <div class="page-header" id="back-to-themes">
-        <i class="fa-solid fa-arrow-left"></i><h2 id="questions-theme-title"></h2>
-    </div>
-    <div id="questions-list-container"></div>
+  <div class="page-header" id="back-to-themes">
+    <i class="fa-solid fa-arrow-left"></i><h2 id="questions-theme-title"></h2>
+  </div>
+  <div id="questions-list-container"></div>
 </template>
 
 <template id="answer-options-template">
-    <div id="options-panel">
-        <div id="answer-breadcrumb"></div>
-        <h3 class="question-title-header" id="answer-question-title"></h3>
-        <div id="answer-buttons-container"></div>
+  <div id="options-panel">
+    <div id="answer-breadcrumb"></div>
+    <h3 class="question-title-header" id="answer-question-title"></h3>
+    <div id="answer-buttons-container"></div>
 
-        <div class="answer-actions">
-            <div class="action-button" id="more-info-btn">
-                <i class="fa-solid fa-circle-question"></i> Meer informatie
-            </div>
-            <div class="action-button" id="skip-question-btn">
-                <i class="fa-solid fa-forward"></i> Sla vraag over
-            </div>
-        </div>
+    <div class="answer-actions">
+      <div class="action-button" id="more-info-btn">
+        <i class="fa-solid fa-circle-question"></i> Meer informatie
+      </div>
+      <div class="action-button" id="skip-question-btn">
+        <i class="fa-solid fa-forward"></i> Sla vraag over
+      </div>
     </div>
+  </div>
 
-    <div id="chat-context-panel">
-        <div class="chatbox-context" id="answer-chat-context"></div>
-    </div>
+  <div id="chat-context-panel">
+    <div class="chatbox-context" id="answer-chat-context"></div>
+  </div>
 </template>
 
 <template id="summary-template">
-    <h2>Mijn Antwoorden</h2>
-    <div id="summary-list-container"></div>
+  <h2>Mijn Antwoorden</h2>
+  <div id="summary-list-container"></div>
 </template>
-<!-- ------- EINDE   TEMPLATES ------- -->
+<!-- -------- einde templates -------- -->
 
 <script>
 document.addEventListener('DOMContentLoaded', () => {
     /* ---------- STATE ---------- */
     let state = {
-        plan: [],
-        history: [],
-        currentViewId:  'stappenplan-view',
-        currentStepId:  'themes-list-view',
-        selectedThemeId: null,
-        selectedTopicId: null,
-        isLocked: false,
-        pendingAnswer: null
+        plan: [], history: [],
+        currentViewId: 'stappenplan-view',
+        currentStepId: 'themes-list-view',
+        selectedThemeId: null, selectedTopicId: null,
+        isLocked: false, pendingAnswer: null
     };
 
     /* ---------- ELEMENTEN ---------- */
-    const API_URL    = "/agent";
-    const inputArea  = document.getElementById('mobile-input-area');
-    const input      = document.getElementById('mobile-input');
-    const sendBtn    = document.getElementById('mobile-send-btn');
-    const progress   = document.getElementById('progress-bar');
+    const API_URL   = "/agent";
+    const inputArea = document.getElementById('mobile-input-area');
+    const input     = document.getElementById('mobile-input');
+    const sendBtn   = document.getElementById('mobile-send-btn');
+    const progress  = document.getElementById('progress-bar');
 
     /* ---------- HELPER ---------- */
-    const setUiLock = locked => {
-        state.isLocked = locked;
-        input.disabled = locked;
-        sendBtn.disabled = locked || !input.value.trim();
+    const lockUI = l => {
+        state.isLocked = l;
+        input.disabled = l; sendBtn.disabled = l || !input.value.trim();
     };
 
     /* ---------- INIT ---------- */
-    (async function initialize() {
-        setUiLock(true);
-        const init = await callApi('initialize');
-        if (init) {
-            state.plan    = init.state.plan;
+    (async () => {
+        lockUI(true);
+        const init = await api('initialize');
+        if(init){
+            state.plan = init.state.plan;
             state.history = init.state.history || [];
-            if (init.welcome_message) {
-                addChat('bot', init.welcome_message, 'full-chatbox');
-            }
-            renderCurrentView();
+            if(init.welcome_message) chat('bot',init.welcome_message,'full-chatbox');
+            render();
         }
-        setUiLock(false);
+        lockUI(false);
     })();
 
     /* ---------- INPUT ---------- */
     input.addEventListener('input', () => {
         sendBtn.disabled = state.isLocked || !input.value.trim();
-        input.style.height = 'auto';
-        input.style.height = input.scrollHeight + 'px';
+        input.style.height='auto';
+        input.style.height=input.scrollHeight+'px';
     });
-    input.addEventListener('keydown', e => {
-        if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); }
+    sendBtn.addEventListener('click', send);
+    input.addEventListener('keydown', e=>{
+        if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();send();}
     });
-    sendBtn.addEventListener('click', handleSend);
 
-    /* ---------- NAVIGATIE ---------- */
-    document.querySelectorAll('.tab-item').forEach(tab =>
-        tab.addEventListener('click', () => navigateView(tab.dataset.view))
-    );
+    /* ---------- TABS ---------- */
+    document.querySelectorAll('.tab-item').forEach(t=>{
+        t.onclick = ()=> navView(t.dataset.view);
+    });
 
-    function navigateView(view) {
-        if (view === state.currentViewId && view !== 'stappenplan-view') return;
-        state.currentViewId = view;
-
-        document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
-        document.getElementById(view).classList.add('active');
-
+    /* ---------- NAVIGATION ---------- */
+    function navView(v){
+        if(v===state.currentViewId&&v!=='stappenplan-view') return;
+        state.currentViewId=v;
+        document.querySelectorAll('.view').forEach(el=>el.classList.remove('active'));
+        document.getElementById(v).classList.add('active');
         document.querySelector('.tab-item.active').classList.remove('active');
-        document.querySelector(`.tab-item[data-view="${view}"]`).classList.add('active');
-
-        renderCurrentView();
+        document.querySelector(`.tab-item[data-view="${v}"]`).classList.add('active');
+        render();
     }
-
-    function navigateStep(step, themeId = null, topicId = null) {
+    window.navStep = (step,tid=null,topid=null) => {
         state.currentStepId = step;
-        if (themeId)  state.selectedThemeId  = themeId;
-        if (topicId)  state.selectedTopicId  = topicId;
-
-        if (step === 'themes-list-view')   { state.selectedThemeId = state.selectedTopicId = null; }
-        if (step === 'questions-list-view'){ state.selectedTopicId = null; }
-
-        renderCurrentView();
-    }
-    window.navigateToStep = navigateStep; // nodig voor inline onclicks
+        if(tid)  state.selectedThemeId = tid;
+        if(topid)state.selectedTopicId = topid;
+        if(step==='themes-list-view') state.selectedThemeId = state.selectedTopicId = null;
+        if(step==='questions-list-view') state.selectedTopicId = null;
+        render();
+    };
 
     /* ---------- RENDER ---------- */
-    function renderCurrentView() {
-        switch (state.currentViewId) {
-            case 'stappenplan-view': renderStappenplan(); break;
-            case 'chat-view':        renderChat();        break;
-            case 'summary-view':     renderSummary();     break;
-        }
-        updateInputPosition();
-        updateProgress();
+    function render(){
+        if(state.currentViewId==='stappenplan-view') renderStappenplan();
+        if(state.currentViewId==='chat-view')        renderChat();
+        if(state.currentViewId==='summary-view')     renderSummary();
+        placeInput(); updateProg();
+    }
+    function placeInput(){
+        const need = state.currentViewId==='chat-view'||state.currentStepId==='answer-options-view';
+        inputArea.style.display = need?'flex':'none';
+        if(!need) return;
+        const parent = state.currentViewId==='chat-view'
+                     ? document.getElementById('chat-view')
+                     : document.getElementById('chat-context-panel');
+        parent.appendChild(inputArea);
+    }
+    function updateProg(){
+        const tot=state.plan.reduce((n,t)=>n+t.topics.length,0)||1;
+        const done=state.plan.reduce((n,t)=>n+t.topics.filter(tp=>tp.answer).length,0);
+        progress.style.width=(done/tot*100)+'%';
     }
 
-    function updateInputPosition() {
-        const needsInput = state.currentViewId === 'chat-view'
-                        || state.currentStepId === 'answer-options-view';
-        if (needsInput) {
-            const parent = state.currentViewId === 'chat-view'
-                         ? document.getElementById('chat-view')
-                         : document.getElementById('chat-context-panel');
-            parent.appendChild(inputArea);
-            inputArea.style.display = 'flex';
-        } else {
-            inputArea.style.display = 'none';
-        }
+    /* ---------- RENDER PARTS ---------- */
+    function renderStappenplan(){
+        const wrap=document.getElementById('stappenplan-view');
+        wrap.querySelectorAll('.step-view').forEach(s=>s.style.display='none');
+        document.getElementById(state.currentStepId).style.display='block';
+
+        if(state.currentStepId==='themes-list-view')   drawThemes();
+        if(state.currentStepId==='questions-list-view')drawQuestions();
+        if(state.currentStepId==='answer-options-view')drawAnswers();
     }
-
-    function updateProgress() {
-        if (!state.plan.length) return;
-        const total    = state.plan.reduce((n,t) => n + t.topics.length, 0);
-        const answered = state.plan.reduce((n,t) => n + t.topics.filter(tp=>tp.answer).length, 0);
-        progress.style.width = (answered / total * 100) + '%';
-    }
-
-    /* ---------- STAPPENPLAN-RENDERS ---------- */
-    function renderStappenplan() {
-        const view = document.getElementById('stappenplan-view');
-        view.querySelectorAll('.step-view').forEach(s => s.style.display = 'none');
-        const active = document.getElementById(state.currentStepId);
-        if (active) active.style.display = 'block';
-
-        if (state.currentStepId === 'themes-list-view')   return renderThemes();
-        if (state.currentStepId === 'questions-list-view')return renderQuestions();
-        if (state.currentStepId === 'answer-options-view')return renderAnswers();
-    }
-
-    function renderThemes() {
-        const c = document.getElementById('themes-list-view'); c.innerHTML = '';
-        state.plan.forEach(th => {
-            const done = th.topics.every(t=>t.answer);
-            c.insertAdjacentHTML('beforeend', `
-              <div class="theme-card" onclick="navigateToStep('questions-list-view','${th.id}')">
-                  <div class="theme-card-content">
-                      <p>Thema</p><h3>${th.name}</h3>
-                  </div>
-                  <i class="status-icon fa-solid ${done?'fa-circle-check completed':'fa-circle-notch'}"></i>
-              </div>`);
-        });
-    }
-
-    function renderQuestions() {
-        const tpl = document.getElementById('questions-list-template').innerHTML;
-        const view = document.getElementById('questions-list-view');
-        view.innerHTML = tpl;
-
-        const th = state.plan.find(t=>t.id===state.selectedThemeId); if (!th) return;
-        document.getElementById('back-to-themes').onclick = () => navigateStep('themes-list-view');
-        document.getElementById('questions-theme-title').textContent = th.name;
-
-        const list = document.getElementById('questions-list-container');
-        th.topics.forEach(tp => {
-            const cls = tp.answer==='__SKIPPED__' ? 'skipped'
-                     : tp.answer ? 'answered' : '';
-            list.insertAdjacentHTML('beforeend', `
-              <div class="question-card ${cls}" onclick="selectQuestion('${tp.id}')">
-                  ${tp.question}
-              </div>`);
-        });
-    }
-
-    function renderAnswers() {
-        const tpl = document.getElementById('answer-options-template').innerHTML;
-        const view = document.getElementById('answer-options-view');
-        view.innerHTML = tpl;
-
-        const th = state.plan.find(t=>t.id===state.selectedThemeId);
-        const tp = th.topics.find(t=>t.id===state.selectedTopicId);
-        document.getElementById('answer-breadcrumb').innerHTML =
-            `<span onclick="navigateToStep('themes-list-view')">Thema's</span>
-             > <span onclick="navigateToStep('questions-list-view','${th.id}')">${th.name}</span>`;
-        document.getElementById('answer-question-title').textContent = tp.question;
-
-        const btns = document.getElementById('answer-buttons-container');
-        btns.innerHTML = '';
-        tp.predefined_answers.forEach(ans=>{
-            const b = document.createElement('button');
-            b.className = 'answer-btn' + (ans.isCustom?' anders':'');
-            b.textContent = ans.text;
-            if (ans.isCustom) {
-                b.onclick = ()=>{ input.placeholder=`Jouw antwoord op "${tp.question.slice(0,30)}…"`;
-                                  input.focus(); };
-            } else {
-                b.onclick = ()=>handleSaveAnswer(tp.id,ans.text);
-            }
-            btns.appendChild(b);
-        });
-        document.getElementById('more-info-btn').onclick = handleGuidedDialogue;
-        document.getElementById('skip-question-btn').onclick = ()=>handleSaveAnswer(tp.id,'__SKIPPED__');
-    }
-
-    function renderChat() {
-        const c = document.getElementById('chat-view');
-        c.innerHTML = '<div id="full-chatbox" style="flex:1;overflow-y:auto;"></div>';
-        state.history.filter(m=>m.role!=='system').forEach(m=>addChat(m.role,m.content,'full-chatbox'));
-    }
-
-    function renderSummary() {
-        const tpl = document.getElementById('summary-template').innerHTML;
-        const view = document.getElementById('summary-view'); view.innerHTML = tpl;
-
-        const list = document.getElementById('summary-list-container'); list.innerHTML='';
+    function drawThemes(){
+        const c=document.getElementById('themes-list-view'); c.innerHTML='';
         state.plan.forEach(th=>{
-            const answered = th.topics.filter(t=>t.answer && t.answer!=='__SKIPPED__');
-            if(!answered.length) return;
-            list.insertAdjacentHTML('beforeend',`<h3 class="summary-theme-title">${th.name}</h3>`);
-            answered.forEach(tp=>{
-                list.insertAdjacentHTML('beforeend',`
-                  <div class="summary-item">
-                      <div class="summary-item-content">
-                          <strong>${tp.question}</strong><span>${tp.answer}</span>
-                      </div>
-                      <i class="edit-icon fa-solid fa-pencil"
-                         onclick="navigateToView('stappenplan-view');navigateToStep('answer-options-view','${th.id}','${tp.id}')">
-                      </i>
-                  </div>`);
+            const done=th.topics.every(t=>t.answer);
+            c.insertAdjacentHTML('beforeend',`
+              <div class="theme-card" onclick="navStep('questions-list-view','${th.id}')">
+                <div class="theme-card-content">
+                  <p>Thema</p><h3>${th.name}</h3>
+                </div>
+                <i class="status-icon fa-solid ${done?'fa-circle-check completed':'fa-circle-notch'}"></i>
+              </div>`);
+        });
+    }
+    function drawQuestions(){
+        const tpl=document.getElementById('questions-list-template').innerHTML;
+        const v=document.getElementById('questions-list-view'); v.innerHTML=tpl;
+        const th=state.plan.find(t=>t.id===state.selectedThemeId); if(!th)return;
+        document.getElementById('back-to-themes').onclick=()=>navStep('themes-list-view');
+        document.getElementById('questions-theme-title').textContent=th.name;
+        const l=document.getElementById('questions-list-container');
+        th.topics.forEach(tp=>{
+            const cls=tp.answer==='__SKIPPED__'?'skipped':tp.answer?'answered':'';
+            l.insertAdjacentHTML('beforeend',`
+              <div class="question-card ${cls}" onclick="selQ('${tp.id}')">${tp.question}</div>`);
+        });
+    }
+    window.selQ = async id => {
+        lockUI(true);
+        navStep('answer-options-view',state.selectedThemeId,id);
+        await new Promise(r=>setTimeout(r,60));           // Pixel-9 fix
+        const res = await api('question_selected',{topic_id:id});
+        if(res?.explanation){
+            chat('bot',res.explanation,'answer-chat-context');
+            state.history.push({role:'system',content:res.explanation});
+        }
+        lockUI(false);
+    };
+    function drawAnswers(){
+        const tpl=document.getElementById('answer-options-template').innerHTML;
+        const v=document.getElementById('answer-options-view'); v.innerHTML=tpl;
+        const th=state.plan.find(t=>t.id===state.selectedThemeId);
+        const tp=th.topics.find(t=>t.id===state.selectedTopicId);
+        document.getElementById('answer-breadcrumb').innerHTML=
+            `<span onclick="navStep('themes-list-view')">Thema's</span>
+             > <span onclick="navStep('questions-list-view','${th.id}')">${th.name}</span>`;
+        document.getElementById('answer-question-title').textContent=tp.question;
+        const box=document.getElementById('answer-buttons-container');
+        tp.predefined_answers.forEach(a=>{
+            const b=document.createElement('button');
+            b.className='answer-btn'+(a.isCustom?' anders':'');
+            b.textContent=a.text;
+            b.onclick=a.isCustom
+                ? ()=>{input.placeholder=`Jouw antwoord op "${tp.question.slice(0,30)}…"`;
+                       input.focus();}
+                : ()=>saveAns(tp.id,a.text);
+            box.appendChild(b);
+        });
+        document.getElementById('more-info-btn').onclick=dlg;
+        document.getElementById('skip-question-btn').onclick=()=>saveAns(tp.id,'__SKIPPED__');
+    }
+    function renderChat(){
+        const c=document.getElementById('chat-view');
+        c.innerHTML='<div id="full-chatbox" style="flex:1;overflow-y:auto;"></div>';
+        state.history.filter(m=>m.role!=='system')
+            .forEach(m=>chat(m.role,m.content,'full-chatbox'));
+    }
+    function renderSummary(){
+        const tpl=document.getElementById('summary-template').innerHTML;
+        const v=document.getElementById('summary-view'); v.innerHTML=tpl;
+        const l=document.getElementById('summary-list-container'); l.innerHTML='';
+        state.plan.forEach(th=>{
+            const ans=th.topics.filter(t=>t.answer&&t.answer!=='__SKIPPED__');
+            if(!ans.length) return;
+            l.insertAdjacentHTML('beforeend',`<h3 class="summary-theme-title">${th.name}</h3>`);
+            ans.forEach(tp=>{
+              l.insertAdjacentHTML('beforeend',`
+               <div class="summary-item">
+                 <div class="summary-item-content">
+                   <strong>${tp.question}</strong><span>${tp.answer}</span></div>
+                 <i class="edit-icon fa-solid fa-pencil"
+                    onclick="navView('stappenplan-view');navStep('answer-options-view','${th.id}','${tp.id}')"></i>
+               </div>`);
             });
         });
-        if(!list.children.length) list.innerHTML='<p>Je hebt nog geen antwoorden gegeven.</p>';
+        if(!l.children.length) l.innerHTML='<p>Je hebt nog geen antwoorden gegeven.</p>';
     }
 
-    /* ---------- CHAT & API ---------- */
-    async function callApi(command,data={}) {
-        try {
-            const r = await fetch(API_URL,{method:'POST',headers:{'Content-Type':'application/json'},
-                                           body:JSON.stringify({command,data})});
-            if(!r.ok) throw new Error('Server '+r.status);
-            return await r.json();
-        } catch(e){
-            console.error(e);
-            addChat('bot','Oeps, verbinding mislukt.','full-chatbox');
-            return null;
-        }
+    /* ---------- API & CHAT ---------- */
+    async function api(cmd,dat={}){ try{
+        const r=await fetch(API_URL,{method:'POST',headers:{'Content-Type':'application/json'},
+                                     body:JSON.stringify({command:cmd,data:dat})});
+        return r.ok ? r.json() : null;
+    }catch(e){console.error(e);chat('bot','Verbindingsfout.','full-chatbox');return null;}}
+
+    function chat(role,text,boxId){
+        const box=document.getElementById(boxId); if(!box)return;
+        const d=document.createElement('div');
+        d.className=`bubble ${role}-bubble`; d.innerHTML=marked.parse(text);
+        box.appendChild(d); box.scrollTop=box.scrollHeight;
     }
-
-    async function streamBot(command,data={},boxId){
-        setUiLock(true);
-        const loader = showLoader(boxId);
-        let full='';
-
-        try{
-            const resp = await fetch(API_URL,{method:'POST',headers:{'Content-Type':'application/json'},
-                                              body:JSON.stringify({command,data})});
-            if(!resp.ok) throw new Error('Server '+resp.status);
-
-            clearTimeout(loader.timeout);
-            loader.el.innerHTML='';
-
-            const rd = resp.body.getReader(), dec=new TextDecoder();
-            while(true){
-                const {value,done}=await rd.read(); if(done)break;
-                const chunk = dec.decode(value,{stream:true});
-                const parts = chunk.match(/data: \{[\s\S]*?}/g)||[];
-                parts.forEach(p=>{
-                    try{
-                        const j=JSON.parse(p.slice(6));
-                        if(j.content){ full+=j.content; loader.el.innerHTML = marked.parse(full); scroll(boxId); }
-                        else if(j.error){ full=j.error; loader.el.textContent=full; }
-                    }catch(e){console.error('parse',e);}
-                });
-            }
-        }catch(e){
-            console.error(e); loader.el.textContent='Sorry, er ging iets mis.';
-        }finally{
-            if(full) state.history.push({role:'assistant',content:full});
-            setUiLock(false);
-        }
-    }
-
-    /* ----- ACTIONS ----- */
-    async function selectQuestion(topicId){
-        setUiLock(true);
-        navigateStep('answer-options-view',state.selectedThemeId,topicId);
-        /* Pixel-9 fix – DOM klaar maken vóór API-call */
-        await new Promise(res=>setTimeout(res,50));
-        const data = await callApi('question_selected',{topic_id:topicId});
-        if(data?.explanation){
-            addChat('bot',data.explanation,'answer-chat-context');
-            state.history.push({role:'system',content:data.explanation});
-        }
-        setUiLock(false);
-    }
-
-    async function handleSaveAnswer(topicId,answer){
-        setUiLock(true);
-        const resp = await callApi('save_answer',{topic_id:topicId,answer});
-        processResponse(resp);
-        setUiLock(false);
-    }
-
-    async function handleSend(){
-        if(state.isLocked) return;
-        const msg = input.value.trim(); if(!msg) return;
-        const box = state.currentStepId==='answer-options-view'?'answer-chat-context':'full-chatbox';
-
-        input.value=''; input.style.height='auto';
-        addChat('user',msg,box); state.history.push({role:'user',content:msg});
-
-        if(state.pendingAnswer){
-            const resp = await callApi('submit_clarification',{
-                topic_id:state.selectedTopicId,
-                original_answer:state.pendingAnswer,
-                clarification:msg
-            });
-            processResponse(resp);
-        }else if(state.currentStepId==='answer-options-view'){
-            await handleSaveAnswer(state.selectedTopicId,msg);
-        }else{
-            await streamBot('user_message',{message:msg},box);
-        }
-    }
-
-    async function handleGuidedDialogue(){
-        const m = 'Kun je meer informatie geven over deze vraag?';
-        addChat('user',m,'answer-chat-context');
-        state.history.push({role:'user',content:m});
-        await streamBot('start_guided_dialogue',{topic_id:state.selectedTopicId},'answer-chat-context');
-    }
-
-    function processResponse(data){
-        if(!data) return;
-
-        /* nieuwe betaal-flow */
-        if(data.status==='payment_required'){
-            alert('De gratis 5 minuten zijn verstreken. Je moet nu betalen om verder te gaan.');
-            location.href='{{ url_for("start_payment") }}';
-            return;
-        }
-
-        state.plan    = data.state.plan;
-        state.history = data.state.history;
-        state.pendingAnswer = null;
-        input.classList.remove('validation-failed');
-        input.placeholder = 'Typ een bericht…';
-
-        if(data.status==='ok'){
-            if(data.final_message){
-                addChat('bot',data.final_message,'full-chatbox');
-                navigateView('summary-view');
-            } else {
-                navigateStep('questions-list-view',state.selectedThemeId);
-            }
-        }
-        else if(data.status==='validation_failed'){
-            state.pendingAnswer = data.original_answer;
-            input.placeholder = 'Kun je dit verduidelijken?';
-            input.classList.add('validation-failed');
-            renderCurrentView();
-            input.focus();
-        }
-    }
-
-    /* ---------- UTIL ---------- */
-    function addChat(role,text,boxId){
-        const box = document.getElementById(boxId);
-        if(!box) return;
-        const div = document.createElement('div');
-        div.className = `bubble ${role}-bubble`;
-        div.innerHTML = marked.parse(text);
-        box.appendChild(div); scroll(boxId);
-    }
-    function showLoader(boxId){
-        const box = document.getElementById(boxId);
-        const b   = document.createElement('div');
-        b.className='bubble bot-bubble';
-        b.textContent='Mae is aan het nadenken…';
-        box.appendChild(b); scroll(boxId);
-        const t = setTimeout(()=>{b.textContent='Het duurt wat langer, Mae werkt eraan…';},3000);
+    function loader(boxId){
+        const box=document.getElementById(boxId);
+        const b=document.createElement('div'); b.className='bubble bot-bubble';
+        b.textContent='Mae denkt…'; box.appendChild(b);
+        const t=setTimeout(()=>{b.textContent='Een moment…';},3000);
         return {el:b,timeout:t};
     }
-    function scroll(boxId){ const c=document.getElementById(boxId); c&& (c.scrollTop=c.scrollHeight); }
 
+    async function saveAns(id,ans){
+        lockUI(true);
+        const r=await api('save_answer',{topic_id:id,answer:ans});
+        after(r);
+        lockUI(false);
+    }
+    async function dlg(){
+        chat('user','Kun je meer informatie geven?','answer-chat-context');
+        state.history.push({role:'user',content:'Kun je meer informatie geven?'});
+        lockUI(true);
+        await stream('start_guided_dialogue',{topic_id:state.selectedTopicId},'answer-chat-context');
+        lockUI(false);
+    }
+    async function stream(cmd,dat,box){
+        const wait=loader(box);
+        const resp=await fetch(API_URL,{method:'POST',headers:{'Content-Type':'application/json'},
+                  body:JSON.stringify({command:cmd,data:dat})});
+        clearTimeout(wait.timeout); wait.el.innerHTML='';
+        const rd=resp.body.getReader(),dec=new TextDecoder(); let full='';
+        while(true){
+            const {value,done}=await rd.read(); if(done)break;
+            const chunk=dec.decode(value,{stream:true});
+            chunk.match(/data:\s*(\{.*?\})\s*\n\n/g)?.forEach(s=>{
+              const p=JSON.parse(s.replace(/^data:\s*/,''));
+              if(p.content){full=p.content; wait.el.innerHTML=marked.parse(full);boxScroll(box);}
+            });
+        }
+        state.history.push({role:'assistant',content:full});
+    }
+    function boxScroll(boxId){const c=document.getElementById(boxId);c&& (c.scrollTop=c.scrollHeight);}
+
+    function after(data){
+        if(!data) return;
+
+        if(data.status==='payment_required'){
+            alert('Gratis tijd is voorbij. Je wordt doorgestuurd om te betalen.');
+            location.href='{{ url_for("start_payment") }}'; return;
+        }
+
+        state.plan=data.state.plan; state.history=data.state.history;
+        state.pendingAnswer=null; input.placeholder='Typ een bericht…';
+        if(data.status==='ok'){
+            if(data.final_message){ chat('bot',data.final_message,'full-chatbox');
+                                    navView('summary-view'); }
+            else  navStep('questions-list-view',state.selectedThemeId);
+        }else if(data.status==='validation_failed'){
+            state.pendingAnswer=data.original_answer;
+            input.placeholder='Kun je dit verduidelijken?'; input.focus();
+            navView('chat-view');
+        }
+        render();
+    }
+
+    async function send(){
+        if(state.isLocked) return;
+        const msg=input.value.trim(); if(!msg) return;
+        const box=state.currentStepId==='answer-options-view'
+                ?'answer-chat-context':'full-chatbox';
+        input.value=''; input.style.height='auto';
+        chat('user',msg,box); state.history.push({role:'user',content:msg});
+
+        if(state.pendingAnswer){
+            const r=await api('submit_clarification',{
+                topic_id:state.selectedTopicId,
+                original_answer:state.pendingAnswer,
+                clarification:msg});
+            after(r); return;
+        }
+        if(state.currentStepId==='answer-options-view'){
+            await saveAns(state.selectedTopicId,msg); return;
+        }
+        lockUI(true);
+        await stream('user_message',{message:msg},box); lockUI(false);
+    }
 });
 </script>
 </body>
