@@ -54,25 +54,32 @@ app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_prefix=1)
 
 # ── APP-CONFIG ─────────────────────────────────────────────────────────
 app.config.update(
-    SECRET_KEY=os.getenv("SECRET_KEY", "vervang-dit-met-een-echt-geheim-voor-lokaal-testen"),
+    # ─ Flask / SQLAlchemy ─
+    SECRET_KEY=os.getenv(
+        "SECRET_KEY",
+        "vervang-dit-met-een-echt-geheim-voor-lokaal-testen"
+    ),
     SQLALCHEMY_DATABASE_URI=db_uri,
     SQLALCHEMY_TRACK_MODIFICATIONS=False,
 
-    # Server-side sessions (Flask-Session + SQLAlchemy)
+    # ─ Server-side sessions  (Flask-Session + SQLAlchemy) ─
     SESSION_TYPE="sqlalchemy",
     SESSION_PERMANENT=True,
     PERMANENT_SESSION_LIFETIME=timedelta(days=7),
     SESSION_USE_SIGNER=True,
     SESSION_SQLALCHEMY_TABLE="sessions",
-    SESSION_COOKIE_SECURE=True,
-    SESSION_COOKIE_SAMESITE="None",
-    SESSION_COOKIE_HTTPONLY=True,
+
+    # ─ Cookie-instellingen ─
+    SESSION_COOKIE_SECURE=True,                 # alleen via HTTPS
+    SESSION_COOKIE_SAMESITE="Lax",              # blijft werken bij interne links
+    SESSION_COOKIE_DOMAIN=".bevalmeteenplan.nl",# gedeeld door bevalmeteenplan.nl én www.*
+    SESSION_COOKIE_HTTPONLY=True,               # niet toegankelijk via JS
 )
 
 # ── EXTENSIES KOPPELEN ────────────────────────────────────────────────
 db.init_app(app)
 app.config["SESSION_SQLALCHEMY"] = db
-sess = Session(app)  # initialiseert session-manager
+sess   = Session(app)   # initialiseert session-manager
 bcrypt = Bcrypt(app)
 
 # ── CORS ───────────────────────────────────────────────────────────────
