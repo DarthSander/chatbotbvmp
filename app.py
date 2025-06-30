@@ -236,18 +236,21 @@ def login():
     return render_mobile_aware_template("login.html")
 
 # ---------- dashboard ----------
-@app.route("/dashboard"); @login_required
+@app.route("/dashboard")
+@login_required
 def dashboard():
     return render_mobile_aware_template("dashboard.html",
                                         user=User.query.get(session["user_id"]))
 
 # ---------- trial & betaling ----------
-@app.route("/start_trial"); @login_required
+@app.route("/start_trial")
+@login_required
 def start_trial():
     session["trial_start"]=datetime.utcnow()
     return redirect(url_for("vragenlijst"))
 
-@app.route("/start_payment"); @login_required
+@app.route("/start_payment")
+@login_required
 def start_payment():
     if not MOLLIE_KEY:
         flash("Betalen is tijdelijk niet beschikbaar.","error")
@@ -263,7 +266,8 @@ def start_payment():
     })
     return redirect(payment.get("checkout_url", url_for("dashboard")))
 
-@app.route("/payment_return"); @login_required
+@app.route("/payment_return")
+@login_required
 def payment_return():
     pid = request.args.get("id")
     try:
@@ -287,7 +291,8 @@ def payment_webhook():
     return "", 200
 
 # ---------- vragenlijst ----------
-@app.route("/vragenlijst"); @login_required
+@app.route("/vragenlijst")
+@login_required
 def vragenlijst():
     u = User.query.get(session["user_id"])
     if not u.paid:
@@ -301,7 +306,8 @@ def vragenlijst():
     return render_mobile_aware_template("index.html")
 
 # ---------- download ----------
-@app.route("/download_plan"); @login_required
+@app.route("/download_plan")
+@login_required
 def download_plan():
     u = User.query.get(session["user_id"])
     if not u.paid:
@@ -313,7 +319,8 @@ def download_plan():
     return resp
 
 # ---------- /agent API ----------
-@app.route("/agent", methods=["POST"]); @login_required
+@app.route("/agent", methods=["POST"])
+@login_required
 def agent_route():
     user_id = session["user_id"]
     user    = User.query.get(user_id)
