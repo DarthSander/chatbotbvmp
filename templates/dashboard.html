@@ -1,113 +1,127 @@
 <!doctype html>
 <html lang="nl">
 <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width,initial-scale=1">
-    <title>Dashboard – Geboorteplan Assistent</title>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Dashboard – Geboorteplan Assistent</title>
 
-    <!-- bestaande stylesheet -->
-    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 
-    <!-- mini-CSS specifiek voor de pop-up -->
-    <style>
-        #overlay {
-            position: fixed; inset: 0; background: rgba(0,0,0,.4);
-            display: none; align-items: center; justify-content: center;
-            z-index: 9999;
-        }
-        #popup {
-            background: var(--white); max-width: 420px; width: 90%;
-            padding: 32px 24px; border-radius: 20px; text-align: center;
-            box-shadow: var(--shadow-soft);
-            animation: fade .25s ease;
-        }
-        #popup h2 { margin-top: 0; color: var(--rose-dark); }
-        #popup p  { margin: 8px 0 24px 0; color: var(--text); }
-        .popup-btn {
-            display: block; width: 100%; margin: 8px 0; padding: 14px;
-            border-radius: 12px; font-weight: 600; text-decoration: none;
-            background: var(--gradient-rose); color: var(--white);
-        }
-        .popup-btn.trial   { background: var(--gradient-soft); color: var(--text); }
-        .close-x {
-            position: absolute; top: 14px; right: 18px; cursor: pointer;
-            font-size: 20px; color: var(--text-light);
-        }
-        @keyframes fade { from{opacity:0; transform: translateY(-6px);}
-                          to  {opacity:1; transform: translateY(0);} }
-    </style>
+  <style>
+    #overlay{
+      position:fixed; inset:0; background:rgba(0,0,0,.4);
+      display:none; align-items:center; justify-content:center;
+      z-index:9999;
+    }
+    #popup{
+      position:relative;
+      background:var(--white); width:90%; max-width:420px;
+      padding:32px 24px; border-radius:20px; text-align:center;
+      box-shadow:var(--shadow-soft); animation:fade .25s ease;
+    }
+    #popup h2{margin:0 0 4px 0; color:var(--rose-dark);}
+    #popup p{margin:8px 0 24px 0; color:var(--text);}
+    .popup-btn{
+      display:block; width:100%; margin:8px 0; padding:14px;
+      border-radius:12px; font-weight:600; text-decoration:none;
+      background:var(--gradient-rose); color:var(--white);
+    }
+    .popup-btn.trial{
+      background:var(--gradient-soft); color:var(--text);
+    }
+    .close-x{
+      position:absolute; top:14px; right:18px; cursor:pointer;
+      font-size:20px; color:var(--text-light);
+    }
+    @keyframes fade{from{opacity:0;transform:translateY(-6px)}
+                    to  {opacity:1;transform:translateY(0)}}
+  </style>
 </head>
 <body>
 <main id="layout">
-    <div class="container dashboard-container">
-        <div class="dashboard-header">
-            <h1>Welkom, {{ user.woman_name }}!</h1>
-            <a href="{{ url_for('logout') }}" class="logout-btn">Uitloggen</a>
-        </div>
-
-        <p>Dit is jouw persoonlijke omgeving. Vanaf hier kun je je geboorteplan starten, bewerken of inzien.</p>
-
-        <div class="dashboard-content">
-            <!-- kaart met persoonsgegevens -->
-            <div class="dashboard-card">
-                <h3>Jouw Gegevens</h3>
-                <ul>
-                    <li><strong>Uitgerekende datum:</strong> {{ user.due_date.strftime('%d-%m-%Y') }}</li>
-                    {% if user.partner_name %}
-                    <li><strong>Partner:</strong> {{ user.partner_name }}</li>
-                    {% endif %}
-                    {% if user.baby_name_secret %}
-                    <li><strong>Naam baby:</strong> Nog even een geheimpje!</li>
-                    {% elif user.baby_name %}
-                    <li><strong>Naam baby:</strong> {{ user.baby_name }}</li>
-                    {% endif %}
-                </ul>
-                <p><small>(In de toekomst kun je hier je gegevens bewerken)</small></p>
-            </div>
-
-            <!-- hoofd-actie -->
-            <div class="dashboard-card main-action">
-                <h3>Jouw bevalplan</h3>
-                <p>Klaar om te beginnen of verder te gaan met het invullen van je wensen?</p>
-
-                {% if user.paid %}
-                    <!-- al betaald → direct door -->
-                    <a href="{{ url_for('vragenlijst') }}" class="submit-btn">
-                        Ga naar de vragenlijst
-                    </a>
-                {% else %}
-                    <!-- nog niet betaald → pop-up keuze -->
-                    <button id="open-popup" class="submit-btn">
-                        Start de vragenlijst
-                    </button>
-                {% endif %}
-            </div>
-        </div>
+  <div class="container dashboard-container">
+    <div class="dashboard-header">
+      <h1>Welkom, {{ user.woman_name }}!</h1>
+      <a href="{{ url_for('logout') }}" class="logout-btn">Uitloggen</a>
     </div>
+
+    <p>Dit is jouw persoonlijke omgeving. Vanaf hier kun je je geboorteplan starten, bewerken of inzien.</p>
+
+    <div class="dashboard-content">
+      <!-- Persoonsgegevens -->
+      <div class="dashboard-card">
+        <h3>Jouw Gegevens</h3>
+        <ul>
+          <li><strong>Uitgerekende datum:</strong> {{ user.due_date.strftime('%d-%m-%Y') }}</li>
+          {% if user.partner_name %}
+            <li><strong>Partner:</strong> {{ user.partner_name }}</li>
+          {% endif %}
+          {% if user.baby_name_secret %}
+            <li><strong>Naam baby:</strong> Nog even een geheimpje!</li>
+          {% elif user.baby_name %}
+            <li><strong>Naam baby:</strong> {{ user.baby_name }}</li>
+          {% endif %}
+        </ul>
+        <p><small>(In de toekomst kun je hier je gegevens bewerken)</small></p>
+      </div>
+
+      <!-- Hoofdactie -->
+      <div class="dashboard-card main-action">
+        <h3>Jouw bevalplan</h3>
+        <p>Klaar om te beginnen of verder te gaan met het invullen van je wensen?</p>
+
+        {% if user.paid %}
+          <a href="{{ url_for('vragenlijst') }}" class="submit-btn">
+            Ga naar de vragenlijst
+          </a>
+        {% else %}
+          <button id="open-popup" class="submit-btn">
+            Start de vragenlijst
+          </button>
+        {% endif %}
+      </div>
+    </div>
+  </div>
 </main>
 
-<!-- =====  Keuzepop-up  ===== -->
+<!-- Pop-up -->
 <div id="overlay">
-    <div id="popup">
-        <div class="close-x" onclick="hidePopup()">&times;</div>
-        <h2>Kies hoe je wilt starten</h2>
-        <p>Begin gratis met invullen of betaal nu om onbeperkt toegang te krijgen.</p>
+  <div id="popup">
+    <div class="close-x" onclick="hidePopup()">&times;</div>
+    <h2>Kies hoe je wilt starten</h2>
+    <p>Begin gratis met invullen of betaal nu om onbeperkt toegang te krijgen.</p>
 
-        <a href="{{ url_for('start_trial') }}" class="popup-btn trial">
-            5&nbsp;minuten gratis proberen
-        </a>
-        <a href="{{ url_for('start_payment') }}" class="popup-btn">
-            Direct betalen &amp; doorgaan
-        </a>
-    </div>
+    <a href="{{ url_for('start_trial') }}"   class="popup-btn trial">
+      5&nbsp;minuten gratis proberen
+    </a>
+    <a href="{{ url_for('start_payment') }}" class="popup-btn">
+      Direct betalen &amp; doorgaan
+    </a>
+  </div>
 </div>
 
 <script>
-    const overlay  = document.getElementById('overlay');
-    const openBtn  = document.getElementById('open-popup');
-    function showPopup(){ overlay.style.display='flex'; }
-    function hidePopup(){ overlay.style.display='none'; }
-    if(openBtn) openBtn.addEventListener('click', showPopup);
+const overlay = document.getElementById('overlay');
+const openBtn = document.getElementById('open-popup');
+
+function showPopup(){
+  overlay.style.display='flex';
+  document.body.style.overflow='hidden';          // blokkeer scroll
+}
+function hidePopup(){
+  overlay.style.display='none';
+  document.body.style.overflow='';
+}
+if(openBtn) openBtn.addEventListener('click', showPopup);
+
+// klik buiten pop-up
+overlay.addEventListener('click', e=>{
+  if(e.target===overlay) hidePopup();
+});
+// ESC-key
+document.addEventListener('keydown', e=>{
+  if(e.key==='Escape') hidePopup();
+});
 </script>
 </body>
 </html>
