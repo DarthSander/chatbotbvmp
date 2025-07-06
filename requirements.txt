@@ -3,22 +3,25 @@ Flask>=2.3.0
 Werkzeug==2.3.8
 Flask-Cors>=4.0.0
 gunicorn>=21.0.0
-Flask-SQLAlchemy>=3.0.0
+Flask-SQLAlchemy==2.5.1
+SQLAlchemy<2.0
 Flask-Bcrypt>=1.0.0
 Flask-Session>=0.5.0
+Flask-Mail>=0.9.1  # NIEUW
 
 # OpenAI
-openai>=1.26.0,<2.0
+openai==1.26.0
+httpx==0.27.0
 
 # Helpers
 python-dotenv>=1.0.0
 
-# RAG & vector search
-langchain>=0.1.0
-langchain-community>=0.0.30
+# RAG & vector search (Pinned versions)
+langchain==0.1.20
+langchain-community==0.0.38
 langchain-huggingface>=0.0.3
 sentence-transformers>=2.5.0
 faiss-cpu>=1.7.0
 
-# Mollie (nieuw)
+# Mollie
 mollie-api-python>=2.9.0
