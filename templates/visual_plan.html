@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Visueel Geboorteplan</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
+    <style>
+        body { text-align: center; background-color: var(--beige); }
+        .container { max-width: 1300px; margin: 24px auto; background: var(--white); padding-bottom: 30px; }
+        canvas { border: 1px solid #ccc; max-width: 100%; height: auto; }
+        h1, p { color: var(--text); }
+        .download-info { margin-bottom: 24px; }
+
+        /* NIEUW: Stijlen voor de actieknoppen */
+        .action-buttons {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 16px; /* Ruimte tussen de knoppen */
+            margin-top: 24px;
+        }
+        /* Zorgt voor ruimte tussen het icoon en de tekst in de knop */
+        .submit-btn {
+            gap: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Jouw Visuele Geboorteplan</h1>
+        <p class="download-info">Hieronder wordt je persoonlijke geboorteplan gegenereerd. Gebruik de knop om het als PNG op te slaan.</p>
+        <canvas id="birthPlanCanvas"></canvas>
+
+        <div class="action-buttons">
+            <button id="download-btn" class="submit-btn" disabled>
+                <i class="fa-solid fa-download"></i>
+                Download als PNG
+            </button>
+            <a href="{{ url_for('select_template') }}" class="logout-btn">Kies een ander template</a>
+        </div>
+    </div>
+
+    <script>
+    const planData = {{ plan_data_json|safe }};
+    const layoutConfig = {{ layout_config_json|safe }};
+    const userPlacements = {{ user_placements_json|safe }};
+    const templateImageUrl = "{{ url_for('static', filename=image_filename) }}";
+
+    window.onload = function() {
+        const canvas = document.getElementById('birthPlanCanvas');
+        const ctx = canvas.getContext('2d');
+        const downloadBtn = document.getElementById('download-btn');
+
+        const thema_naar_rij = { "thema_voorbereiding": 0, "thema_pijn_proces": 1, "thema_na_geboorte": 2, "thema_medisch_bijzonder": 3, "thema_communicatie": 4, "thema_comfort": 5 };
+        const vraag_labels = { "topic_vraag_1": "Locatie:", "topic_vraag_2": "Aanwezigen:", "topic_vraag_3": "Stagiairs:", "topic_vraag_4": "Communicatie:", "topic_vraag_5": "Aanspreekpunt:", "topic_vraag_6": "Beslissingen:", "topic_vraag_7": "Sfeer:", "topic_vraag_8": "Hulpmiddelen:", "topic_vraag_9": "Foto/Video:", "topic_vraag_10": "Pijnstilling:", "topic_vraag_11": "Houdingen:", "topic_vraag_12": "Begeleiding Persen:", "topic_vraag_13": "Navelstreng:", "topic_vraag_14": "Eerste Momenten:", "topic_vraag_15": "Placenta:", "topic_vraag_16": "Voeding:", "topic_vraag_17": "Interventies:", "topic_vraag_18": "Bij lange duur:", "topic_vraag_19": "In Noodsituatie:" };
+        const PADDING = 10;
+
+        function drawTextInBox(text, box, defaultFont = "16px Arial", align = 'left') {
+            const fontRegex = defaultFont.match(/(italic|normal|)\s*(bold|normal|)\s*(\d+)(?:px|pt)\s+(.*)/i) || [];
+            const baseStyle = {
+                style: fontRegex[1] || 'normal',
+                weight: fontRegex[2] || 'normal',
+                maxSize: parseInt(fontRegex[3], 10) || 16,
+                family: fontRegex[4] || 'Arial'
+            };
+            const minSize = 8;
+            let optimalSize = minSize;
+            for (let fs = baseStyle.maxSize; fs >= minSize; fs--) {
+                const lineHeight = fs * 1.2;
+                let lines = 1;
+                let currentLine = '';
+                ctx.font = `${baseStyle.weight} ${fs}px ${baseStyle.family}`;
+                text.replace(/\*\*/g, '').split(' ').forEach(word => {
+                    if (ctx.measureText(currentLine + word).width > box.width - PADDING * 2) {
+                        lines++;
+                        currentLine = word + ' ';
+                    } else {
+                        currentLine += word + ' ';
+                    }
+                });
+                if (lines * lineHeight <= box.height - PADDING) {
+                    optimalSize = fs;
+                    break;
+                }
+            }
+            const lineHeight = optimalSize * 1.2;
+            let currentX = box.x + PADDING;
+            let currentY = box.y + optimalSize;
+            ctx.textAlign = align;
+            if (align === 'center') currentX = box.x + box.width / 2;
+            else if (align === 'right') currentX = box.x + box.width - PADDING;
+            let line = '';
+            let isBold = false;
+            text.split(' ').forEach(word => {
+                let cleanWord = word;
+                let tempBold = false;
+                if (word.startsWith('**') && word.endsWith('**') && word.length > 4) {
+                    cleanWord = word.substring(2, word.length - 2);
+                    tempBold = true;
+                } else if (word.startsWith('**')) {
+                    cleanWord = word.substring(2); isBold = true;
+                } else if (word.endsWith('**')) {
+                    cleanWord = word.substring(0, word.length - 2);
+                }
+                const weight = (isBold || tempBold) ? 'bold' : baseStyle.weight;
+                ctx.font = `${baseStyle.style} ${weight} ${optimalSize}px ${baseStyle.family}`;
+                const testLine = line + cleanWord + ' ';
+                if (ctx.measureText(testLine).width > box.width - PADDING * 2 && line.length > 0) {
+                    ctx.fillText(line.trim(), currentX, currentY);
+                    currentY += lineHeight;
+                    line = cleanWord + ' ';
+                } else {
+                    line = testLine;
+                }
+                if (word.endsWith('**')) isBold = false;
+            });
+            ctx.fillText(line.trim(), currentX, currentY);
+        }
+
+        const baseImage = new Image();
+        baseImage.crossOrigin = "anonymous";
+        baseImage.src = templateImageUrl;
+
+        baseImage.onload = () => {
+            canvas.width = baseImage.naturalWidth;
+            canvas.height = baseImage.naturalHeight;
+            ctx.drawImage(baseImage, 0, 0, canvas.width, canvas.height);
+            ctx.fillStyle = layoutConfig.text_color;
+            planData.forEach(thema => {
+                const rij_index = thema_naar_rij[thema.id];
+                if (rij_index === undefined) return;
+                const themeBox = layoutConfig.theme_placements[rij_index];
+                if (themeBox) drawTextInBox(thema.name, themeBox, themeBox.font);
+            });
+            planData.forEach(thema => {
+                const rij_index = thema_naar_rij[thema.id];
+                if (rij_index === undefined) return;
+                const answeredTopics = thema.topics.filter(t => t.answer && t.answer !== '__SKIPPED__');
+                answeredTopics.forEach((topic, kolom_index) => {
+                    if (topic.id === 'topic_vraag_20' || kolom_index >= layoutConfig.box_coords[rij_index].length) return;
+                    const answerBox = layoutConfig.box_coords[rij_index][kolom_index];
+                    const fullText = `${vraag_labels[topic.id] || topic.name}\n${topic.answer}`;
+                    drawTextInBox(fullText, answerBox, 'bold 16px Arial');
+                });
+            });
+            const wensTopic = planData.flatMap(th => th.topics).find(t => t.id === 'topic_vraag_20');
+            const wensText = wensTopic ? `"${wensTopic.answer}"` : '';
+            if (wensText && wensTopic.answer !== '__SKIPPED__') {
+                const placement = layoutConfig.special_placements.belangrijkste_wens;
+                const font = `${placement.font_style || 'normal'} ${placement.max_font_size || 18}px ${placement.font_family || 'Arial'}`;
+                const box = { x: placement.x, y: placement.y, width: placement.width, height: placement.height };
+                drawTextInBox(wensText, box, font, placement.align);
+            }
+            if(userPlacements) {
+                userPlacements.forEach(placement => {
+                     drawTextInBox(placement.text, placement, placement.font, 'left');
+                });
+            }
+
+            // --- NIEUW: Activeer de downloadknop nu het tekenen klaar is ---
+            downloadBtn.disabled = false;
+        };
+
+        baseImage.onerror = () => {
+            ctx.font = 'bold 20px Arial';
+            ctx.textAlign = 'center';
+            ctx.fillText("Fout: Kon de template afbeelding niet laden.", canvas.width / 2, canvas.height / 2);
+        };
+
+        // --- NIEUW: Voeg de click event listener toe aan de knop ---
+        downloadBtn.addEventListener('click', function() {
+            // Creëer een data URL van de canvas content (PNG formaat)
+            const imageUrl = canvas.toDataURL('image/png');
+
+            // Maak een tijdelijke link aan om de download te starten
+            const link = document.createElement('a');
+            link.href = imageUrl;
+            link.download = 'visueel-geboorteplan.png'; // Voorgestelde bestandsnaam
+
+            // Voeg de link toe aan de pagina, klik erop en verwijder hem weer
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        });
+    };
+    </script>
+</body>
+</html>

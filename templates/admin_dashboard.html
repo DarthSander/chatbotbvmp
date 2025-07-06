@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="nl">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>Admin Dashboard</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <style>
+        .container {
+            max-width: 1200px; /* Meer ruimte voor de tabel */
+        }
+        .admin-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+            font-size: 14px;
+        }
+        .admin-table th, .admin-table td {
+            padding: 12px 15px;
+            text-align: left;
+            border-bottom: 1px solid var(--rose-subtle);
+            white-space: nowrap;
+        }
+        .admin-table th {
+            background-color: var(--rose-subtle);
+            color: var(--rose-dark);
+            font-weight: 600;
+        }
+        .admin-table tr:hover {
+            background-color: var(--beige);
+        }
+        .status-dot {
+            height: 12px;
+            width: 12px;
+            border-radius: 50%;
+            display: inline-block;
+            margin-right: 5px;
+        }
+        .status-dot.online {
+            background-color: var(--sage);
+            box-shadow: 0 0 8px var(--sage-light);
+        }
+        .status-dot.offline {
+            background-color: var(--text-subtle);
+        }
+        .admin-table a {
+            color: var(--rose-dark);
+            font-weight: 500;
+            text-decoration: none;
+        }
+        .admin-table a:hover {
+            text-decoration: underline;
+        }
+    </style>
+</head>
+<body>
+<main id="layout">
+    <div class="container">
+        <div class="dashboard-header">
+            <h1>Admin Dashboard</h1>
+            <a href="{{ url_for('dashboard') }}" class="submit-btn" style="padding: 10px 20px; font-size: 16px;">Terug naar Website</a>
+        </div>
+        <div style="overflow-x: auto;">
+            <table class="admin-table">
+                <thead>
+                    <tr>
+                        <th>Status</th>
+                        <th>Gebruikersnaam</th>
+                        <th>Email</th>
+                        <th>Betaald</th>
+                        <th>Uitgerekend</th>
+                        <th>Laatst Actief</th>
+                        <th>Pagina</th>
+                        <th>Details</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for user in all_users %}
+                    <tr>
+                        <td>
+                            <span class="status-dot {% if user.last_activity and user.last_activity > online_threshold %}online{% else %}offline{% endif %}"></span>
+                        </td>
+                        <td>{{ user.username or 'N/A' }}</td>
+                        <td>{{ user.email or 'N/A' }}</td>
+                        <td>
+                            {% if user.is_anonymized %}
+                                <em style="color: var(--text-subtle);">N.v.t.</em>
+                            {% elif user.paid %}
+                                <span style="color: var(--sage);">Ja</span>
+                            {% else %}
+                                <span style="color: var(--rose-dark);">Nee</span>
+                            {% endif %}
+                        </td>
+                        <td>{{ user.due_date.strftime('%d-%m-%Y') if user.due_date else 'N/A' }}</td>
+                        <td>{{ user.last_activity.strftime('%d-%m-%y %H:%M') if user.last_activity else 'Nooit' }}</td>
+                        <td>{{ user.last_seen_page or 'N/A' }}</td>
+                        <td><a href="{{ url_for('admin_user_view', user_id=user.id) }}">Bekijk</a></td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</main>
+</body>
+</html>

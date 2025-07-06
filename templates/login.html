@@ -1,0 +1,272 @@
+<!doctype html>
+<html lang="nl">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>Inloggen - Geboorteplan Assistent</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <style>
+        /* --- Stijlen voor Cookie Modal --- */
+        #cookie-modal-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, .4);
+            backdrop-filter: blur(5px);
+            -webkit-backdrop-filter: blur(5px);
+            z-index: 9998;
+            display: none; /* Standaard verborgen */
+            align-items: center;
+            justify-content: center;
+            animation: fadeIn .3s ease;
+        }
+
+        #cookie-modal-content {
+            background: var(--gradient-main);
+            width: 90%;
+            max-width: 550px;
+            padding: 24px;
+            border-radius: 20px;
+            box-shadow: var(--shadow-soft);
+            border: 1px solid rgba(255,255,255,.3);
+            text-align: left;
+        }
+
+        #cookie-modal-content h2 {
+            margin-top: 0;
+            color: var(--rose-dark);
+            text-align: center;
+        }
+
+        .cookie-category {
+            border-top: 1px solid var(--rose-subtle);
+            padding: 15px 0;
+        }
+
+        .cookie-category-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .cookie-category-header h3 {
+            margin: 0;
+            font-size: 18px;
+        }
+
+        .cookie-details {
+            font-size: 14px;
+            color: var(--text-light);
+            margin-top: 8px;
+            display: none; /* Standaard verborgen */
+        }
+
+        .details-toggle {
+            cursor: pointer;
+            color: var(--text-subtle);
+            font-size: 13px;
+            margin-left: 10px;
+        }
+        .details-toggle:hover {
+            color: var(--rose-dark);
+        }
+
+        .cookie-actions {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            gap: 15px;
+            margin-top: 24px;
+        }
+        .cookie-actions .submit-btn, .cookie-actions .nav-btn {
+            padding: 12px;
+            font-size: 16px;
+            flex-grow: 1;
+        }
+
+        /* Toggle Switch Stijl */
+        .switch {
+            position: relative;
+            display: inline-block;
+            width: 50px;
+            height: 28px;
+        }
+        .switch input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+        .slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background-color: #ccc;
+            transition: .4s;
+            border-radius: 28px;
+        }
+        .slider:before {
+            position: absolute;
+            content: "";
+            height: 20px;
+            width: 20px;
+            left: 4px;
+            bottom: 4px;
+            background-color: white;
+            transition: .4s;
+            border-radius: 50%;
+        }
+        input:checked + .slider {
+            background-color: var(--sage);
+        }
+        input:disabled + .slider {
+            background-color: var(--text-subtle);
+            cursor: not-allowed;
+        }
+        input:checked + .slider:before {
+            transform: translateX(22px);
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+    </style>
+</head>
+<body>
+<main id="layout">
+    <div class="container auth-container">
+        <h1>Inloggen</h1>
+        <p>Log in om je bevalplan te maken of te bewerken.</p>
+
+        {% with messages = get_flashed_messages(with_categories=true) %}
+          {% if messages %}
+            {% for category, message in messages %}
+              <div class="flash-message {{ category }}">{{ message }}</div>
+            {% endfor %}
+          {% endif %}
+        {% endwith %}
+
+        <form method="POST" action="{{ url_for('login') }}" class="auth-form">
+            <div class="form-group">
+                <label for="email">E-mailadres</label>
+                <input type="email" id="email" name="email" required>
+            </div>
+            <div class="form-group">
+                <label for="password">Wachtwoord</label>
+                <input type="password" id="password" name="password" required>
+            </div>
+            <button type="submit" class="submit-btn">Inloggen</button>
+        </form>
+
+        <!-- AANGEPAST: Links voor wachtwoord reset en registratie -->
+        <div class="auth-switch" style="margin-top: 20px;">
+            <p style="margin-bottom: 8px;">
+                <a href="{{ url_for('request_reset') }}">Wachtwoord vergeten?</a>
+            </p>
+            <p>
+                Nog geen account? <a href="{{ url_for('register') }}">Registreer hier</a>.
+            </p>
+        </div>
+    </div>
+</main>
+
+<div id="cookie-modal-overlay">
+    <div id="cookie-modal-content">
+        <h2>Jouw privacy is belangrijk</h2>
+        <p>Onze website gebruikt 'digitale kruimels' (cookies) om alles soepel te laten werken. We gaan zorgvuldig met je gegevens om en slaan alleen op wat nodig is. Belangrijk: <strong>één maand na je uitgerekende datum verwijderen we automatisch je persoonlijke gegevens.</strong></p>
+
+        <div class="cookie-category">
+            <div class="cookie-category-header">
+                <h3>Noodzakelijke Cookies</h3>
+                <label class="switch">
+                    <input type="checkbox" checked disabled>
+                    <span class="slider"></span>
+                </label>
+            </div>
+            <p style="font-size: 14px;">Deze zijn nodig om de website te laten werken. <span class="details-toggle">(Wat doen ze precies?)</span></p>
+            <div class="cookie-details">
+                <p><strong>Doel:</strong> Zorgen dat je kunt inloggen en ingelogd blijft tijdens je bezoek. Ook beveiligen ze de formulieren die je invult.<br>
+                   <strong>Welke gegevens?</strong> Ze gebruiken alleen anonieme, technische codes. Je persoonlijke gegevens worden hierin nooit opgeslagen.</p>
+            </div>
+        </div>
+
+        <div class="cookie-category">
+            <div class="cookie-category-header">
+                <h3>Functionele Cookies</h3>
+                <label class="switch">
+                    <input type="checkbox" id="functional-cookie-toggle" checked>
+                    <span class="slider"></span>
+                </label>
+            </div>
+            <p style="font-size: 14px;">Deze maken de website makkelijker voor jou. <span class="details-toggle">(Wat doen ze precies?)</span></p>
+            <div class="cookie-details">
+                <p><strong>Doel:</strong> Ze onthouden bijvoorbeeld je cookie-keuze, zodat we dat niet opnieuw vragen. Als je de gratis proefperiode start, houden ze bij hoe lang je nog hebt. En als een betaling mislukt, helpen ze je om die makkelijk te hervatten.<br>
+                   <strong>Welke gegevens?</strong> Ze slaan alleen jouw keuzes en de status van je acties op, verder niets persoonlijks.</p>
+            </div>
+        </div>
+
+        <div class="cookie-actions">
+            <button id="save-cookie-prefs" class="nav-btn">Alleen noodzakelijke</button>
+            <button id="accept-all-cookies" class="submit-btn">Alles toestaan</button>
+            <a href="{{ url_for('cookie_settings') }}" class="nav-btn" style="text-align: center;">Instellingen</a>
+        </div>
+    </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const overlay = document.getElementById('cookie-modal-overlay');
+    const acceptAllBtn = document.getElementById('accept-all-cookies');
+    const savePrefsBtn = document.getElementById('save-cookie-prefs');
+    const functionalToggle = document.getElementById('functional-cookie-toggle');
+    const detailToggles = document.querySelectorAll('.details-toggle');
+
+    function getCookie(name) {
+        const value = `; ${document.cookie}`;
+        const parts = value.split(`; ${name}=`);
+        if (parts.length === 2) return parts.pop().split(';').shift();
+        return null;
+    }
+
+    function setCookie(name, value, days) {
+        let expires = "";
+        if (days) {
+            const date = new Date();
+            date.setTime(date.getTime() + (days * 24 * 60 * 60 * 1000));
+            expires = "; expires=" + date.toUTCString();
+        }
+        document.cookie = name + "=" + (value || "") + expires + "; path=/; SameSite=Lax";
+    }
+
+    // Toon modal als er geen cookie is
+    if (!getCookie('cookie_consent')) {
+        overlay.style.display = 'flex';
+    }
+
+    // Logica voor de knoppen
+    acceptAllBtn.addEventListener('click', function() {
+        setCookie('cookie_consent', 'all', 365);
+        overlay.style.display = 'none';
+        functionalToggle.checked = true;
+    });
+
+    savePrefsBtn.addEventListener('click', function() {
+        // Deze knop betekent nu altijd "alleen essentieel"
+        setCookie('cookie_consent', 'essential', 365);
+        functionalToggle.checked = false;
+        overlay.style.display = 'none';
+    });
+
+    // Toon/verberg toelichting
+    detailToggles.forEach(toggle => {
+        toggle.addEventListener('click', function() {
+            const details = this.parentElement.nextElementSibling;
+            const isVisible = details.style.display === 'block';
+            details.style.display = isVisible ? 'none' : 'block';
+            this.textContent = isVisible ? '(Wat doen ze precies?)' : '(Verberg)';
+        });
+    });
+});
+</script>
+
+</body>
+</html>

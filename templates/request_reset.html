@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="nl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Wachtwoord Reset – Geboorteplan Assistent</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+<main id="layout">
+    <div class="container auth-container">
+        <h1>Wachtwoord vergeten?</h1>
+        <p>Voer je e-mailadres in. We sturen je een link om je wachtwoord opnieuw in te stellen.</p>
+
+        {% with messages = get_flashed_messages(with_categories=true) %}
+          {% if messages %}
+            {% for category, message in messages %}
+              <div class="flash-message {{ category }}">{{ message }}</div>
+            {% endfor %}
+          {% endif %}
+        {% endwith %}
+
+        <form method="POST" action="" class="auth-form">
+            <div class="form-group">
+                <label for="email">E-mailadres</label>
+                <input type="email" name="email" id="email" required>
+            </div>
+            <button type="submit" class="submit-btn">Verstuur Reset Link</button>
+        </form>
+        <div class="auth-switch">
+            <a href="{{ url_for('login') }}">Terug naar inloggen</a>
+        </div>
+    </div>
+</main>
+</body>
+</html>

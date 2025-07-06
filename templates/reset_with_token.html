@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="nl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Nieuw Wachtwoord – Geboorteplan Assistent</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+<main id="layout">
+    <div class="container auth-container">
+        <h1>Stel een nieuw wachtwoord in</h1>
+
+        {% with messages = get_flashed_messages(with_categories=true) %}
+          {% if messages %}
+            {% for category, message in messages %}
+              <div class="flash-message {{ category }}">{{ message }}</div>
+            {% endfor %}
+          {% endif %}
+        {% endwith %}
+
+        <form method="POST" action="" class="auth-form">
+            <input type="hidden" name="token" value="{{ token }}">
+            <div class="form-group">
+                <label for="password">Nieuw Wachtwoord</label>
+                <input type="password" name="password" id="password" required>
+            </div>
+            <button type="submit" class="submit-btn">Wachtwoord Opslaan</button>
+        </form>
+    </div>
+</main>
+</body>
+</html>

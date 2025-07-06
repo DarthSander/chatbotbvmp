@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="nl">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>Cookie-instellingen</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <style>
+        .cookie-category {
+            border: 1px solid var(--rose-subtle);
+            padding: 20px;
+            border-radius: 12px;
+            margin-bottom: 20px;
+            background: rgba(255,255,255,.2);
+        }
+        .cookie-category-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .cookie-category-header h3 {
+            margin: 0;
+            font-size: 18px;
+            color: var(--rose-dark);
+        }
+        .cookie-details {
+            font-size: 14px;
+            color: var(--text-light);
+            margin-top: 8px;
+        }
+        /* Toggle Switch Stijl */
+        .switch {
+            position: relative;
+            display: inline-block;
+            width: 50px;
+            height: 28px;
+        }
+        .switch input { opacity: 0; width: 0; height: 0; }
+        .slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background-color: #ccc;
+            transition: .4s;
+            border-radius: 28px;
+        }
+        .slider:before {
+            position: absolute;
+            content: "";
+            height: 20px;
+            width: 20px;
+            left: 4px;
+            bottom: 4px;
+            background-color: white;
+            transition: .4s;
+            border-radius: 50%;
+        }
+        input:checked + .slider { background-color: var(--sage); }
+        input:disabled + .slider { background-color: var(--text-subtle); cursor: not-allowed; }
+        input:checked + .slider:before { transform: translateX(22px); }
+    </style>
+</head>
+<body>
+<main id="layout">
+    <div class="container auth-container">
+        <div class="dashboard-header">
+            <h1>Jouw Privacy-instellingen</h1>
+            <a href="{{ url_for('dashboard') }}" class="submit-btn" style="padding: 10px 20px; font-size: 16px;">Terug naar profielpagina</a>
+        </div>
+        <p>Hier kun je rustig je privacy-voorkeuren instellen. Jouw keuzes worden meteen opgeslagen.</p>
+
+        <div class="cookie-category">
+            <div class="cookie-category-header">
+                <h3>Noodzakelijke Cookies</h3>
+                <label class="switch">
+                    <input type="checkbox" checked disabled>
+                    <span class="slider"></span>
+                </label>
+            </div>
+            <div class="cookie-details">
+                <p><strong>Doel:</strong> Zorgen dat je kunt inloggen en de website veilig kunt gebruiken. Deze staan altijd aan.</p>
+            </div>
+        </div>
+
+        <div class="cookie-category">
+            <div class="cookie-category-header">
+                <h3>Functionele Cookies</h3>
+                <label class="switch">
+                    <input type="checkbox" id="functional-cookie-toggle">
+                    <span class="slider"></span>
+                </label>
+            </div>
+            <div class="cookie-details">
+                <p><strong>Doel:</strong> Maken de website handiger in gebruik. Ze onthouden bijvoorbeeld je cookie-keuze, de tijd van je proefperiode en helpen je een onderbroken betaling te hervatten. Je kunt ze hier aan- of uitzetten.</p>
+            </div>
+        </div>
+
+        <div class="cookie-category">
+            <div class="cookie-category-header">
+                <h3>Hoe wij met je gegevens omgaan</h3>
+            </div>
+            <div class="cookie-details">
+                <p>Jouw gegevens worden alleen gebruikt om je te helpen met je bevalplan. Eén maand na je uitgerekende datum gooien we alle persoonlijke informatie die naar jou te herleiden is (zoals je naam en e-mail) definitief weg.</p>
+                <p style="margin-top: 10px;">De antwoorden op de vragen en je keuzes bewaren we anoniem. Zo kunnen we onze dienst verbeteren, maar niemand kan ooit zien dat die antwoorden van jou waren.</p>
+            </div>
+        </div>
+
+        <div id="confirmation-message" style="display: none; color: var(--sage); font-weight: 500; text-align: center; margin-top: 20px;">
+            Je voorkeuren zijn opgeslagen.
+        </div>
+    </div>
+</main>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const functionalToggle = document.getElementById('functional-cookie-toggle');
+    const confirmationMessage = document.getElementById('confirmation-message');
+
+    function getCookie(name) {
+        const value = `; ${document.cookie}`;
+        const parts = value.split(`; ${name}=`);
+        if (parts.length === 2) return parts.pop().split(';').shift();
+        return null;
+    }
+
+    function setCookie(name, value, days) {
+        let expires = "";
+        if (days) {
+            const date = new Date();
+            date.setTime(date.getTime() + (days * 24 * 60 * 60 * 1000));
+            expires = "; expires=" + date.toUTCString();
+        }
+        document.cookie = name + "=" + (value || "") + expires + "; path=/; SameSite=Lax";
+    }
+
+    // Stel de huidige staat van de toggle in op basis van de cookie
+    const currentConsent = getCookie('cookie_consent');
+    if (currentConsent === 'all') {
+        functionalToggle.checked = true;
+    } else {
+        // null, 'essential', of iets anders wordt behandeld als 'alleen essentieel'
+        functionalToggle.checked = false;
+    }
+
+    // Voeg een listener toe om de cookie bij te werken wanneer de toggle verandert
+    functionalToggle.addEventListener('change', function() {
+        if (this.checked) {
+            setCookie('cookie_consent', 'all', 365);
+        } else {
+            setCookie('cookie_consent', 'essential', 365);
+        }
+
+        // Toon een bevestigingsbericht
+        confirmationMessage.style.display = 'block';
+        setTimeout(() => {
+            confirmationMessage.style.display = 'none';
+        }, 3000);
+    });
+});
+</script>
+</body>
+</html>

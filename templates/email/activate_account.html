@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+    <meta charset="UTF-8">
+    <style>
+        body { font-family: sans-serif; color: #333; }
+        .button { background-color: #d5848d; color: white; padding: 12px 20px; text-decoration: none; border-radius: 8px; display: inline-block; }
+    </style>
+</head>
+<body>
+    <h3>Bevestig je account</h3>
+    <p>Bedankt voor je registratie bij Beval met een Plan! Klik op de onderstaande knop om je account te activeren. Deze link is 1 uur geldig.</p>
+    <p><a href="{{ confirm_url }}" class="button">Account Activeren</a></p>
+    <br>
+    <p>Werkt de knop niet? Kopieer en plak dan de volgende link in je browser:</p>
+    <p>{{ confirm_url }}</p>
+    <br>
+    <p>Met vriendelijke groet,</p>
+    <p>Het "Beval met een Plan" Team</p>
+</body>
+</html>

@@ -1,0 +1,204 @@
+<!doctype html>
+<html lang="nl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Dashboard – Geboorteplan Assistent</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
+  <style>
+    /* Popup & Overlay Stijlen */
+    .overlay {
+      position:fixed; inset:0; background:rgba(0,0,0,.4);
+      display:none; align-items:center; justify-content:center; z-index:9999;
+      backdrop-filter: blur(5px);
+      -webkit-backdrop-filter: blur(5px);
+    }
+    .popup {
+      position:relative; background:var(--white); width:90%; max-width:450px;
+      padding:24px; border-radius:20px; text-align:center;
+      box-shadow:var(--shadow-soft); animation:fade .25s ease;
+    }
+    .popup h2 { margin:0 0 12px 0; color:var(--rose-dark); }
+    .popup p { margin:8px 0 24px 0; color:var(--text); }
+    @keyframes fade { from{opacity:0;transform:translateY(-6px)} to{opacity:1;transform:translateY(0)} }
+
+    /* NIEUW: Stijl voor de sluitknop */
+    .popup-close-btn {
+      position: absolute;
+      top: 12px;
+      right: 12px;
+      background: var(--rose-subtle);
+      border: none;
+      border-radius: 50%;
+      width: 32px;
+      height: 32px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      color: var(--rose-dark);
+      font-size: 16px;
+      transition: background-color 0.2s, transform 0.2s;
+    }
+    .popup-close-btn:hover {
+        background-color: var(--rose-light);
+        transform: rotate(90deg);
+    }
+
+    /* Stijlen voor het bewerk-formulier */
+    .profile-form { text-align: left; }
+    .form-group { margin-bottom: 16px; }
+    .form-group label { display: block; font-weight: 600; margin-bottom: 6px; }
+    .form-group input[type="text"], .form-group input[type="date"] {
+      width: 100%; padding: 12px; border-radius: 8px; border: 1px solid #ccc;
+      box-sizing: border-box;
+    }
+    .form-group-checkbox { display: flex; align-items: center; }
+    .form-group-checkbox input { margin-right: 8px; }
+
+    .settings-link {
+        display: block;
+        text-align: center;
+        margin-top: 15px;
+        font-size: 14px;
+        color: var(--text-light);
+    }
+    .settings-link a {
+        color: var(--rose-dark);
+        font-weight: 500;
+    }
+
+  </style>
+</head>
+<body>
+<main id="layout">
+  <div class="container dashboard-container">
+    <div class="dashboard-header">
+      <h1>Welkom, {{ user.woman_name }}!</h1>
+      <div>
+        <button id="open-profile-popup" class="submit-btn">Mijn Gegevens</button>
+        <a href="{{ url_for('logout') }}" class="submit-btn">Uitloggen</a>
+      </div>
+    </div>
+    <p>Begin hier met je geboorteplan, of maak een mooie visuele samenvatting van je wensen.</p>
+
+    <div class="dashboard-content">
+      <div class="dashboard-card main-action">
+        <div>
+            <h3>Jouw bevalplan</h3>
+            <p>Klaar om te beginnen of verder te gaan met het invullen van je wensen?</p>
+            {% if user.paid %}
+              <a href="{{ url_for('vragenlijst') }}" class="submit-btn">
+                Ga naar de vragenlijst
+              </a>
+            {% else %}
+              <button id="open-payment-popup" class="submit-btn">
+                Start de vragenlijst
+              </button>
+            {% endif %}
+        </div>
+      </div>
+      <div class="dashboard-card main-action">
+        <div>
+            <h3>Visueel Bevalplan</h3>
+            <p>Maak een mooie, visuele samenvatting van je geboorteplan. Perfect om te delen!</p>
+            {% if user.paid %}
+              <a href="{{ url_for('select_template') }}" class="submit-btn" style="background: var(--sage-light); color: var(--sage);">
+                Maak visueel bevalplan
+              </a>
+            {% else %}
+              <button class="submit-btn" disabled title="Deze functie is alleen beschikbaar na betaling.">
+                Maak visueel bevalplan
+              </button>
+            {% endif %}
+        </div>
+      </div>
+    </div>
+  </div>
+</main>
+
+<div id="payment-overlay" class="overlay">
+  <div class="popup">
+    <button class="popup-close-btn" onclick="hidePopup('payment-overlay')"><i class="fa-solid fa-times"></i></button>
+    <h2>Kies hoe je wilt starten</h2>
+    <p>Begin gratis met invullen of betaal nu om onbeperkt toegang te krijgen.</p>
+    <a href="{{ url_for('start_trial') }}" class="submit-btn" style="background: var(--gradient-soft); color: var(--text);">5&nbsp;minuten gratis proberen</a>
+    <a href="{{ url_for('start_payment') }}" class="submit-btn">Direct betalen &amp; doorgaan</a>
+  </div>
+</div>
+
+<div id="profile-overlay" class="overlay">
+  <div class="popup">
+    <button class="popup-close-btn" onclick="hidePopup('profile-overlay')"><i class="fa-solid fa-times"></i></button>
+    <h2>Jouw Gegevens Bewerken</h2>
+    <form action="{{ url_for('edit_profile') }}" method="POST" class="profile-form">
+      <div class="form-group">
+        <label for="woman_name">Jouw naam</label>
+        <input type="text" id="woman_name" name="woman_name" value="{{ user.woman_name }}" required>
+      </div>
+      <div class="form-group">
+        <label for="partner_name">Naam partner (optioneel)</label>
+        <input type="text" id="partner_name" name="partner_name" value="{{ user.partner_name or '' }}">
+      </div>
+      <div class="form-group">
+        <label for="due_date">Uitgerekende datum</label>
+        <input type="date" id="due_date" name="due_date" value="{{ user.due_date.isoformat() }}" required>
+      </div>
+      <div class="form-group">
+        <label for="baby_name">Naam baby (optioneel)</label>
+        <input type="text" id="baby_name" name="baby_name" value="{{ user.baby_name or '' }}">
+      </div>
+      <div class="form-group-checkbox">
+        <input type="checkbox" id="baby_name_secret" name="baby_name_secret" {% if user.baby_name_secret %}checked{% endif %}>
+        <label for="baby_name_secret">Houd de naam nog even geheim</label>
+      </div>
+      <hr style="border:none; border-top:1px solid #eee; margin: 24px 0;">
+      <button type="submit" class="submit-btn">Gegevens Opslaan</button>
+
+      <p class="settings-link">
+        Beheer je <a href="{{ url_for('cookie_settings') }}">cookie-instellingen</a>.
+      </p>
+    </form>
+  </div>
+</div>
+
+<script>
+function showPopup(overlayId) {
+  const overlay = document.getElementById(overlayId);
+  if (overlay) {
+    overlay.style.display = 'flex';
+    document.body.style.overflow = 'hidden';
+  }
+}
+
+function hidePopup(overlayId) {
+  const overlay = document.getElementById(overlayId);
+  if (overlay) {
+    overlay.style.display = 'none';
+    document.body.style.overflow = '';
+  }
+}
+
+// Event listeners
+const openPaymentBtn = document.getElementById('open-payment-popup');
+if (openPaymentBtn) openPaymentBtn.addEventListener('click', () => showPopup('payment-overlay'));
+
+const openProfileBtn = document.getElementById('open-profile-popup');
+if (openProfileBtn) openProfileBtn.addEventListener('click', () => showPopup('profile-overlay'));
+
+document.querySelectorAll('.overlay').forEach(overlay => {
+  overlay.addEventListener('click', e => {
+    if (e.target === overlay) hidePopup(overlay.id);
+  });
+});
+
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') {
+    hidePopup('payment-overlay');
+    hidePopup('profile-overlay');
+  }
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,57 @@
+{
+   "display_name": "Voorbeeld",
+  "image_filename": "images/Glanzend Rode Hart op Textuur.png",
+  "box_width": 140,
+  "text_color": "rgb(86, 75, 72)",
+  "user_data_placements": [
+    {
+      "key": "woman_name",
+      "label": "Geboorteplan van:",
+      "x": 650,
+      "y": 45,
+      "font": "bold 18px Arial"
+    },
+    {
+      "key": "due_date",
+      "label": "Uitgerekend op:",
+      "x": 650,
+      "y": 70,
+      "font": "16px Arial",
+      "format": "dd-mm-yyyy"
+    },
+    {
+      "key": "partner_name",
+      "label": "Partner:",
+      "x": 650,
+      "y": 95,
+      "font": "16px Arial"
+    }
+  ],
+ "theme_placements": [
+    { "x": 110, "y": 225, "font": "bold 16px Arial" },
+    { "x": 110, "y": 325, "font": "bold 16px Arial" },
+    { "x": 110, "y": 425, "font": "bold 16px Arial" },
+    { "x": 110, "y": 530, "font": "bold 16px Arial" },
+    { "x": 110, "y": 633, "font": "bold 16px Arial" },
+    { "x": 110, "y": 736, "font": "bold 16px Arial" }
+  ],
+
+  "box_coords": [
+    [ { "x": 258, "y": 225 }, { "x": 410, "y": 225 }, { "x": 560, "y": 225 }, { "x": 714, "y": 225 } ],
+    [ { "x": 410, "y": 325 }, { "x": 560, "y": 325 }, { "x": 714, "y": 325 } ],
+    [ { "x": 258, "y": 425 }, { "x": 410, "y": 425 }, { "x": 560, "y": 425 }, { "x": 714, "y": 425 } ],
+    [ { "x": 258, "y": 530 }, { "x": 410, "y": 530 }, { "x": 560, "y": 530 }, { "x": 714, "y": 530 } ],
+    [ { "x": 258, "y": 633 }, { "x": 410, "y": 633 }, { "x": 714, "y": 633 } ],
+    [ { "x": 258, "y": 736 }, { "x": 410, "y": 736 }, { "x": 560, "y": 736 } ]
+  ],
+  "special_placements": {
+    "belangrijkste_wens": {
+      "x": 385,
+      "y": 800,
+      "font": "italic 18px Arial",
+      "max_width": 500,
+      "line_height": 22,
+      "align": "center"
+    }
+  }
+}

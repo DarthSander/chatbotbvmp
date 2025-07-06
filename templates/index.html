@@ -1,0 +1,352 @@
+<!doctype html>
+<html lang="nl">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>Geboorteplan Assistent</title>
+
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <link rel="stylesheet"
+          href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
+    <link rel="stylesheet"
+          href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+<main id="layout">
+    <div id="chat-col" class="container">
+        <div class="chat-header" style="display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--rose-subtle);padding-bottom:10px;margin-bottom:10px;">
+            <h2 style="color:var(--rose-dark);margin:0;">Geboorteplan Assistent</h2>
+            <a href="{{ url_for('dashboard') }}" style="color:var(--rose-dark);text-decoration:none;font-weight:500;">
+                <i class="fa-solid fa-arrow-left"></i> Terug naar profielpagina
+            </a>
+        </div>
+
+        <div id="chatbox"></div>
+
+        <div id="input-area">
+            <textarea id="input" placeholder="Typ een bericht…" autocomplete="off"></textarea>
+            <button id="send"><i class="fa-solid fa-paper-plane"></i></button>
+        </div>
+    </div>
+
+    <div id="sidebar" class="container">
+        <div class="nav-tabs">
+            <div class="nav-tab active" id="tab-nav">Vragenlijst</div>
+            <div class="nav-tab" id="tab-answers">Mijn Antwoorden</div>
+        </div>
+        <div id="breadcrumb"></div>
+        <div id="sidebar-content"></div>
+    </div>
+</main>
+
+<script>
+/* ---------- STATE ---------- */
+const API_URL="/agent";
+let state={
+    plan:[], view:'themes', activeMode:'chat',
+    selectedThemeId:null, selectedTopicId:null,
+    pendingAnswer:null, history:[]
+};
+
+/* ---------- ELEMENTS ---------- */
+const bc  = document.getElementById('breadcrumb');
+const sc  = document.getElementById('sidebar-content');
+const cb  = document.getElementById('chatbox');
+const inp = document.getElementById('input');
+const btn = document.getElementById('send');
+const tabNav     = document.getElementById('tab-nav');
+const tabAnswers = document.getElementById('tab-answers');
+
+/* ---------- HELPERS ---------- */
+const setLock = l => { inp.disabled=l; btn.disabled=l; };
+const addMsg  = (role,text='')=>{
+    const d=document.createElement('div');
+    d.className='bubble '+role;
+    if(text) d.innerHTML=marked.parse(text);
+    cb.appendChild(d); cb.scrollTop=cb.scrollHeight; return d;
+};
+const render = ()=>{
+    bc.innerHTML=''; sc.innerHTML='';
+    tabNav.classList.toggle('active',state.view!=='summary');
+    tabAnswers.classList.toggle('active',state.view==='summary');
+    switch(state.view){
+        case 'themes':   renderThemes();   break;
+        case 'questions':renderQuestions();break;
+        case 'answers':  renderAnswers();  break;
+        case 'summary':  renderSummary();  break;
+    }
+};
+
+/* ---------- API ---------- */
+async function callBackend(cmd,data={}){
+    setLock(true);
+    try{
+        const r=await fetch(API_URL,{method:'POST',headers:{'Content-Type':'application/json'},
+                                     body:JSON.stringify({command:cmd,data})});
+        if(!r.ok) {
+            if([401,403].includes(r.status)) location.href='/login';
+            throw new Error('Server '+r.status);
+        }
+        return r;
+    }catch(e){
+        console.error(e); addMsg('system','Oeps, er ging iets mis.');
+        return null;
+    }finally{ setLock(false); }
+}
+
+async function streamBot(cmd,data){
+    setLock(true);
+    const load = addMsg('bot','<div class="loading-bubble"><div class="dot-flashing"></div></div>');
+    try{
+        const resp = await callBackend(cmd,data); if(!resp) return;
+        let full=''; load.innerHTML='';
+        const rd=resp.body.getReader(), dec=new TextDecoder();
+
+        // <-- START CORRECTIE VOOR STREAMING
+        let buffer = '';
+        while (true) {
+            const { value, done } = await rd.read();
+            if (done) break;
+
+            buffer += dec.decode(value, { stream: true });
+
+            let boundary;
+            while ((boundary = buffer.indexOf('\n\n')) !== -1) {
+                const message = buffer.substring(0, boundary);
+                buffer = buffer.substring(boundary + 2);
+
+                if (message.startsWith('data:')) {
+                    try {
+                        const jsonStr = message.substring(5).trim();
+                        if (jsonStr) {
+                            const j = JSON.parse(jsonStr);
+                            if (j.content) {
+                                full += j.content;
+                                load.innerHTML = marked.parse(full);
+                            } else if (j.error) {
+                                load.innerHTML = j.error;
+                            }
+                        }
+                    } catch (e) {
+                        console.error('Parse error:', e, 'on string:', message);
+                    }
+                }
+            }
+            cb.scrollTop = cb.scrollHeight;
+        }
+        // <-- EINDE CORRECTIE VOOR STREAMING
+
+        return full;
+    }catch(e){ console.error(e); load.innerHTML='Sorry, er ging iets mis.'; }
+    finally{ setLock(false); }
+}
+
+/* ---------- RENDER FUNCTIES ---------- */
+function renderThemes(){
+    bc.textContent='Kies een thema:';
+    state.plan.forEach(th=>{
+        const item=document.createElement('div');
+        item.className='nav-item';
+        item.textContent=th.name;
+        item.onclick=()=>goToView('questions',{themeId:th.id});
+        if(th.topics.every(t=>t.answer)) item.classList.add('theme-completed');
+        sc.appendChild(item);
+    });
+}
+function renderQuestions(){
+    const th=state.plan.find(t=>t.id===state.selectedThemeId);
+    if(!th){ goToView('themes'); return; }
+    bc.innerHTML=`<span onclick="goToView('themes')">Thema's</span> > ${th.name}`;
+    th.topics.forEach(tp=>{
+        const item=document.createElement('div');
+        item.className='question-label';
+        if(tp.answer==='__SKIPPED__') item.classList.add('skipped');
+        else if(tp.answer)           item.classList.add('answered');
+        item.textContent=tp.question;
+        item.onclick=async ()=>{
+            const r=await callBackend('question_selected',{topic_id:tp.id});
+            if(!r) return; const j=await r.json();
+            if(j.explanation) addMsg('system',j.explanation);
+            goToView('answers',{topicId:tp.id});
+        };
+        sc.appendChild(item);
+    });
+}
+function renderAnswers(){
+    const th=state.plan.find(t=>t.id===state.selectedThemeId);
+    if(!th){ goToView('themes'); return; }
+    const tp=th.topics.find(t=>t.id===state.selectedTopicId);
+    if(!tp){ goToView('questions',{themeId:th.id}); return; }
+
+    const short=tp.question.length>35?tp.question.slice(0,32)+'…':tp.question;
+    bc.innerHTML=`<span onclick="goToView('themes')">Thema's</span> > <span onclick="goToView('questions',{themeId:'${th.id}'})">${th.name}</span> > ${short}`;
+
+    sc.innerHTML=`
+      <div class="answer-question-text">${tp.question}</div>
+      <div class="answer-header">
+          <h5>Kies een antwoord of vraag om hulp:</h5>
+          <div class="help-btn" onclick="handleGuidedDialogue('${tp.id}')">
+              <i class="fa-solid fa-question-circle"></i> Hulp nodig?
+          </div>
+      </div>`;
+    const cont=document.createElement('div'); sc.appendChild(cont);
+
+    const all=[...tp.predefined_answers];
+    const custom=(tp.answer && tp.answer!=='__SKIPPED__' &&
+                  !tp.predefined_answers.some(pa=>pa.text===tp.answer))?tp.answer:null;
+    if(custom) all.push({id:'custom',text:custom});
+
+    // <-- START CORRECTIE VOOR DUBBELE 'ANDERS' OPTIE
+    all.forEach(ans => {
+        if (!ans.isCustom) {
+            createOpt(cont, tp, ans, tp.answer === ans.text);
+        }
+    });
+    // <-- EINDE CORRECTIE VOOR DUBBELE 'ANDERS' OPTIE
+
+    const custOpt=tp.predefined_answers.find(a=>a.isCustom);
+    if(custOpt && !custom)       createOpt(cont,tp,custOpt,false);
+    else if(custom)              createOpt(cont,tp,{id:'edit_custom',text:'Typ een ander antwoord...',isCustom:true},false);
+
+    const skip=document.createElement('div');
+    skip.className='skip-btn'; skip.textContent='Ik wil deze vraag overslaan';
+    skip.onclick=()=>handleSkip(tp.id); sc.appendChild(skip);
+}
+function createOpt(container,tp,ans,sel){
+    const lab=document.createElement('label');
+    lab.className='answer-option';
+    const r=document.createElement('input');
+    r.type='radio'; r.name='answer_'+tp.id; r.checked=sel;
+    lab.appendChild(r); lab.append(ans.text);
+    lab.onclick=e=>{
+        e.stopPropagation();
+        if(ans.isCustom){
+            state.activeMode='answering';
+            inp.placeholder=`Typ je antwoord voor: "${tp.question}"`;
+            inp.focus();
+        }else handleAnswerSelect(tp.id,ans.text);
+    };
+    container.appendChild(lab);
+}
+function renderSummary(){
+    bc.textContent='Overzicht van je antwoorden';
+    let has=false;
+    state.plan.forEach(th=>{
+        const answered=th.topics.filter(t=>t.answer && t.answer!=='__SKIPPED__');
+        if(!answered.length) return;
+        has=true;
+        const grp=document.createElement('div');
+        grp.className='summary-theme-group';
+        grp.innerHTML=`<div class="summary-theme-label">${th.name}</div>`;
+        answered.forEach(tp=>{
+            const d=document.createElement('div');
+            d.className='summary-answer';
+            d.innerHTML=`<div><strong>${tp.question}</strong><br><em>${tp.answer}</em></div>
+                         <div class="edit-btn" onclick="editAnswer('${th.id}','${tp.id}')"><i class="fa-solid fa-pencil"></i></div>`;
+            grp.appendChild(d);
+        });
+        sc.appendChild(grp);
+    });
+    if(!has) sc.textContent='Je hebt nog geen vragen beantwoord.';
+}
+
+/* ---------- NAV ---------- */
+function goToView(v,p={}){
+    state.view=v;
+    if(state.activeMode!=='clarifying'){
+        state.activeMode='chat';
+        inp.placeholder='Typ een bericht…';
+    }
+    if(p.themeId!==undefined)  state.selectedThemeId=p.themeId;
+    if(p.topicId!==undefined)  state.selectedTopicId=p.topicId;
+    if(v==='themes'){ state.selectedThemeId=state.selectedTopicId=null; }
+    else if(v==='questions'){ state.selectedTopicId=null; }
+    render();
+}
+function editAnswer(thId,tpId){
+    state.selectedThemeId=thId;
+    goToView('answers',{topicId:tpId});
+}
+
+/* ---------- HANDLERS ---------- */
+async function handleAnswerSelect(tpId,ans){
+    const r=await callBackend('save_answer',{topic_id:tpId,answer:ans});
+    if(!r) return; const data=await r.json();
+
+    /* betaal-flow */
+    if(data.status==='payment_required'){
+        alert('De gratis 5 minuten zijn verstreken. Je moet nu betalen om verder te gaan.');
+        location.href='{{ url_for("start_payment") }}';
+        return;
+    }
+
+    if(data.status==='ok'){
+        state.plan=data.state.plan; state.history=data.state.history;
+        if(data.final_message) addMsg('bot',data.final_message);
+        goToView('questions',{themeId:state.selectedThemeId});
+    }else if(data.status==='validation_failed'){
+        state.plan=data.state.plan; state.activeMode='clarifying';
+        state.pendingAnswer=data.original_answer;
+        if(data.feedback) await addMsg('bot',data.feedback);
+        inp.placeholder='Geef een verduidelijking…'; inp.focus(); render();
+    }
+}
+async function handleSkip(tpId){
+    const r=await callBackend('skip_question',{topic_id:tpId});
+    if(!r) return; const d=await r.json();
+    state.plan=d.state.plan; state.history=d.state.history;
+    if(d.final_message) addMsg('bot',d.final_message);
+    goToView('questions',{themeId:state.selectedThemeId});
+}
+async function handleGuidedDialogue(tpId){
+    addMsg('user','Ik wil graag hulp bij deze vraag.');
+    await streamBot('start_guided_dialogue',{topic_id:tpId});
+}
+async function handleSend(){
+    const msg=inp.value.trim(); if(!msg) return;
+    const curMode=state.activeMode, curTp=state.selectedTopicId;
+    inp.value=''; addMsg('user',msg);
+    if(curMode==='answering'&&curTp){ await handleAnswerSelect(curTp,msg); }
+    else if(curMode==='clarifying'&&curTp){
+        const r=await callBackend('submit_clarification',{topic_id:curTp,original_answer:state.pendingAnswer,clarification:msg});
+        if(!r) return; const d=await r.json();
+
+        if(d.status==='ok'){
+            state.plan=d.state.plan; state.history=d.state.history; state.pendingAnswer=null;
+            if(d.final_message) addMsg('bot',d.final_message);
+            goToView('questions',{themeId:state.selectedThemeId});
+        }else if(d.status==='validation_failed'){
+            state.pendingAnswer=d.original_answer;
+            if(d.feedback) await addMsg('bot',d.feedback);
+            inp.placeholder='Geef een nieuwe verduidelijking…'; inp.focus();
+        }
+    }else{
+        state.history.push({role:'user',content:msg});
+        const full=await streamBot('user_message',{message:msg,topic_id:curTp});
+        if(full) state.history.push({role:'assistant',content:full});
+    }
+}
+
+/* ---------- INIT ---------- */
+(async()=>{
+    setLock(true);
+    const r=await callBackend('initialize'); if(!r){setLock(false);return;}
+    const init=await r.json();
+    state.plan=init.state.plan; state.history=init.state.history||[];
+
+   if (!cb.children.length) {
+    addMsg('bot', init.welcome_message || `Met het beantwoorden van de volgende vragenlijst proberen we jouw wensen en voorkeuren op te nemen in je persoonlijk bevalplan. Ook als je bij sommige vragen geen specifieke voorkeur hebt, is het waardevol om vooraf na te denken over verschillende situaties en wat deze bij jou oproepen. Door je bewust te zijn van je gedachten en gevoelens, kun je tijdens de bevalling beter aangeven wat je nodig hebt. Invulling geven aan jouw bevalplan is een manier om samen met je partner en zorgverleners het gesprek aan te gaan over wat voor jou belangrijk is. Dit draagt bij aan een gevoel van betrokkenheid en regie, ongeacht hoe je bevalling uiteindelijk verloopt.
+In Nederland staat de veiligheid van moeder en kind natuurlijk altijd voorop. Het is goed om je te realiseren dat bij medische noodzaak kunnen protocollen afwijken van je wensen. Je verloskundige/gynaecoloog bespreekt dit altijd met je, tenzij het een acute noodsituatie betreft.`);
+    state.history.forEach(m => { if (['user', 'assistant'].includes(m.role)) addMsg(m.role, m.content); });
+}
+render(); setLock(false);
+})();
+
+/* ---------- LISTENERS ---------- */
+btn.addEventListener('click',handleSend);
+inp.addEventListener('keydown',e=>{ if(e.key==='Enter'&&!e.shiftKey){ e.preventDefault();handleSend(); }});
+tabNav.addEventListener('click',()=>goToView('themes'));
+tabAnswers.addEventListener('click',()=>goToView('summary'));
+</script>
+</body>
+</html>

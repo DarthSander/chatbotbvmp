@@ -1,0 +1,45 @@
+{
+  "display_name": "Standaard Visueel Plan",
+  "image_filename": "images/template_visual_v1.jpg",
+  "text_color": "rgb(86, 75, 72)",
+  "user_data_placements": [
+    {
+      "key": "woman_name", "label": "Geboorteplan van:",
+      "x": 650, "y": 45, "width": 400, "height": 25, "font": "bold 18px Arial"
+    },
+    {
+      "key": "due_date", "label": "Uitgerekend op:",
+      "x": 650, "y": 70, "width": 400, "height": 20, "font": "16px Arial", "format": "dd-mm-yyyy"
+    },
+    {
+      "key": "partner_name", "label": "Partner:",
+      "x": 650, "y": 95, "width": 400, "height": 20, "font": "16px Arial"
+    }
+  ],
+  "theme_placements": [
+    { "x": 101, "y": 209, "width": 70, "height": 43, "font": "bold 16px Arial" },
+    { "x": 102, "y": 301, "width": 64, "height": 45, "font": "bold 16px Arial" },
+    { "x": 102, "y": 406, "width": 69, "height": 42, "font": "bold 16px Arial" },
+    { "x": 102, "y": 512, "width": 69, "height": 48, "font": "bold 16px Arial" },
+    { "x": 105, "y": 613, "width": 66, "height": 54, "font": "bold 16px Arial" },
+    { "x": 108, "y": 713, "width": 63, "height": 50, "font": "bold 16px Arial" }
+  ],
+  "box_coords": [
+    [
+      { "x": 192, "y": 193, "width": 130, "height": 67 },
+      { "x": 346, "y": 191, "width": 130, "height": 66 }
+    ],
+    [],
+    [],
+    [],
+    [],
+    []
+  ],
+  "special_placements": {
+    "belangrijkste_wens": {
+      "x": 258, "y": 850, "width": 600, "height": 100,
+      "font_family": "Arial", "font_style": "italic",
+      "max_font_size": 20, "align": "center"
+    }
+  }
+}
